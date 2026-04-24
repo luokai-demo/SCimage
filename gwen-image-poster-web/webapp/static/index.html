@@ -1,0 +1,1508 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>图像工作台</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='6' fill='%23111'/><rect x='4' y='4' width='24' height='24' rx='3' fill='none' stroke='%23888' stroke-width='1.5'/><circle cx='11' cy='12' r='2.5' fill='%23ccc'/><path d='M4 22l7-7 5 5 4-3 8 7v2a3 3 0 01-3 3H7a3 3 0 01-3-3z' fill='%23fff' opacity='.25'/><path d='M28 14l-2-2-2 2' stroke='%23fff' stroke-width='1.5' fill='none' stroke-linecap='round' stroke-linejoin='round'/><line x1='26' y1='12' x2='26' y2='20' stroke='%23fff' stroke-width='1.5' stroke-linecap='round'/></svg>">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+:root {
+  --bg: #000000;
+  --surface: #0a0a0a;
+  --border: #1a1a1a;
+  --border-hover: #333;
+  --text-primary: #ededed;
+  --text-secondary: #888;
+  --text-tertiary: #666;
+  --accent: #ffffff;
+  --danger: #e5484d;
+  --success: #45a557;
+  --radius: 6px;
+  --radius-lg: 10px;
+  --transition: 150ms ease;
+  --panel-ease: cubic-bezier(0.22, 1, 0.36, 1);
+  --panel-transition: 520ms var(--panel-ease);
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+* { scrollbar-width: thin; scrollbar-color: rgba(255,255,255,0.15) transparent; }
+*::-webkit-scrollbar { width: 6px; height: 6px; }
+*::-webkit-scrollbar-track { background: transparent; }
+*::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.15); border-radius: 3px; }
+*::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.3); }
+body {
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  background: var(--bg); color: var(--text-primary);
+  min-height: 100vh; -webkit-font-smoothing: antialiased;
+}
+
+/* Layout */
+.app { display: flex; height: 100vh; }
+.panel {
+  width: 240px; min-width: 240px;
+  border-right: 1px solid var(--border);
+  display: flex; flex-direction: column;
+  overflow: hidden;
+  transition: width var(--panel-transition), min-width var(--panel-transition), border-color 280ms ease;
+}
+.panel.is-collapsed {
+  width: 54px;
+  min-width: 54px;
+}
+.panel-inner {
+  padding: 18px 10px 12px;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  transition: padding var(--panel-transition);
+}
+.panel.is-collapsed .panel-inner {
+  padding: 18px 8px 12px;
+}
+.panel-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+.panel-header-copy {
+  min-width: 0;
+  overflow: hidden;
+  max-width: 180px;
+  transition: max-width var(--panel-transition), opacity 260ms ease, transform var(--panel-transition);
+}
+.panel.is-collapsed .panel-header {
+  justify-content: center;
+  margin-bottom: 0;
+}
+.panel.is-collapsed .panel-header-copy {
+  max-width: 0;
+  opacity: 0;
+  transform: translateX(-10px);
+}
+.panel-header h1 {
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  white-space: nowrap;
+}
+.panel-toggle {
+  width: 28px;
+  height: 28px;
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: rgba(255,255,255,0.02);
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: transform var(--panel-transition), border-color var(--transition), color var(--transition), background var(--transition);
+}
+.panel-toggle:hover {
+  border-color: var(--border-hover);
+  color: var(--text-primary);
+  background: rgba(255,255,255,0.06);
+}
+.panel-toggle svg {
+  width: 14px;
+  height: 14px;
+  display: block;
+}
+.panel.is-collapsed .panel-toggle {
+  transform: rotate(180deg);
+}
+.panel-body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  transition: opacity 320ms ease, transform var(--panel-transition), visibility 0s linear 0s;
+}
+.panel.is-collapsed .panel-body {
+  opacity: 0;
+  transform: translateX(-14px);
+  pointer-events: none;
+  visibility: hidden;
+  transition: opacity 220ms ease, transform var(--panel-transition), visibility 0s linear 520ms;
+}
+.connection-card {
+  border: 1px solid var(--border); border-radius: var(--radius);
+  background: rgba(255,255,255,0.015); margin-bottom: 8px; overflow: hidden;
+  min-height: 0;
+}
+.connection-card summary {
+  list-style: none; display: flex; align-items: center; justify-content: space-between;
+  gap: 8px; padding: 8px 8px; color: var(--text-secondary);
+  font-size: 11px; font-weight: 500; cursor: pointer; user-select: none;
+}
+.connection-card summary::-webkit-details-marker { display: none; }
+.connection-card summary::after {
+  content: '⌄'; color: var(--text-tertiary); font-size: 12px;
+  transition: transform var(--transition);
+}
+.connection-card:not([open]) summary::after { transform: rotate(-90deg); }
+.connection-card-body {
+  height: clamp(180px, 28vh, 220px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+  padding: 0 8px 8px;
+  padding-right: 4px;
+}
+.workspace-shell {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  flex-direction: column;
+  overflow: hidden;
+}
+.workflow-tabs {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px;
+  margin-bottom: 10px;
+}
+.workflow-tab {
+  min-height: 32px;
+  padding: 0 6px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: rgba(255,255,255,0.02);
+  color: var(--text-tertiary);
+  font-family: inherit;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  cursor: pointer;
+  transition: all var(--transition);
+}
+.workflow-tab:hover { border-color: var(--border-hover); color: var(--text-secondary); }
+.workflow-tab.active {
+  border-color: rgba(255,255,255,0.24);
+  background:
+    radial-gradient(circle at top, rgba(255,255,255,0.08), transparent 58%),
+    rgba(255,255,255,0.04);
+  color: var(--text-primary);
+}
+.workspace-card {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background:
+    radial-gradient(circle at top right, rgba(255,255,255,0.055), transparent 34%),
+    linear-gradient(180deg, rgba(255,255,255,0.02), rgba(255,255,255,0.012));
+  padding: 10px;
+}
+.workspace-card-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+.workspace-card-copy { min-width: 0; }
+.workspace-eyebrow {
+  color: var(--text-tertiary);
+  font-size: 9px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.workspace-title {
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  margin-top: 3px;
+}
+.workspace-chip {
+  flex-shrink: 0;
+  min-height: 22px;
+  padding: 0 8px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 10px;
+  color: var(--text-secondary);
+  background: rgba(255,255,255,0.04);
+}
+.workspace-chip.is-live {
+  border-color: rgba(69,165,87,0.28);
+  color: #d6f6dd;
+  background: rgba(69,165,87,0.12);
+}
+.workspace-chip.is-planned {
+  border-color: rgba(255,255,255,0.16);
+  color: var(--text-secondary);
+}
+.workspace-stack {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding-right: 4px;
+}
+.workspace-group {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: rgba(0,0,0,0.28);
+  padding: 9px;
+}
+.workspace-group.mode-hidden { display: none; }
+.workspace-group-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+.workspace-group-title {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+.workspace-group-hint {
+  margin-top: 3px;
+  font-size: 10px;
+  line-height: 1.45;
+  color: var(--text-tertiary);
+}
+.workspace-group-body {
+  margin-top: 8px;
+}
+.chip-btn {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 24px;
+  padding: 0 9px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--text-tertiary);
+  font-family: inherit;
+  font-size: 10px;
+  line-height: 1;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: all var(--transition);
+}
+.chip-btn:hover,
+.chip-btn.is-active {
+  border-color: var(--border-hover);
+  color: var(--text-primary);
+  background: rgba(255,255,255,0.05);
+}
+.inline-details summary,
+.inline-drawer summary {
+  list-style: none;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  cursor: pointer;
+  user-select: none;
+}
+.inline-details summary::-webkit-details-marker,
+.inline-drawer summary::-webkit-details-marker { display: none; }
+.inline-details summary span:first-child,
+.inline-drawer summary span:first-child {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+.workspace-inline-hint {
+  font-size: 10px;
+  color: var(--text-tertiary);
+}
+.inline-drawer {
+  margin-top: 8px;
+  border-top: 1px solid var(--border);
+  padding-top: 8px;
+}
+.inline-drawer-body {
+  margin-top: 8px;
+}
+.helper-note {
+  min-height: 32px;
+  padding: 7px 8px;
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+  background: rgba(255,255,255,0.02);
+  color: var(--text-tertiary);
+  font-size: 10px;
+  line-height: 1.45;
+}
+.range-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.range-row input[type="range"] { flex: 1; }
+.range-value {
+  min-width: 36px;
+  text-align: right;
+  color: var(--text-secondary);
+  font-size: 11px;
+}
+/* Gallery area */
+.gallery-area {
+  flex: 1; overflow-y: auto; padding: 24px;
+  position: relative;
+}
+.gallery-header {
+  display: flex; justify-content: space-between; align-items: center;
+  margin-bottom: 16px; position: sticky; top: 0;
+  background: var(--bg); padding-bottom: 12px; z-index: 10;
+}
+.gallery-header-left { display: flex; align-items: center; gap: 8px; }
+.gallery-count { color: var(--text-tertiary); font-size: 12px; }
+.gallery-filter { display: flex; gap: 4px; }
+.gallery-filter button {
+  padding: 4px 12px; border-radius: 100px; font-size: 12px;
+  font-family: inherit; cursor: pointer;
+  border: 1px solid var(--border); background: transparent;
+  color: var(--text-tertiary); transition: all var(--transition);
+}
+.gallery-filter button:hover { color: var(--text-secondary); border-color: var(--border-hover); }
+.gallery-filter button.active { color: var(--text-primary); background: rgba(255,255,255,0.08); border-color: var(--border-hover); }
+.gallery-sort-btn {
+  padding: 4px 10px; border-radius: 100px; font-size: 11px;
+  font-family: inherit; cursor: pointer;
+  border: 1px solid var(--border); background: transparent;
+  color: var(--text-tertiary); transition: all var(--transition); white-space: nowrap;
+}
+.gallery-sort-btn:hover { color: var(--text-secondary); border-color: var(--border-hover); }
+.gallery-actions-right { display: flex; gap: 8px; align-items: center; }
+.gallery-grid {
+  column-count: 4;
+  column-gap: 10px;
+}
+.gallery-grid.grouped-by-task {
+  column-count: 1;
+  column-gap: 0;
+}
+.gallery-col { display: none; }
+.gallery-task-section {
+  break-inside: avoid;
+  margin: 0 0 18px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: rgba(255,255,255,0.02);
+}
+.gallery-task-section-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+.gallery-task-section-title {
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text-primary);
+  word-break: break-word;
+}
+.gallery-task-section-meta {
+  font-size: 10px;
+  color: var(--text-tertiary);
+  white-space: nowrap;
+}
+.gallery-task-section-grid {
+  column-count: 4;
+  column-gap: 10px;
+}
+
+.gallery-item {
+  display: inline-block;
+  width: 100%;
+  margin: 0 0 10px;
+  break-inside: avoid;
+  position: relative; border-radius: var(--radius);
+  overflow: hidden; border: 1px solid var(--border);
+  cursor: pointer; transition: border-color var(--transition);
+}
+.gallery-item:hover, .gallery-item:focus-visible { border-color: var(--border-hover); outline: none; }
+.gallery-item img { display: block; width: 100%; }
+.gallery-overlay {
+  position: absolute; inset: 0;
+  background: linear-gradient(transparent 40%, rgba(0,0,0,0.88));
+  opacity: 0; transition: opacity var(--transition);
+  display: flex; flex-direction: column; justify-content: flex-end;
+  padding: 12px;
+}
+.gallery-item:hover .gallery-overlay, .gallery-item:focus-visible .gallery-overlay { opacity: 1; }
+.gallery-overlay .prompt-preview {
+  font-size: 11px; color: #ccc; line-height: 1.4;
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+}
+.gallery-overlay .meta-row {
+  display: flex; justify-content: space-between; align-items: center; margin-top: 6px;
+}
+.gallery-overlay .meta-row .time { font-size: 10px; color: var(--text-tertiary); }
+.gallery-overlay .meta-row a {
+  padding: 3px 8px; border-radius: var(--radius); font-size: 10px;
+  background: rgba(255,255,255,0.15); color: #fff; text-decoration: none;
+  transition: background var(--transition);
+}
+.gallery-overlay .meta-row a:hover { background: rgba(255,255,255,0.3); }
+.gallery-overlay .meta-actions { display: flex; gap: 4px; }
+.gallery-overlay .meta-actions button {
+  padding: 3px 8px; border-radius: var(--radius); font-size: 10px;
+  background: rgba(255,255,255,0.15); color: #fff; border: none;
+  cursor: pointer; font-family: inherit; transition: background var(--transition);
+}
+.gallery-overlay .meta-actions button:hover { background: rgba(255,255,255,0.3); }
+.gallery-del-btn, .lightbox-del-btn { background: rgba(229,72,77,0.25) !important; color: #f87171 !important; }
+.gallery-del-btn:hover, .lightbox-del-btn:hover { background: rgba(229,72,77,0.45) !important; }
+.gallery-empty {
+  display: flex; align-items: center; justify-content: center;
+  height: 100%; color: var(--text-tertiary); font-size: 14px;
+}
+
+/* Form */
+.form-group { margin-bottom: 10px; }
+label {
+  display: block; margin-bottom: 5px; font-weight: 500;
+  color: var(--text-secondary); font-size: 10px; letter-spacing: -0.01em;
+}
+label .hint { color: var(--text-tertiary); font-weight: 400; font-size: 11px; }
+input, select, textarea {
+  width: 100%; padding: 7px 8px;
+  border: 1px solid var(--border); border-radius: var(--radius);
+  background: var(--surface); color: var(--text-primary);
+  font-size: 11px; font-family: inherit;
+  transition: border-color var(--transition); outline: none;
+}
+input:focus, select:focus, textarea:focus { border-color: var(--border-hover); }
+.input-with-action {
+  position: relative;
+}
+.input-with-action input {
+  padding-right: 34px;
+}
+.input-action-btn {
+  position: absolute;
+  top: 50%;
+  right: 7px;
+  transform: translateY(-50%);
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--text-tertiary);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: color var(--transition);
+}
+.input-action-btn:hover { color: var(--text-primary); }
+.input-action-btn svg {
+  width: 14px;
+  height: 14px;
+  display: block;
+}
+.input-action-btn .eye-off-line {
+  opacity: 0;
+  transition: opacity var(--transition);
+}
+.input-action-btn.is-active .eye-off-line {
+  opacity: 1;
+}
+textarea { resize: vertical; min-height: 72px; }
+input:disabled, select:disabled, textarea:disabled {
+  color: var(--text-tertiary);
+  background: #070707;
+  border-color: #141414;
+  cursor: not-allowed;
+  opacity: 0.72;
+}
+input[type="range"] { padding: 0; background: transparent; border: none; }
+input[type="range"]::-webkit-slider-runnable-track { background: var(--border); height: 4px; border-radius: 2px; }
+input[type="range"]::-webkit-slider-thumb { -webkit-appearance: none; width: 14px; height: 14px; border-radius: 50%; background: var(--accent); margin-top: -5px; cursor: pointer; }
+select { cursor: pointer; }
+.row { display: flex; gap: 8px; flex-wrap: wrap; }
+.row .form-group { flex: 1; min-width: 100px; }
+input[type="file"] { padding: 7px; cursor: pointer; font-size: 12px; }
+input[type="file"]::file-selector-button {
+  background: var(--surface); color: var(--text-secondary);
+  border: 1px solid var(--border); padding: 4px 10px;
+  border-radius: var(--radius); cursor: pointer; margin-right: 6px;
+  font-family: inherit; font-size: 11px;
+  transition: border-color var(--transition);
+}
+input[type="file"]::file-selector-button:hover { border-color: var(--border-hover); }
+
+/* Buttons */
+.btn-primary {
+  width: 100%; padding: 10px; border: none; border-radius: var(--radius);
+  background: var(--accent); color: #000;
+  font-size: 13px; font-weight: 600; font-family: inherit;
+  cursor: pointer; transition: background var(--transition); letter-spacing: -0.01em;
+}
+.btn-primary:hover { background: #ccc; }
+.btn-primary:disabled { background: #333 !important; color: #666; cursor: not-allowed; }
+.btn-secondary {
+  width: 100%; padding: 10px; border-radius: var(--radius);
+  background: transparent; color: var(--text-primary);
+  border: 1px solid var(--border); font-size: 13px; font-weight: 500;
+  font-family: inherit; cursor: pointer; transition: all var(--transition);
+}
+.btn-secondary:hover { border-color: var(--border-hover); color: var(--accent); }
+.btn-secondary:disabled {
+  border-color: #141414;
+  color: #555;
+  cursor: not-allowed;
+}
+.btn-danger {
+  padding: 4px 12px; background: transparent; color: var(--danger);
+  border: 1px solid #e5484d33; border-radius: var(--radius);
+  font-size: 11px; font-family: inherit; cursor: pointer;
+  transition: all var(--transition);
+}
+.btn-danger:hover { background: #e5484d15; border-color: var(--danger); }
+.button-row {
+  display: flex;
+  gap: 8px;
+  margin-top: 8px;
+}
+.button-row.compact {
+  margin-top: 0;
+}
+.button-row.compact > * {
+  flex: 1;
+  width: auto;
+}
+.button-row.compact button {
+  padding: 8px 10px;
+  font-size: 11px;
+}
+
+/* Status */
+.status { margin: 0 0 8px; min-height: 18px; font-size: 11px; color: var(--text-secondary); line-height: 1.45; }
+
+/* Spinner */
+.spinner {
+  display: inline-block; width: 14px; height: 14px;
+  border: 2px solid var(--border); border-top-color: var(--accent);
+  border-radius: 50%; animation: spin 0.8s linear infinite;
+  vertical-align: middle; margin-right: 6px;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* Lightbox */
+.lightbox {
+  position: fixed; inset: 0; z-index: 1000;
+  background: rgba(0,0,0,0.92);
+  display: none; align-items: center; justify-content: center;
+  flex-direction: column; padding: 24px;
+  overflow-y: auto;
+}
+.lightbox.open { display: flex; }
+.lightbox-wrap {
+  position: relative; max-width: 90vw; max-height: 85vh;
+  border-radius: var(--radius-lg); overflow: hidden; border: 1px solid var(--border);
+}
+.lightbox-wrap img { display: block; max-width: 90vw; max-height: 85vh; }
+.lightbox-overlay {
+  position: absolute; inset: 0;
+  background: linear-gradient(transparent 50%, rgba(0,0,0,0.85));
+  opacity: 0; transition: opacity var(--transition);
+  display: flex; flex-direction: column; justify-content: flex-end; padding: 16px;
+}
+.lightbox-wrap:hover .lightbox-overlay { opacity: 1; }
+.lightbox-overlay .prompt-full {
+  font-size: 13px; color: #ccc; line-height: 1.5; margin-bottom: 10px;
+  max-height: 3em; overflow: hidden; cursor: pointer; transition: max-height 0.3s ease;
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
+}
+.lightbox-overlay .prompt-full.expanded {
+  max-height: 30vh; overflow-y: auto;
+  display: block; -webkit-line-clamp: unset;
+}
+.lightbox-meta {
+  display: flex; align-items: center; justify-content: space-between;
+}
+.lightbox-meta .lightbox-counter { color: var(--text-tertiary); font-size: 11px; }
+.lightbox-meta .lightbox-actions { display: flex; gap: 6px; }
+.lightbox-meta .lightbox-actions a, .lightbox-meta .lightbox-actions button {
+  padding: 5px 14px; border-radius: var(--radius); font-size: 12px;
+  font-family: inherit; cursor: pointer; text-decoration: none;
+  background: rgba(255,255,255,0.15); color: #fff; border: none;
+  transition: background var(--transition);
+}
+.lightbox-meta .lightbox-actions a:hover, .lightbox-meta .lightbox-actions button:hover { background: rgba(255,255,255,0.3); }
+.lightbox-close {
+  position: absolute; top: 16px; right: 20px;
+  background: none; border: none; color: var(--text-tertiary);
+  font-size: 28px; cursor: pointer; line-height: 1;
+  transition: color var(--transition);
+}
+.lightbox-close:hover { color: var(--text-primary); }
+.lightbox-nav {
+  position: absolute; top: 50%; transform: translateY(-50%);
+  background: rgba(255,255,255,0.1); border: 1px solid var(--border);
+  color: var(--text-secondary); width: 40px; height: 40px;
+  border-radius: 50%; font-size: 18px; cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+  transition: all var(--transition); backdrop-filter: blur(4px);
+}
+.lightbox-nav:hover { background: rgba(255,255,255,0.2); color: var(--text-primary); border-color: var(--border-hover); }
+.lightbox-nav:disabled { opacity: 0.2; cursor: default; pointer-events: none; }
+.lightbox-nav.prev { left: 16px; }
+.lightbox-nav.next { right: 16px; }
+.lightbox-counter { color: var(--text-tertiary); font-size: 12px; margin-bottom: 6px; }
+
+/* Mobile */
+@media (max-width: 860px) {
+  .app { flex-direction: column; height: auto; }
+  .panel { width: 100%; min-width: 0; border-right: none; border-bottom: 1px solid var(--border); }
+  .gallery-area { height: auto; min-height: 50vh; }
+  .gallery-grid { column-count: 2; }
+  .gallery-task-section-grid { column-count: 2; }
+}
+@media (max-width: 480px) {
+  .gallery-grid { column-count: 1; }
+  .gallery-task-section-grid { column-count: 1; }
+}
+
+/* Drop zone */
+.drop-zone {
+  border: 1px dashed var(--border-hover);
+  border-radius: var(--radius);
+  padding: 16px;
+  text-align: center;
+  transition: all var(--transition);
+  position: relative;
+  outline: none;
+  min-height: 80px;
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px;
+}
+.drop-zone:hover, .drop-zone:focus-within { border-color: #555; }
+.drop-zone.dragover { border-color: var(--accent); background: rgba(255,255,255,0.03); }
+.drop-zone-sm { min-height: 60px; padding: 12px; }
+.drop-zone-text { color: var(--text-tertiary); font-size: 12px; pointer-events: none; }
+.drop-zone-browse {
+  padding: 4px 12px; border-radius: var(--radius); font-size: 11px;
+  font-family: inherit; cursor: pointer;
+  border: 1px solid var(--border); background: transparent;
+  color: var(--text-secondary); transition: all var(--transition);
+}
+.drop-zone-browse:hover { border-color: var(--border-hover); color: var(--text-primary); }
+.drop-zone-preview {
+  display: flex; flex-wrap: wrap; gap: 6px; justify-content: center;
+}
+.drop-zone-preview .thumb-wrap {
+  position: relative; display: inline-block;
+}
+.drop-zone-preview img {
+  height: 48px; border-radius: 4px; border: 1px solid var(--border);
+}
+.drop-zone-preview .thumb-remove {
+  position: absolute; top: -4px; right: -4px;
+  width: 16px; height: 16px; border-radius: 50%;
+  background: var(--danger); color: #fff; border: none;
+  font-size: 10px; line-height: 16px; text-align: center;
+  cursor: pointer; padding: 0;
+}
+
+/* Settings panel */
+.settings-wrap { position: relative; }
+.settings-toggle {
+  width: 32px; height: 32px; border-radius: var(--radius);
+  border: 1px solid var(--border); background: transparent;
+  color: var(--text-secondary); font-size: 16px; cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+  transition: all var(--transition);
+}
+.settings-toggle:hover { border-color: var(--border-hover); color: var(--text-primary); }
+.settings-panel {
+  display: none; position: absolute; top: 100%; right: 0; margin-top: 6px;
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: var(--radius-lg); padding: 6px; min-width: 140px;
+  z-index: 50; box-shadow: 0 8px 24px rgba(0,0,0,0.4);
+}
+.settings-panel.open { display: flex; flex-direction: column; }
+.settings-panel button {
+  padding: 7px 12px; border: none; background: transparent;
+  color: var(--text-secondary); font-size: 12px; font-family: inherit;
+  cursor: pointer; border-radius: var(--radius); text-align: left;
+  transition: all var(--transition);
+}
+.settings-panel button:hover { background: rgba(255,255,255,0.06); color: var(--text-primary); }
+.settings-panel button.danger { color: var(--danger); }
+.settings-panel button.danger:hover { background: #e5484d15; }
+.settings-panel hr {
+  border: none; border-top: 1px solid var(--border); margin: 4px 0;
+}
+.settings-info {
+  padding: 5px 12px; font-size: 11px; color: var(--text-tertiary);
+}
+
+/* Upload progress */
+.progress-bar {
+  width: 100%; height: 4px; background: var(--border);
+  border-radius: 2px; overflow: hidden; margin-top: 8px; display: none;
+}
+.progress-bar.active { display: block; }
+.progress-bar-fill {
+  height: 100%; width: 0%; background: var(--accent);
+  border-radius: 2px; transition: width 200ms ease;
+}
+
+/* Running banner */
+.running-banner {
+  margin-bottom: 12px; border: 1px solid var(--border); border-radius: var(--radius-lg);
+  background:
+    radial-gradient(circle at 14% 0%, rgba(255,255,255,0.07), transparent 32%),
+    linear-gradient(180deg, rgba(255,255,255,0.035), rgba(255,255,255,0.012));
+  overflow: hidden; transform-origin: top; transition: opacity 180ms ease, transform 180ms ease, max-height 220ms ease, margin 180ms ease, border-color 180ms ease;
+  max-height: 220px; opacity: 1; transform: translateY(0);
+}
+.running-banner.is-hidden,
+.running-banner.is-empty {
+  max-height: 0; opacity: 0; transform: translateY(-8px); margin-bottom: 0; border-color: transparent; pointer-events: none;
+}
+.running-banner.is-collapsed { max-height: 38px; }
+.running-banner-toggle {
+  width: 100%; min-height: 38px; border: none; background: transparent; color: var(--text-primary);
+  display: flex; align-items: center; justify-content: space-between; gap: 14px;
+  padding: 9px 12px; font: inherit; cursor: pointer; text-align: left;
+}
+.running-banner-title { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.running-dot { width: 7px; height: 7px; border-radius: 50%; background: #8fc8ff; box-shadow: 0 0 14px rgba(143,200,255,0.75); animation: pulse-dot 1.5s ease-in-out infinite; }
+.running-title-text { font-size: 12px; font-weight: 600; white-space: nowrap; }
+.running-subtitle { color: var(--text-tertiary); font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.running-banner-meta { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
+.running-banner-count { color: var(--text-secondary); font-size: 10px; padding: 3px 8px; border: 1px solid var(--border); border-radius: 999px; background: rgba(255,255,255,0.04); }
+.running-chevron { color: var(--text-tertiary); font-size: 12px; transition: transform 180ms ease; }
+.running-banner.is-collapsed .running-chevron { transform: rotate(-90deg); }
+.running-banner-body {
+  padding: 0 12px 12px; display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 8px;
+  transition: opacity 160ms ease, transform 160ms ease;
+}
+.running-banner.is-collapsed .running-banner-body { opacity: 0; transform: translateY(-6px); pointer-events: none; }
+.running-job-card {
+  border: 1px solid var(--border); border-radius: var(--radius); padding: 9px;
+  background: rgba(0,0,0,0.28); min-width: 0;
+}
+.running-job-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 6px; }
+.running-job-status { color: #d7ecff; font-size: 10px; padding: 2px 7px; border-radius: 999px; background: rgba(91,160,255,0.16); }
+.running-job-progress { color: var(--text-tertiary); font-size: 10px; }
+.running-job-prompt { color: var(--text-secondary); font-size: 11px; line-height: 1.35; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.running-job-footer { margin-top: 7px; display: flex; align-items: center; justify-content: space-between; gap: 8px; color: var(--text-tertiary); font-size: 10px; }
+.running-job-actions { display: flex; gap: 5px; }
+.running-job-actions button {
+  padding: 3px 8px; border-radius: var(--radius); border: 1px solid var(--border); background: transparent;
+  color: var(--text-secondary); font-family: inherit; font-size: 10px; cursor: pointer;
+}
+.running-job-actions button:hover { border-color: var(--border-hover); color: var(--text-primary); }
+@keyframes pulse-dot { 0%, 100% { opacity: .45; transform: scale(.88); } 50% { opacity: 1; transform: scale(1.12); } }
+
+/* Left task list */
+.task-panel {
+  margin-top: 10px;
+  flex-shrink: 0;
+  border: 1px solid var(--border); border-radius: var(--radius);
+  background: #000; overflow: hidden;
+}
+.task-panel-header {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 10px;
+  padding: 8px 9px;
+  cursor: pointer;
+  user-select: none;
+  list-style: none;
+}
+.task-panel-header::-webkit-details-marker { display: none; }
+.task-panel-heading {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.task-panel-title { font-size: 11px; font-weight: 600; color: var(--text-secondary); }
+.task-panel-preview {
+  color: var(--text-tertiary);
+  font-size: 10px;
+  line-height: 1.35;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.task-panel-meta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+.task-panel-count { font-size: 10px; color: var(--text-tertiary); }
+.task-panel-chevron {
+  color: var(--text-tertiary);
+  font-size: 12px;
+  transition: transform 180ms ease;
+}
+.task-panel[open] .task-panel-chevron { transform: rotate(180deg); }
+.task-panel-body {
+  border-top: 1px solid var(--border);
+  max-height: 0;
+  overflow: hidden;
+  transition: max-height 180ms ease;
+}
+.task-panel[open] .task-panel-body { max-height: 280px; }
+.task-list {
+  overflow-y: auto;
+  padding: 7px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 279px;
+}
+.task-empty {
+  flex: 1; min-height: 116px; display: flex; align-items: center; justify-content: center;
+  color: var(--text-tertiary); font-size: 11px; text-align: center;
+}
+.left-task-card {
+  border: 1px solid var(--border); border-radius: var(--radius); padding: 8px;
+  background: rgba(255,255,255,0.025);
+}
+.left-task-card.is-running,
+.left-task-card.is-queued,
+.left-task-card.is-canceling { border-color: rgba(91,160,255,0.28); }
+.left-task-card.is-failed,
+.left-task-card.is-canceled { border-color: rgba(229,72,77,0.35); }
+.left-task-card.is-completed { border-color: rgba(69,165,87,0.24); }
+.left-task-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 5px; }
+.left-task-type { font-size: 10px; color: var(--text-primary); font-weight: 600; }
+.left-task-badge {
+  padding: 2px 6px; border-radius: 999px; font-size: 9px;
+  color: var(--text-secondary); background: rgba(255,255,255,0.08); white-space: nowrap;
+}
+.left-task-badge.running,
+.left-task-badge.queued,
+.left-task-badge.canceling { color: #d7ecff; background: rgba(91,160,255,0.18); }
+.left-task-badge.completed { color: #d6f6dd; background: rgba(69,165,87,0.18); }
+.left-task-badge.partial { color: #ffe6b5; background: rgba(199,146,23,0.18); }
+.left-task-badge.failed,
+.left-task-badge.canceled { color: #ffd6d6; background: rgba(229,72,77,0.2); }
+.left-task-prompt {
+  color: var(--text-secondary); font-size: 10px; line-height: 1.35;
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+}
+.left-task-message {
+  margin-top: 5px; color: var(--text-tertiary); font-size: 9px; line-height: 1.35;
+  white-space: pre-line;
+  overflow: hidden;
+}
+.left-task-meta { margin-top: 6px; color: var(--text-tertiary); font-size: 9px; display: flex; justify-content: space-between; gap: 8px; }
+.left-task-actions { display: flex; gap: 5px; margin-top: 7px; }
+.left-task-actions button {
+  flex: 1; padding: 4px 6px; border-radius: var(--radius); font-size: 9px;
+  border: 1px solid var(--border); background: transparent; color: var(--text-secondary);
+  font-family: inherit; cursor: pointer;
+}
+.left-task-actions button:hover { border-color: var(--border-hover); color: var(--text-primary); }
+
+.disabled-zone {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+.disabled-zone * {
+  pointer-events: none;
+}
+
+.prompt-bank-empty {
+  min-height: 156px;
+  padding: 12px;
+  border: 1px dashed var(--border);
+  border-radius: var(--radius);
+  color: var(--text-tertiary);
+  font-size: 12px;
+  text-align: center;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.prompt-bank-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: clamp(220px, 38vh, 420px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding-right: 4px;
+}
+.prompt-bank-item {
+  flex: 0 0 auto;
+  padding: 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+}
+.prompt-bank-item .prompt-text {
+  font-size: 12px;
+  color: var(--text-primary);
+  line-height: 1.5;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.prompt-bank-item .prompt-meta {
+  margin-top: 6px;
+  font-size: 10px;
+  color: var(--text-tertiary);
+}
+.prompt-bank-actions {
+  display: flex;
+  gap: 6px;
+  margin-top: 8px;
+}
+.prompt-bank-actions button {
+  padding: 4px 10px;
+  border-radius: var(--radius);
+  font-size: 11px;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+  font-family: inherit;
+  transition: all var(--transition);
+}
+.prompt-bank-actions button:hover {
+  border-color: var(--border-hover);
+  color: var(--text-primary);
+}
+.gallery-status-pill,
+.gallery-progress-pill {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 22px;
+  padding: 0 9px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: rgba(255,255,255,0.08);
+  backdrop-filter: blur(14px);
+  font-size: 11px;
+  letter-spacing: -0.01em;
+}
+.gallery-status-pill {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  z-index: 2;
+}
+.gallery-progress-pill {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  z-index: 2;
+  color: var(--text-secondary);
+}
+.gallery-status-pill.queued,
+.gallery-status-pill.running,
+.gallery-status-pill.canceling {
+  border-color: #2e3640;
+  background: rgba(68, 95, 128, 0.18);
+  color: #d6e3ff;
+}
+.gallery-status-pill.completed {
+  border-color: #23492a;
+  background: rgba(69, 165, 87, 0.18);
+  color: #b8ecc3;
+}
+.gallery-status-pill.partial {
+  border-color: #5c4a1f;
+  background: rgba(199, 146, 23, 0.18);
+  color: #f7dfa4;
+}
+.gallery-status-pill.failed,
+.gallery-status-pill.canceled {
+  border-color: #5a1f24;
+  background: rgba(229, 72, 77, 0.18);
+  color: #ffb2b6;
+}
+.gallery-task-card {
+  min-height: 240px;
+  padding: 14px;
+  background:
+    radial-gradient(circle at top right, rgba(255,255,255,0.06), transparent 34%),
+    linear-gradient(180deg, rgba(255,255,255,0.02), rgba(255,255,255,0.01));
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  cursor: default;
+}
+.gallery-task-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+.gallery-task-head .gallery-status-pill,
+.gallery-task-head .gallery-progress-pill {
+  position: static;
+}
+.gallery-task-prompt {
+  margin-top: 18px;
+  font-size: 13px;
+  line-height: 1.55;
+  color: var(--text-primary);
+  display: -webkit-box;
+  -webkit-line-clamp: 5;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.gallery-task-message {
+  margin-top: 10px;
+  font-size: 12px;
+  line-height: 1.55;
+  color: var(--text-secondary);
+  white-space: pre-line;
+}
+.gallery-task-meta {
+  margin-top: 12px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+  font-size: 11px;
+  color: var(--text-tertiary);
+}
+.gallery-task-meta span {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.gallery-task-options {
+  margin-top: 6px;
+  font-size: 11px;
+  color: var(--text-tertiary);
+}
+.gallery-task-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 14px;
+}
+.gallery-task-actions button,
+.gallery-task-actions a {
+  padding: 4px 10px;
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 11px;
+  font-family: inherit;
+  text-decoration: none;
+  cursor: pointer;
+  transition: all var(--transition);
+}
+.gallery-task-actions button:hover,
+.gallery-task-actions a:hover {
+  border-color: var(--border-hover);
+  color: var(--text-primary);
+}
+.gallery-task-actions button:disabled {
+  border-color: #141414;
+  color: #555;
+  cursor: not-allowed;
+}
+.gallery-item[data-open-lightbox] img {
+  background: #060606;
+}
+.gallery-item-status-line {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 6px;
+  font-size: 10px;
+  color: var(--text-tertiary);
+}
+.gallery-item-status-line span {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.failure-popup {
+  position: fixed;
+  top: 18px;
+  left: 50%;
+  width: min(540px, calc(100vw - 32px));
+  transform: translate(-50%, -20px);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 220ms ease, transform 320ms var(--panel-ease);
+  z-index: 980;
+}
+.failure-popup.open {
+  transform: translate(-50%, 0);
+  opacity: 1;
+  pointer-events: auto;
+}
+.failure-popup-card {
+  border: 1px solid rgba(229,72,77,0.28);
+  border-radius: var(--radius-lg);
+  background:
+    radial-gradient(circle at top right, rgba(229,72,77,0.08), transparent 34%),
+    linear-gradient(180deg, rgba(16,8,8,0.98), rgba(10,10,10,0.98));
+  box-shadow: 0 20px 40px rgba(0,0,0,0.42);
+  padding: 14px;
+}
+.failure-popup-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: #ffd6d6;
+}
+.failure-popup-prompt {
+  margin-top: 8px;
+  color: var(--text-secondary);
+  font-size: 11px;
+  line-height: 1.45;
+}
+.failure-popup-content {
+  margin-top: 10px;
+  padding: 10px;
+  border: 1px solid rgba(255,255,255,0.08);
+  border-radius: var(--radius);
+  background: rgba(255,255,255,0.02);
+  color: var(--text-secondary);
+  font-size: 11px;
+  line-height: 1.5;
+  white-space: pre-line;
+}
+.failure-popup-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 12px;
+}
+.failure-popup-actions button {
+  min-width: 78px;
+  padding: 8px 14px;
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+  background: rgba(255,255,255,0.04);
+  color: var(--text-primary);
+  font: inherit;
+  cursor: pointer;
+  transition: all var(--transition);
+}
+.failure-popup-actions button:hover {
+  border-color: var(--border-hover);
+  background: rgba(255,255,255,0.08);
+}
+.failure-popup-actions .failure-popup-retry {
+  border-color: rgba(255,255,255,0.16);
+  background: rgba(255,255,255,0.02);
+}
+.failure-popup-actions .failure-popup-retry:hover {
+  border-color: var(--border-hover);
+}
+</style>
+</head>
+<body>
+<div class="app">
+  <!-- Left Panel -->
+  <div class="panel" id="workspacePanel">
+    <div class="panel-inner">
+      <div class="panel-header">
+        <div class="panel-header-copy">
+          <h1>图像工作台</h1>
+        </div>
+        <button type="button" class="panel-toggle" id="panelToggleBtn" aria-label="收起左侧工作区" title="收起左侧工作区">
+          <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+            <path d="M14 6 8 12l6 6" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+        </button>
+      </div>
+
+      <div class="panel-body">
+        <details class="connection-card" id="providerConfigCard">
+          <summary>提供方配置</summary>
+          <div class="connection-card-body">
+            <div class="form-group">
+              <label for="providerProfileSelect">快速切换</label>
+              <select id="providerProfileSelect"></select>
+            </div>
+            <div class="form-group">
+              <label for="providerProfileName">配置名称 <span class="hint">（保存和另存为都会用到）</span></label>
+              <input type="text" id="providerProfileName" placeholder="例如：当前提供方 / 备用节点">
+            </div>
+            <div class="form-group">
+              <label for="baseUrl">Base URL <span class="hint">（OpenAI-compatible 接口）</span></label>
+              <input type="text" id="baseUrl" placeholder="https://api.openai.com/v1">
+            </div>
+            <div class="form-group">
+              <label for="apiKey">API Key <span class="hint">（留空则保持当前已保存密钥）</span></label>
+              <div class="input-with-action">
+                <input type="password" id="apiKey" placeholder="输入 API Key">
+                <button
+                  type="button"
+                  id="toggleApiKeyVisibilityBtn"
+                  class="input-action-btn"
+                  aria-label="显示 API Key"
+                  title="显示 API Key"
+                >
+                  <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                    <path d="M2 12C4.6 7.8 8 5.7 12 5.7c4 0 7.4 2.1 10 6.3-2.6 4.2-6 6.3-10 6.3-4 0-7.4-2.1-10-6.3Z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/>
+                    <circle cx="12" cy="12" r="3" stroke="currentColor" stroke-width="1.6"/>
+                    <path class="eye-off-line" d="M4 20 20 4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>
+                  </svg>
+                </button>
+              </div>
+            </div>
+            <div class="form-group">
+              <label for="model">模型</label>
+              <input type="text" id="model" placeholder="gpt-image-2">
+            </div>
+            <div class="button-row">
+              <button type="button" onclick="saveProviderProfile()" id="saveProviderBtn" class="btn-secondary">保存当前配置</button>
+              <button type="button" onclick="saveAsProviderProfile()" id="saveAsProviderBtn" class="btn-secondary">另存为新配置</button>
+            </div>
+          </div>
+        </details>
+
+        <section class="workspace-shell" aria-labelledby="workspaceTitle">
+          <div class="workflow-tabs" id="workflowTabs" role="tablist" aria-label="工作流切换">
+            <button type="button" class="workflow-tab active" data-workflow="generate" role="tab" aria-selected="true">文生图</button>
+            <button type="button" class="workflow-tab" data-workflow="image-to-image" role="tab" aria-selected="false">图生图</button>
+          </div>
+
+          <section class="workspace-card">
+            <div class="workspace-card-head">
+              <div class="workspace-card-copy">
+                <div class="workspace-eyebrow">左侧工作区</div>
+                <h2 id="workspaceTitle" class="workspace-title">文生图</h2>
+              </div>
+              <span id="workspaceModeChip" class="workspace-chip is-live">已接入</span>
+            </div>
+
+            <div class="workspace-stack">
+              <section class="workspace-group mode-hidden" data-workflow-scope="image-to-image">
+                <div class="workspace-group-head">
+                  <div>
+                    <div id="sourceTitle" class="workspace-group-title">参考图</div>
+                    <div id="sourceHint" class="workspace-group-hint">支持拖拽、粘贴或选择多张图片作为参考。</div>
+                  </div>
+                </div>
+                <div class="drop-zone" id="sourceDropZone" tabindex="0" aria-label="参考图上传区域">
+                  <div class="drop-zone-text" id="sourceDropText">将多张参考图拖到这里，或粘贴到工作区</div>
+                  <div class="drop-zone-preview" id="sourcePreview"></div>
+                  <input type="file" id="sourceImage" accept="image/*" multiple style="display:none;">
+                  <button type="button" class="drop-zone-browse" id="sourceBrowseBtn">选择多张参考图</button>
+                </div>
+              </section>
+
+              <section class="workspace-group">
+                <div class="workspace-group-head">
+                  <div>
+                    <div class="workspace-group-title">提示词</div>
+                    <div id="promptSectionHint" class="workspace-group-hint">直接描述你想生成的画面、风格和细节。</div>
+                  </div>
+                  <button type="button" id="togglePromptBankBtn" class="chip-btn" aria-expanded="false">词库</button>
+                </div>
+                <textarea id="prompt" placeholder="一只在星空下奔跑的白色柴犬，水彩风格"></textarea>
+
+                <details class="inline-drawer" id="promptBankPanel">
+                  <summary>
+                    <span>已保存提示词</span>
+                    <span id="promptBankCount" class="workspace-inline-hint">0 条</span>
+                  </summary>
+                  <div class="inline-drawer-body">
+                    <div class="button-row compact">
+                      <button type="button" id="savePromptBtn" class="btn-secondary">保存当前提示词</button>
+                      <button type="button" id="clearPromptBankBtn" class="btn-secondary">清空词库</button>
+                    </div>
+                    <div id="savedPrompts" class="prompt-bank-empty">还没有保存的提示词</div>
+                  </div>
+                </details>
+              </section>
+
+              <section class="workspace-group">
+                <div class="workspace-group-head">
+                  <div>
+                    <div class="workspace-group-title">输出参数</div>
+                    <div class="workspace-group-hint">三种工作流共用这一组基础配置。</div>
+                  </div>
+                </div>
+                <div class="row">
+                  <div class="form-group">
+                    <label for="size">尺寸</label>
+                    <select id="size">
+                      <option value="auto">自动</option>
+                      <option value="1024x1024" selected>1024×1024（正方形）</option>
+                      <option value="1536x1024">1536×1024（横向）</option>
+                      <option value="1024x1536">1024×1536（竖向）</option>
+                      <option value="2048x2048">2048×2048（2K 正方形）</option>
+                      <option value="2048x1152">2048×1152（2K 横向）</option>
+                      <option value="1152x2048">1152×2048（2K 竖向）</option>
+                      <option value="3840x2160">3840×2160（4K 横向）</option>
+                      <option value="2160x3840">2160×3840（4K 竖向）</option>
+                      <option value="custom">自定义</option>
+                    </select>
+                  </div>
+                  <div class="form-group">
+                    <label for="quality">质量</label>
+                    <select id="quality">
+                      <option value="auto">自动</option>
+                      <option value="low">低</option>
+                      <option value="medium">中</option>
+                      <option value="high" selected>高</option>
+                    </select>
+                  </div>
+                </div>
+                <div class="form-group" id="customSizeGroup" style="display:none;">
+                  <label for="customSize">自定义尺寸 <span class="hint">（宽x高，16倍数）</span></label>
+                  <input type="text" id="customSize" placeholder="1280x720">
+                </div>
+                <div class="row">
+                  <div class="form-group">
+                    <label for="count">数量</label>
+                    <select id="count">
+                      <option value="1">1</option>
+                      <option value="2">2</option>
+                      <option value="3">3</option>
+                      <option value="4">4</option>
+                      <option value="5">5</option>
+                      <option value="6">6</option>
+                    </select>
+                  </div>
+                  <div class="form-group">
+                    <label>输出格式</label>
+                    <div class="helper-note">当前固定输出 PNG，格式与压缩选项后续再开放。</div>
+                  </div>
+                </div>
+              </section>
+
+              <section class="workspace-group">
+                <div class="workspace-group-head">
+                  <div class="workspace-group-title">执行</div>
+                </div>
+                <div id="status" class="status"></div>
+                <div class="button-row">
+                  <button type="button" id="generateBtn" class="btn-primary">生成图片</button>
+                </div>
+              </section>
+            </div>
+          </section>
+
+          <details class="task-panel" id="taskPanel">
+            <summary class="task-panel-header">
+              <span class="task-panel-heading">
+                <span id="taskPanelTitle" class="task-panel-title">最近任务</span>
+                <span id="taskPanelPreview" class="task-panel-preview">暂无任务</span>
+              </span>
+              <span class="task-panel-meta">
+                <span id="taskPanelCount" class="task-panel-count">0 个任务</span>
+                <span class="task-panel-chevron">⌄</span>
+              </span>
+            </summary>
+            <div class="task-panel-body">
+              <div id="taskList" class="task-list"></div>
+            </div>
+          </details>
+        </section>
+      </div>
+    </div>
+  </div>
+
+  <!-- Right: Gallery -->
+  <div class="gallery-area">
+    <div class="gallery-header">
+      <div class="gallery-header-left">
+        <span class="gallery-count" id="galleryCount"></span>
+        <span id="fsDirStatus" style="display:none; color:var(--text-tertiary); font-size:11px;"></span>
+      </div>
+      <div class="gallery-actions-right">
+        <div class="gallery-filter">
+          <button class="active" onclick="filterGallery('all', this)">全部</button>
+          <button onclick="filterGallery('tasks', this)">任务</button>
+        </div>
+        <button class="gallery-sort-btn" id="sortBtn" onclick="toggleSort()" title="排序">新→旧 ↓</button>
+        <div class="settings-wrap">
+          <button class="settings-toggle" onclick="toggleSettingsPanel()" aria-label="设置">&#9881;</button>
+          <div class="settings-panel" id="settingsPanel">
+            <span class="settings-info" id="storageMode">当前配置：载入中</span>
+            <span class="settings-info" id="storageUsage">同步：自动刷新</span>
+            <button onclick="refreshGallery()">刷新</button>
+            <button onclick="cleanupEmptyGeneratedDirs()" id="cleanupGeneratedBtn">清理空文件夹</button>
+            <button onclick="clearSavedPrompts()">清空提示词</button>
+            <hr>
+            <button class="danger" onclick="resetFormState()">重置表单</button>
+          </div>
+        </div>
+      </div>
+    </div>
+    <section id="runningBanner" class="running-banner is-empty" aria-live="polite">
+      <button id="runningBannerToggle" class="running-banner-toggle" type="button" aria-expanded="true">
+        <span class="running-banner-title">
+          <span class="running-dot"></span>
+          <span class="running-title-text">正在运行的任务</span>
+          <span id="runningBannerSubtitle" class="running-subtitle">暂无运行中任务</span>
+        </span>
+        <span class="running-banner-meta">
+          <span id="runningBannerCount" class="running-banner-count">0 个</span>
+          <span class="running-chevron">⌄</span>
+        </span>
+      </button>
+      <div id="runningBannerBody" class="running-banner-body"></div>
+    </section>
+    <div id="galleryGrid" class="gallery-grid"></div>
+    <div id="galleryEmpty" class="gallery-empty">还没有图片</div>
+  </div>
+</div>
+
+<div id="failurePopup" class="failure-popup" aria-live="assertive">
+  <div class="failure-popup-card">
+    <div class="failure-popup-title">任务失败</div>
+    <div id="failurePopupPrompt" class="failure-popup-prompt"></div>
+    <div id="failurePopupContent" class="failure-popup-content"></div>
+    <div class="failure-popup-actions">
+      <button type="button" id="failurePopupRetry" class="failure-popup-retry">重试</button>
+      <button type="button" id="failurePopupConfirm">确定</button>
+    </div>
+  </div>
+</div>
+
+<!-- Lightbox -->
+<div class="lightbox" id="lightbox" onclick="if(event.target===this)closeLightbox()">
+  <button class="lightbox-close" onclick="closeLightbox()">&times;</button>
+  <button class="lightbox-nav prev" id="lightboxPrev" onclick="lightboxNav(-1)" aria-label="上一张">&#8249;</button>
+  <button class="lightbox-nav next" id="lightboxNext" onclick="lightboxNav(1)" aria-label="下一张">&#8250;</button>
+  <div class="lightbox-wrap">
+    <img id="lightboxImg" src="" alt="">
+    <div class="lightbox-overlay">
+      <div class="prompt-full" id="lightboxPrompt" onclick="event.stopPropagation();this.classList.toggle('expanded')"></div>
+      <div class="lightbox-meta">
+        <span class="lightbox-counter" id="lightboxCounter"></span>
+        <div class="lightbox-actions">
+          <button onclick="event.stopPropagation();copyPrompt()" id="lightboxCopy">复制提示词</button>
+          <a id="lightboxDl" href="" download="" onclick="event.stopPropagation()">下载</a>
+          <button onclick="event.stopPropagation();deleteLightboxImage()" id="lightboxDel" class="lightbox-del-btn">删除</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script src="/workspace-panel.js"></script>
+<script src="/app.js"></script>
+</body>
+</html>
