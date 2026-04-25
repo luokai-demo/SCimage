@@ -14,6 +14,7 @@ from typing import TYPE_CHECKING, Callable, Dict, List
 
 from config import MAX_PARALLEL_IMAGE_WORKERS, SCRIPT_PATH
 from generated_assets import recreate_job_output_dir
+from output_options import normalize_quality, normalize_size_value
 from provider_profiles import ProviderProfile
 from source_images import resolve_source_image_paths
 from workflows import requires_source_images
@@ -58,10 +59,8 @@ def _build_command(
         "--model",
         model,
     ]
-    if quality:
-        command.extend(["--quality", quality])
-    if size and size != "auto":
-        command.extend(["--size", size])
+    command.extend(["--quality", normalize_quality(quality)])
+    command.extend(["--size", normalize_size_value(size)])
     for source_image_path in source_image_paths or []:
         command.extend(["--source-image", str(source_image_path)])
     return command

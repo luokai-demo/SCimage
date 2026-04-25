@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from config import GENERATED_DIR, JOB_RECORDS_PATH, LOCAL_STATE_DIR
+from output_options import DEFAULT_QUALITY, DEFAULT_SIZE_OPTION, normalize_quality, normalize_size_value
 from source_images import build_source_images_from_job_dir, normalize_source_images
 from workflows import DEFAULT_WORKFLOW, IMAGE_TO_IMAGE_WORKFLOW, normalize_workflow
 
@@ -67,8 +68,8 @@ def normalize_job_record(job_id: str, raw_job: dict) -> dict | None:
         "id": job_id,
         "prompt": str(job.get("prompt", "")).strip(),
         "count": _to_int(job.get("count"), default=len(images) or 1),
-        "quality": str(job.get("quality", "auto") or "auto"),
-        "size": str(job.get("size", "auto") or "auto"),
+        "quality": _normalize_quality(job.get("quality")),
+        "size": _normalize_size(job.get("size")),
         "workflow": normalize_workflow(
             job.get("workflow"),
             fallback=IMAGE_TO_IMAGE_WORKFLOW if source_images else DEFAULT_WORKFLOW,
@@ -154,8 +155,8 @@ def recover_jobs_from_generated_dir(existing_jobs: dict[str, dict]) -> dict[str,
             "id": job_id,
             "prompt": f"历史图片 {job_id}",
             "count": len(images),
-            "quality": "auto",
-            "size": "auto",
+            "quality": DEFAULT_QUALITY,
+            "size": DEFAULT_SIZE_OPTION,
             "workflow": IMAGE_TO_IMAGE_WORKFLOW if source_images else DEFAULT_WORKFLOW,
             "status": "completed",
             "message": "已从本地目录恢复历史图片。",
@@ -168,6 +169,14 @@ def recover_jobs_from_generated_dir(existing_jobs: dict[str, dict]) -> dict[str,
             "error": None,
         }
     return recovered
+
+
+def _normalize_quality(value: object) -> str:
+    return normalize_quality(value)
+
+
+def _normalize_size(value: object) -> str:
+    return normalize_size_value(value)
 
 
 def build_images_from_generated_dir(directory: Path) -> list[dict]:

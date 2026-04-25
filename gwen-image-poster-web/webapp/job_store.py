@@ -7,6 +7,7 @@ from typing import Dict, List, Optional
 from uuid import uuid4
 
 from job_persistence import load_job_records, save_job_records
+from output_options import DEFAULT_SIZE_OPTION
 from workflows import DEFAULT_WORKFLOW, normalize_workflow
 
 
@@ -20,7 +21,7 @@ class JobRecord:
     prompt: str
     count: int
     quality: str
-    size: str = "auto"
+    size: str = DEFAULT_SIZE_OPTION
     workflow: str = DEFAULT_WORKFLOW
     status: str = "queued"
     message: str = "任务已创建，等待生成。"
@@ -49,7 +50,7 @@ class JobStore:
         prompt: str,
         count: int,
         quality: str,
-        size: str = "auto",
+        size: str = DEFAULT_SIZE_OPTION,
         *,
         workflow: str = DEFAULT_WORKFLOW,
         source_images: Optional[List[Dict[str, str]]] = None,

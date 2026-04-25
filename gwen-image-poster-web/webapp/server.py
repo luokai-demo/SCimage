@@ -9,14 +9,25 @@ from pathlib import Path
 from urllib.parse import urlparse
 from uuid import uuid4
 
-from config import GENERATED_DIR, HOST, MAX_IMAGE_COUNT, PORT, QUALITY_OPTIONS, RECENT_JOBS_LIMIT, STATIC_DIR
+from config import GENERATED_DIR, HOST, MAX_IMAGE_COUNT, PORT, RECENT_JOBS_LIMIT, STATIC_DIR
 from generated_assets import cleanup_empty_generated_dirs, cleanup_empty_job_output_dir, remove_job_image_file, remove_job_output_dir
-from request_parsing import CreateJobRequest, parse_create_job_request
 from image_service import generate_images
 from job_control import JobRegistry
 from job_store import JobStore
+from output_options import (
+    DEFAULT_QUALITY,
+    DEFAULT_SIZE_OPTION,
+    QUALITY_LABELS,
+    QUALITY_OPTIONS,
+    SIZE_OPTIONS,
+    is_supported_size_option,
+    is_supported_size_value,
+    normalize_size_option,
+    normalize_size_value,
+)
 from prompt_guard import validate_prompt
 from provider_profiles import ProviderProfileStore
+from request_parsing import CreateJobRequest, parse_create_job_request
 from source_images import SourceImageFile, save_source_images
 from workflows import requires_source_images, validate_workflow
 
@@ -36,12 +47,12 @@ def _safe_path(root: Path, requested: str) -> Path | None:
     return candidate
 
 
-def _is_valid_size(value: str) -> bool:
-    parts = value.lower().split("x")
-    if len(parts) != 2 or not all(part.isdigit() for part in parts):
-        return False
-    width, height = (int(part) for part in parts)
-    return width > 0 and height > 0
+def _quality_options_text() -> str:
+    return "、".join(f"{QUALITY_LABELS[value]}（{value}）" for value in QUALITY_OPTIONS)
+
+
+def _size_options_text() -> str:
+    return "、".join(f"{option.label}（{option.value}）" for option in SIZE_OPTIONS)
 
 
 def _run_job(
@@ -259,11 +270,12 @@ class ImageWorkbenchHandler(BaseHTTPRequestHandler):
             self._send_json({"error": guard_message}, HTTPStatus.BAD_REQUEST)
             return
         if quality not in QUALITY_OPTIONS:
-            self._send_json({"error": f"质量参数无效，可选值：{', '.join(QUALITY_OPTIONS)}。"}, HTTPStatus.BAD_REQUEST)
+            self._send_json({"error": f"质量参数无效，可选值：{_quality_options_text()}。"}, HTTPStatus.BAD_REQUEST)
             return
-        if size != "auto" and not _is_valid_size(size):
-            self._send_json({"error": "尺寸参数无效，需为 auto 或 宽x高 的格式。"}, HTTPStatus.BAD_REQUEST)
+        if not is_supported_size_option(size):
+            self._send_json({"error": f"尺寸参数无效，可选值：{_size_options_text()}。"}, HTTPStatus.BAD_REQUEST)
             return
+        size = normalize_size_option(size)
         if not isinstance(count, int) or not 1 <= count <= MAX_IMAGE_COUNT:
             self._send_json({"error": f"生成数量必须在 1 到 {MAX_IMAGE_COUNT} 之间。"}, HTTPStatus.BAD_REQUEST)
             return
@@ -355,13 +367,19 @@ class ImageWorkbenchHandler(BaseHTTPRequestHandler):
             return
 
         STORE.retry(job_id)
+        retry_quality = str(snapshot.get("quality", DEFAULT_QUALITY)).strip().lower()
+        if retry_quality not in QUALITY_OPTIONS:
+            retry_quality = DEFAULT_QUALITY
+        retry_size = str(snapshot.get("size", DEFAULT_SIZE_OPTION)).strip().lower()
+        if not is_supported_size_value(retry_size):
+            retry_size = DEFAULT_SIZE_OPTION
         _start_job_thread(
             job_id,
             str(snapshot.get("workflow", "generate")).strip().lower(),
             str(snapshot.get("prompt", "")).strip(),
             int(snapshot.get("count", 1)),
-            str(snapshot.get("quality", "auto")).strip().lower(),
-            str(snapshot.get("size", "auto")).strip().lower(),
+            retry_quality,
+            normalize_size_value(retry_size),
             list(snapshot.get("source_images", [])),
             provider_profile,
         )

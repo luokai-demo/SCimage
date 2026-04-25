@@ -671,19 +671,34 @@ input[type="file"]::file-selector-button:hover { border-color: var(--border-hove
 .lightbox-wrap {
   position: relative; max-width: 90vw; max-height: 85vh;
   border-radius: var(--radius-lg); overflow: hidden; border: 1px solid var(--border);
+  touch-action: none;
+  cursor: default;
 }
-.lightbox-wrap img { display: block; max-width: 90vw; max-height: 85vh; }
+.lightbox-wrap.is-zoomed { cursor: grab; }
+.lightbox-wrap.is-dragging { cursor: grabbing; }
+.lightbox-wrap img {
+  display: block; max-width: 90vw; max-height: 85vh;
+  transform-origin: center center;
+  transition: transform 120ms ease;
+  will-change: transform;
+  user-select: none;
+  -webkit-user-drag: none;
+}
+.lightbox-wrap.is-dragging img { transition: none; }
 .lightbox-overlay {
   position: absolute; inset: 0;
   background: linear-gradient(transparent 50%, rgba(0,0,0,0.85));
   opacity: 0; transition: opacity var(--transition);
   display: flex; flex-direction: column; justify-content: flex-end; padding: 16px;
+  pointer-events: none;
 }
 .lightbox-wrap:hover .lightbox-overlay { opacity: 1; }
+.lightbox-overlay:focus-within { opacity: 1; }
 .lightbox-overlay .prompt-full {
   font-size: 13px; color: #ccc; line-height: 1.5; margin-bottom: 10px;
   max-height: 3em; overflow: hidden; cursor: pointer; transition: max-height 0.3s ease;
   display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
+  pointer-events: none;
 }
 .lightbox-overlay .prompt-full.expanded {
   max-height: 30vh; overflow-y: auto;
@@ -691,6 +706,13 @@ input[type="file"]::file-selector-button:hover { border-color: var(--border-hove
 }
 .lightbox-meta {
   display: flex; align-items: center; justify-content: space-between;
+  pointer-events: none;
+}
+.lightbox-wrap:hover .lightbox-overlay .prompt-full,
+.lightbox-wrap:hover .lightbox-overlay .lightbox-meta,
+.lightbox-overlay:focus-within .prompt-full,
+.lightbox-overlay:focus-within .lightbox-meta {
+  pointer-events: auto;
 }
 .lightbox-meta .lightbox-counter { color: var(--text-tertiary); font-size: 11px; }
 .lightbox-meta .lightbox-actions { display: flex; gap: 6px; }
@@ -701,6 +723,48 @@ input[type="file"]::file-selector-button:hover { border-color: var(--border-hove
   transition: background var(--transition);
 }
 .lightbox-meta .lightbox-actions a:hover, .lightbox-meta .lightbox-actions button:hover { background: rgba(255,255,255,0.3); }
+.lightbox-zoom-toolbar {
+  position: absolute;
+  top: 18px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 1002;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px;
+  border: 1px solid rgba(255,255,255,0.12);
+  border-radius: 999px;
+  background: rgba(12,12,12,0.76);
+  backdrop-filter: blur(10px);
+  box-shadow: 0 10px 24px rgba(0,0,0,0.28);
+}
+.lightbox-zoom-toolbar button {
+  min-width: 32px;
+  height: 30px;
+  padding: 0 10px;
+  border: none;
+  border-radius: 999px;
+  background: rgba(255,255,255,0.1);
+  color: var(--text-primary);
+  font-family: inherit;
+  font-size: 13px;
+  line-height: 1;
+  cursor: pointer;
+  transition: background var(--transition), color var(--transition), opacity var(--transition);
+}
+.lightbox-zoom-toolbar button:hover { background: rgba(255,255,255,0.22); }
+.lightbox-zoom-toolbar button:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+.lightbox-zoom-value {
+  min-width: 44px;
+  color: var(--text-secondary);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+}
 .lightbox-close {
   position: absolute; top: 16px; right: 20px;
   background: none; border: none; color: var(--text-tertiary);
@@ -1411,32 +1475,12 @@ input[type="file"]::file-selector-button:hover { border-color: var(--border-hove
                 <div class="row">
                   <div class="form-group">
                     <label for="size">尺寸</label>
-                    <select id="size">
-                      <option value="auto">自动</option>
-                      <option value="1024x1024" selected>1024×1024（正方形）</option>
-                      <option value="1536x1024">1536×1024（横向）</option>
-                      <option value="1024x1536">1024×1536（竖向）</option>
-                      <option value="2048x2048">2048×2048（2K 正方形）</option>
-                      <option value="2048x1152">2048×1152（2K 横向）</option>
-                      <option value="1152x2048">1152×2048（2K 竖向）</option>
-                      <option value="3840x2160">3840×2160（4K 横向）</option>
-                      <option value="2160x3840">2160×3840（4K 竖向）</option>
-                      <option value="custom">自定义</option>
-                    </select>
+                    <select id="size"></select>
                   </div>
                   <div class="form-group">
                     <label for="quality">质量</label>
-                    <select id="quality">
-                      <option value="auto">自动</option>
-                      <option value="low">低</option>
-                      <option value="medium">中</option>
-                      <option value="high" selected>高</option>
-                    </select>
+                    <select id="quality"></select>
                   </div>
-                </div>
-                <div class="form-group" id="customSizeGroup" style="display:none;">
-                  <label for="customSize">自定义尺寸 <span class="hint">（宽x高，16倍数）</span></label>
-                  <input type="text" id="customSize" placeholder="1280x720">
                 </div>
                 <div class="row">
                   <div class="form-group">
@@ -1551,6 +1595,12 @@ input[type="file"]::file-selector-button:hover { border-color: var(--border-hove
 <!-- Lightbox -->
 <div class="lightbox" id="lightbox" onclick="if(event.target===this)closeLightbox()">
   <button class="lightbox-close" onclick="closeLightbox()">&times;</button>
+  <div class="lightbox-zoom-toolbar" aria-label="图片缩放工具">
+    <button type="button" id="lightboxZoomOut" aria-label="缩小图片" title="缩小">−</button>
+    <span class="lightbox-zoom-value" id="lightboxZoomValue" aria-live="polite">100%</span>
+    <button type="button" id="lightboxZoomIn" aria-label="放大图片" title="放大">+</button>
+    <button type="button" id="lightboxZoomReset" aria-label="重置图片缩放" title="重置">1:1</button>
+  </div>
   <button class="lightbox-nav prev" id="lightboxPrev" onclick="lightboxNav(-1)" aria-label="上一张">&#8249;</button>
   <button class="lightbox-nav next" id="lightboxNext" onclick="lightboxNav(1)" aria-label="下一张">&#8250;</button>
   <div class="lightbox-wrap">
@@ -1571,6 +1621,7 @@ input[type="file"]::file-selector-button:hover { border-color: var(--border-hove
 </div>
 
 <script src="/source-image-store.js"></script>
+<script src="/output-options.js"></script>
 <script src="/workflow-state.js"></script>
 <script src="/workspace-panel.js"></script>
 <script src="/app.js"></script>

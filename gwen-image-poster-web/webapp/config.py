@@ -8,7 +8,6 @@ MAX_PARALLEL_IMAGE_WORKERS = 4
 MAX_SOURCE_IMAGE_COUNT = 16
 MAX_SOURCE_IMAGE_BYTES = 50 * 1024 * 1024
 RECENT_JOBS_LIMIT = 60
-QUALITY_OPTIONS = ("auto", "low", "medium", "high")
 
 APP_ROOT = Path(__file__).resolve().parents[1]
 SCRIPT_PATH = APP_ROOT / "scripts" / "generate_image.py"

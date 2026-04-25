@@ -1,6 +1,11 @@
 "use strict";
 
 (() => {
+  const OUTPUT_OPTIONS = window.OutputOptions;
+  if (!OUTPUT_OPTIONS) {
+    throw new Error("OutputOptions must be loaded before workflow-state.js");
+  }
+
   const FORM_STORAGE_KEY = "image_workbench_form_state_v1";
   const PROMPT_BANK_KEY = "image_workbench_saved_prompts_v1";
   const ACTIVE_WORKFLOW_KEY = "image_workbench_active_tab_v1";
@@ -12,19 +17,18 @@
 
   const WORKFLOW_IDS = ["generate", "image-to-image"];
   const DEFAULT_WORKFLOW = "generate";
+  const FORM_STORE_VERSION = 3;
   const DEFAULT_FORM_BY_WORKFLOW = {
     generate: {
       prompt: "",
-      size: "1024x1024",
-      customSize: "",
-      quality: "high",
+      size: OUTPUT_OPTIONS.DEFAULT_SIZE_OPTION,
+      quality: OUTPUT_OPTIONS.DEFAULT_QUALITY,
       count: "1",
     },
     "image-to-image": {
       prompt: "",
-      size: "1024x1024",
-      customSize: "",
-      quality: "high",
+      size: OUTPUT_OPTIONS.DEFAULT_SIZE_OPTION,
+      quality: OUTPUT_OPTIONS.DEFAULT_QUALITY,
       count: "1",
     },
   };
@@ -84,9 +88,8 @@
     const form = rawForm && typeof rawForm === "object" ? rawForm : {};
     const nextForm = {
       prompt: String(form.prompt ?? defaults.prompt),
-      size: String(form.size ?? defaults.size),
-      customSize: String(form.customSize ?? defaults.customSize),
-      quality: String(form.quality ?? defaults.quality),
+      size: OUTPUT_OPTIONS.normalizeSizeOption(form.size ?? defaults.size, defaults.size),
+      quality: OUTPUT_OPTIONS.normalizeQuality(form.quality ?? defaults.quality, defaults.quality),
       count: String(form.count ?? defaults.count),
     };
     if (!nextForm.count || Number.isNaN(Number.parseInt(nextForm.count, 10))) {
@@ -100,7 +103,21 @@
     WORKFLOW_IDS.forEach((workflow) => {
       workflows[workflow] = cloneDefaultForm(workflow);
     });
-    return { version: 2, workflows };
+    return { version: FORM_STORE_VERSION, workflows };
+  }
+
+  function normalizeLegacyForm(rawForm, workflow) {
+    const defaults = cloneDefaultForm(workflow);
+    const form = rawForm && typeof rawForm === "object" ? rawForm : {};
+    return normalizeForm(
+      {
+        prompt: form.prompt ?? defaults.prompt,
+        size: defaults.size,
+        quality: defaults.quality,
+        count: form.count ?? defaults.count,
+      },
+      workflow
+    );
   }
 
   function normalizePromptMap(rawPrompts, legacyPrompt = "") {
@@ -132,20 +149,20 @@
     }
 
     if (raw.workflows && typeof raw.workflows === "object") {
+      const useLegacyOutputDefaults = Number(raw.version || 0) < FORM_STORE_VERSION;
       WORKFLOW_IDS.forEach((workflow) => {
-        store.workflows[workflow] = normalizeForm(raw.workflows[workflow], workflow);
+        store.workflows[workflow] = useLegacyOutputDefaults
+          ? normalizeLegacyForm(raw.workflows[workflow], workflow)
+          : normalizeForm(raw.workflows[workflow], workflow);
       });
       return store;
     }
 
     const prompts = normalizePromptMap(raw.promptsByWorkflow, raw.prompt);
     WORKFLOW_IDS.forEach((workflow) => {
-      store.workflows[workflow] = normalizeForm(
+      store.workflows[workflow] = normalizeLegacyForm(
         {
           prompt: prompts[workflow],
-          size: raw.size,
-          customSize: raw.customSize,
-          quality: raw.quality,
           count: raw.count,
         },
         workflow
@@ -201,8 +218,8 @@
       id: String(entry.id || createId()),
       workflow,
       prompt,
-      size: String(entry.size || "auto"),
-      quality: String(entry.quality || "auto"),
+      size: OUTPUT_OPTIONS.normalizeSizeOption(entry.size),
+      quality: OUTPUT_OPTIONS.normalizeQuality(entry.quality),
       count: Number.parseInt(entry.count, 10) || 1,
       createdAt: entry.createdAt || entry.updatedAt || new Date().toISOString(),
       updatedAt: entry.updatedAt || entry.createdAt || new Date().toISOString(),

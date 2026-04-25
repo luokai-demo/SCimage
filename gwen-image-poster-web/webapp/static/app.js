@@ -1,5 +1,10 @@
 "use strict";
 
+const OUTPUT_OPTIONS = window.OutputOptions;
+if (!OUTPUT_OPTIONS) {
+  throw new Error("OutputOptions must be loaded before app.js");
+}
+
 const WORKFLOW_STATE = window.WorkflowState;
 if (!WORKFLOW_STATE) {
   throw new Error("WorkflowState must be loaded before app.js");
@@ -21,8 +26,6 @@ const elements = {
   saveAsProviderBtn: document.getElementById("saveAsProviderBtn"),
   prompt: document.getElementById("prompt"),
   size: document.getElementById("size"),
-  customSize: document.getElementById("customSize"),
-  customSizeGroup: document.getElementById("customSizeGroup"),
   quality: document.getElementById("quality"),
   count: document.getElementById("count"),
   generateBtn: document.getElementById("generateBtn"),
@@ -62,6 +65,11 @@ const elements = {
   lightboxCopy: document.getElementById("lightboxCopy"),
   lightboxAddSource: document.getElementById("lightboxAddSource"),
   lightboxDel: document.getElementById("lightboxDel"),
+  lightboxWrap: document.querySelector(".lightbox-wrap"),
+  lightboxZoomOut: document.getElementById("lightboxZoomOut"),
+  lightboxZoomIn: document.getElementById("lightboxZoomIn"),
+  lightboxZoomReset: document.getElementById("lightboxZoomReset"),
+  lightboxZoomValue: document.getElementById("lightboxZoomValue"),
   cleanupGeneratedBtn: document.getElementById("cleanupGeneratedBtn"),
 };
 
@@ -72,6 +80,16 @@ let currentGalleryFilter = "all";
 let gallerySortAsc = false;
 let lightboxIndex = -1;
 let lightboxSelection = null;
+let lightboxZoomState = {
+  scale: 1,
+  offsetX: 0,
+  offsetY: 0,
+  isDragging: false,
+  startX: 0,
+  startY: 0,
+  startOffsetX: 0,
+  startOffsetY: 0,
+};
 let refreshInFlight = null;
 let pollTimer = null;
 let clockTimer = null;
@@ -91,7 +109,10 @@ const failurePopupQueue = [];
 let activeFailurePopup = null;
 let problemPopupReady = false;
 
-const formFieldIds = ["prompt", "size", "customSize", "quality", "count"];
+const formFieldIds = ["prompt", "size", "quality", "count"];
+const LIGHTBOX_ZOOM_MIN = 1;
+const LIGHTBOX_ZOOM_MAX = 5;
+const LIGHTBOX_ZOOM_STEP = 0.25;
 
 function escapeHtml(value) {
   const node = document.createElement("div");
@@ -181,16 +202,11 @@ function normalizeErrorText(value) {
 }
 
 function formatQuality(value) {
-  return {
-    auto: "自动",
-    low: "低",
-    medium: "中",
-    high: "高",
-  }[value] || value || "自动";
+  return OUTPUT_OPTIONS.formatQuality(value);
 }
 
 function formatSize(value) {
-  return value === "auto" ? "自动" : value || "自动";
+  return OUTPUT_OPTIONS.formatSize(value);
 }
 
 function getWorkflowLabel(workflow) {
@@ -608,8 +624,25 @@ function handleSourceFilesChange() {
   syncPrimaryActionState();
 }
 
-function syncCustomSizeVisibility() {
-  elements.customSizeGroup.style.display = elements.size.value === "custom" ? "" : "none";
+function populateOutputOptionSelects() {
+  if (elements.size) {
+    elements.size.innerHTML = "";
+    OUTPUT_OPTIONS.SIZE_OPTIONS.forEach((option) => {
+      const node = createElement("option", "", option.label);
+      node.value = option.value;
+      node.selected = option.value === OUTPUT_OPTIONS.DEFAULT_SIZE_OPTION;
+      elements.size.appendChild(node);
+    });
+  }
+  if (elements.quality) {
+    elements.quality.innerHTML = "";
+    OUTPUT_OPTIONS.QUALITY_OPTIONS.forEach((option) => {
+      const node = createElement("option", "", option.label);
+      node.value = option.value;
+      node.selected = option.value === OUTPUT_OPTIONS.DEFAULT_QUALITY;
+      elements.quality.appendChild(node);
+    });
+  }
 }
 
 function readFormFromUi(workflow = getActiveWorkflow()) {
@@ -632,7 +665,6 @@ function applyFormToUi(form, workflow = getActiveWorkflow()) {
     }
     field.value = nextState[fieldId];
   });
-  syncCustomSizeVisibility();
 }
 
 function saveActiveWorkflowForm(workflow = getActiveWorkflow()) {
@@ -645,17 +677,26 @@ function loadActiveWorkflowForm(workflow = getActiveWorkflow()) {
   applyFormToUi(WORKFLOW_STATE.readForm(normalizedWorkflow), normalizedWorkflow);
 }
 
-function resolveSizeValue() {
-  if (elements.size.value !== "custom") {
-    return elements.size.value;
-  }
-  const customSize = elements.customSize.value.trim();
-  if (!/^\d+x\d+$/i.test(customSize)) {
-    alert("自定义尺寸格式错误，请用 宽x高");
-    elements.customSize.focus();
+function readOutputParamsFromUi() {
+  const size = elements.size.value;
+  const quality = elements.quality.value;
+
+  if (!OUTPUT_OPTIONS.isSupportedSize(size)) {
+    alert("请选择有效的尺寸参数");
+    elements.size.focus();
     return null;
   }
-  return customSize.toLowerCase();
+
+  if (!OUTPUT_OPTIONS.isSupportedQuality(quality)) {
+    alert("请选择有效的质量参数");
+    elements.quality.focus();
+    return null;
+  }
+
+  return {
+    size: OUTPUT_OPTIONS.normalizeSizeOption(size),
+    quality: OUTPUT_OPTIONS.normalizeQuality(quality),
+  };
 }
 
 function renderSavedPrompts() {
@@ -739,16 +780,16 @@ function saveCurrentPrompt() {
     return;
   }
 
-  const size = resolveSizeValue();
-  if (!size) {
+  const outputParams = readOutputParamsFromUi();
+  if (!outputParams) {
     return;
   }
 
   const nextEntry = WORKFLOW_STATE.savePrompt(workflow, {
     workflow,
     prompt,
-    size,
-    quality: form.quality,
+    size: outputParams.size,
+    quality: outputParams.quality,
     count: Number.parseInt(form.count, 10) || 1,
   });
   if (!nextEntry) {
@@ -780,12 +821,10 @@ function applySavedPrompt(promptId) {
   if (!entry) {
     return;
   }
-  const hasPresetSize = !!entry.size && Array.from(elements.size.options).some((option) => option.value === entry.size);
   applyFormToUi({
     prompt: entry.prompt,
-    size: hasPresetSize ? entry.size : "custom",
-    customSize: hasPresetSize ? "" : (entry.size || ""),
-    quality: entry.quality || "auto",
+    size: OUTPUT_OPTIONS.normalizeSizeOption(entry.size),
+    quality: OUTPUT_OPTIONS.normalizeQuality(entry.quality),
     count: String(entry.count || 1),
   }, workflow);
   saveActiveWorkflowForm(workflow);
@@ -1458,6 +1497,59 @@ function toggleSort() {
   renderGallery();
 }
 
+function clampNumber(value, min, max) {
+  return Math.min(max, Math.max(min, value));
+}
+
+function applyLightboxZoom() {
+  const scale = clampNumber(lightboxZoomState.scale, LIGHTBOX_ZOOM_MIN, LIGHTBOX_ZOOM_MAX);
+  lightboxZoomState.scale = scale;
+  if (scale <= LIGHTBOX_ZOOM_MIN) {
+    lightboxZoomState.offsetX = 0;
+    lightboxZoomState.offsetY = 0;
+  }
+
+  if (elements.lightboxImg) {
+    elements.lightboxImg.style.transform = `translate(${lightboxZoomState.offsetX}px, ${lightboxZoomState.offsetY}px) scale(${scale})`;
+  }
+  if (elements.lightboxWrap) {
+    elements.lightboxWrap.classList.toggle("is-zoomed", scale > LIGHTBOX_ZOOM_MIN);
+    elements.lightboxWrap.classList.toggle("is-dragging", lightboxZoomState.isDragging);
+  }
+  if (elements.lightboxZoomValue) {
+    elements.lightboxZoomValue.textContent = `${Math.round(scale * 100)}%`;
+  }
+  if (elements.lightboxZoomOut) {
+    elements.lightboxZoomOut.disabled = scale <= LIGHTBOX_ZOOM_MIN;
+  }
+  if (elements.lightboxZoomReset) {
+    elements.lightboxZoomReset.disabled = scale <= LIGHTBOX_ZOOM_MIN;
+  }
+  if (elements.lightboxZoomIn) {
+    elements.lightboxZoomIn.disabled = scale >= LIGHTBOX_ZOOM_MAX;
+  }
+}
+
+function resetLightboxZoom() {
+  lightboxZoomState = {
+    ...lightboxZoomState,
+    scale: LIGHTBOX_ZOOM_MIN,
+    offsetX: 0,
+    offsetY: 0,
+    isDragging: false,
+  };
+  applyLightboxZoom();
+}
+
+function setLightboxZoom(nextScale) {
+  lightboxZoomState.scale = clampNumber(nextScale, LIGHTBOX_ZOOM_MIN, LIGHTBOX_ZOOM_MAX);
+  applyLightboxZoom();
+}
+
+function zoomLightboxBy(delta) {
+  setLightboxZoom(lightboxZoomState.scale + delta);
+}
+
 function showLightboxItem(index) {
   const item = galleryFlatList[index];
   if (!item) {
@@ -1468,6 +1560,7 @@ function showLightboxItem(index) {
   lightboxIndex = index;
   lightboxSelection = { jobId: item.jobId, slot: item.slot };
 
+  resetLightboxZoom();
   elements.lightboxPrompt.classList.remove("expanded");
   elements.lightboxImg.src = item.src;
   elements.lightboxPrompt.textContent = item.prompt || "";
@@ -1502,6 +1595,7 @@ function closeLightbox() {
   document.body.style.overflow = "";
   lightboxIndex = -1;
   lightboxSelection = null;
+  resetLightboxZoom();
 }
 
 function syncLightboxSelection() {
@@ -1531,6 +1625,52 @@ function lightboxNav(direction) {
   if (nextIndex >= 0 && nextIndex < galleryFlatList.length) {
     showLightboxItem(nextIndex);
   }
+}
+
+function startLightboxPan(event) {
+  if (lightboxZoomState.scale <= LIGHTBOX_ZOOM_MIN || event.button !== 0) {
+    return;
+  }
+  event.preventDefault();
+  lightboxZoomState = {
+    ...lightboxZoomState,
+    isDragging: true,
+    startX: event.clientX,
+    startY: event.clientY,
+    startOffsetX: lightboxZoomState.offsetX,
+    startOffsetY: lightboxZoomState.offsetY,
+  };
+  elements.lightboxImg?.setPointerCapture?.(event.pointerId);
+  applyLightboxZoom();
+}
+
+function updateLightboxPan(event) {
+  if (!lightboxZoomState.isDragging) {
+    return;
+  }
+  event.preventDefault();
+  lightboxZoomState.offsetX = lightboxZoomState.startOffsetX + event.clientX - lightboxZoomState.startX;
+  lightboxZoomState.offsetY = lightboxZoomState.startOffsetY + event.clientY - lightboxZoomState.startY;
+  applyLightboxZoom();
+}
+
+function stopLightboxPan(event) {
+  if (!lightboxZoomState.isDragging) {
+    return;
+  }
+  lightboxZoomState.isDragging = false;
+  if (elements.lightboxImg?.hasPointerCapture?.(event.pointerId)) {
+    elements.lightboxImg.releasePointerCapture(event.pointerId);
+  }
+  applyLightboxZoom();
+}
+
+function handleLightboxWheel(event) {
+  if (!elements.lightbox.classList.contains("open")) {
+    return;
+  }
+  event.preventDefault();
+  zoomLightboxBy(event.deltaY < 0 ? LIGHTBOX_ZOOM_STEP : -LIGHTBOX_ZOOM_STEP);
 }
 
 function copyPrompt() {
@@ -1761,12 +1901,12 @@ function switchTab(name) {
   window.WorkspacePanel?.setActiveWorkflow(name);
 }
 
-function buildCreateJobRequestBody(workflow, prompt, size) {
+function buildCreateJobRequestBody(workflow, prompt, outputParams) {
   const basePayload = {
     workflow,
     prompt,
-    quality: elements.quality.value,
-    size,
+    quality: outputParams.quality,
+    size: outputParams.size,
     count: Number.parseInt(elements.count.value, 10) || 1,
   };
 
@@ -1815,12 +1955,12 @@ async function generate(workflowOverride) {
     return;
   }
 
-  const size = resolveSizeValue();
-  if (!size) {
+  const outputParams = readOutputParamsFromUi();
+  if (!outputParams) {
     return;
   }
 
-  const payload = buildCreateJobRequestBody(workflow, prompt, size);
+  const payload = buildCreateJobRequestBody(workflow, prompt, outputParams);
   if (!payload) {
     syncPrimaryActionState(false);
     return;
@@ -1965,7 +2105,6 @@ function bindEvents() {
   });
 
   elements.size.addEventListener("change", () => {
-    syncCustomSizeVisibility();
     saveActiveWorkflowForm();
   });
 
@@ -2025,6 +2164,33 @@ function bindEvents() {
     }
     deleteJob(jobId);
   });
+
+  elements.lightboxZoomOut?.addEventListener("click", (event) => {
+    event.stopPropagation();
+    zoomLightboxBy(-LIGHTBOX_ZOOM_STEP);
+  });
+
+  elements.lightboxZoomIn?.addEventListener("click", (event) => {
+    event.stopPropagation();
+    zoomLightboxBy(LIGHTBOX_ZOOM_STEP);
+  });
+
+  elements.lightboxZoomReset?.addEventListener("click", (event) => {
+    event.stopPropagation();
+    resetLightboxZoom();
+  });
+
+  elements.lightboxImg?.addEventListener("wheel", handleLightboxWheel, { passive: false });
+  elements.lightboxImg?.addEventListener("dblclick", (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    setLightboxZoom(lightboxZoomState.scale > LIGHTBOX_ZOOM_MIN ? LIGHTBOX_ZOOM_MIN : 2);
+  });
+  elements.lightboxImg?.addEventListener("pointerdown", startLightboxPan);
+  elements.lightboxImg?.addEventListener("pointermove", updateLightboxPan);
+  elements.lightboxImg?.addEventListener("pointerup", stopLightboxPan);
+  elements.lightboxImg?.addEventListener("pointercancel", stopLightboxPan);
+  elements.lightboxImg?.addEventListener("dragstart", (event) => event.preventDefault());
 
   elements.galleryGrid.addEventListener("click", (event) => {
     const actionButton = event.target.closest("[data-action]");
@@ -2099,6 +2265,21 @@ function bindEvents() {
     }
     if (event.key === "ArrowRight") {
       lightboxNav(1);
+      return;
+    }
+    if (event.key === "+" || event.key === "=") {
+      event.preventDefault();
+      zoomLightboxBy(LIGHTBOX_ZOOM_STEP);
+      return;
+    }
+    if (event.key === "-" || event.key === "_") {
+      event.preventDefault();
+      zoomLightboxBy(-LIGHTBOX_ZOOM_STEP);
+      return;
+    }
+    if (event.key === "0") {
+      event.preventDefault();
+      resetLightboxZoom();
     }
   });
 
@@ -2143,6 +2324,7 @@ function startTimers() {
 }
 
 async function init() {
+  populateOutputOptionSelects();
   bindEvents();
   hydrateStaticUi();
   await loadProviderProfiles({ silent: true });
