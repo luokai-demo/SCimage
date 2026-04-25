@@ -7,14 +7,18 @@ from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import urlparse
+from uuid import uuid4
 
 from config import GENERATED_DIR, HOST, MAX_IMAGE_COUNT, PORT, QUALITY_OPTIONS, RECENT_JOBS_LIMIT, STATIC_DIR
 from generated_assets import cleanup_empty_generated_dirs, cleanup_empty_job_output_dir, remove_job_image_file, remove_job_output_dir
+from request_parsing import CreateJobRequest, parse_create_job_request
 from image_service import generate_images
 from job_control import JobRegistry
 from job_store import JobStore
 from prompt_guard import validate_prompt
 from provider_profiles import ProviderProfileStore
+from source_images import SourceImageFile, save_source_images
+from workflows import requires_source_images, validate_workflow
 
 
 STORE = JobStore()
@@ -40,7 +44,17 @@ def _is_valid_size(value: str) -> bool:
     return width > 0 and height > 0
 
 
-def _run_job(job_id: str, prompt: str, count: int, quality: str, size: str, provider_profile, runner) -> None:
+def _run_job(
+    job_id: str,
+    workflow: str,
+    prompt: str,
+    count: int,
+    quality: str,
+    size: str,
+    source_images: list[dict],
+    provider_profile,
+    runner,
+) -> None:
     def report(message: str) -> None:
         STORE.update_status(job_id, "running", message)
 
@@ -48,17 +62,19 @@ def _run_job(job_id: str, prompt: str, count: int, quality: str, size: str, prov
         STORE.append_image(
             job_id,
             image,
-            message=f"并行生成中，已完成 {completed_count}/{total_count} 张图片。",
+            message=f"并行处理中，已完成 {completed_count}/{total_count} 张图片。",
         )
 
-    report(f"任务已创建，准备并行生成 {count} 张图片。")
+    report(f"任务已创建，准备并行处理 {count} 张图片。")
     try:
         result = generate_images(
             job_id=job_id,
+            workflow=workflow,
             prompt=prompt,
             count=count,
             quality=quality,
             size=size,
+            source_images=source_images,
             provider_profile=provider_profile,
             status_callback=report,
             image_callback=report_image,
@@ -81,16 +97,27 @@ def _run_job(job_id: str, prompt: str, count: int, quality: str, size: str, prov
         RUNNERS.finish(job_id)
 
 
-def _start_job_thread(job_id: str, prompt: str, count: int, quality: str, size: str, provider_profile) -> None:
+def _start_job_thread(
+    job_id: str,
+    workflow: str,
+    prompt: str,
+    count: int,
+    quality: str,
+    size: str,
+    source_images: list[dict],
+    provider_profile,
+) -> None:
     runner = RUNNERS.create(job_id)
     thread = threading.Thread(
         target=_run_job,
         kwargs={
             "job_id": job_id,
+            "workflow": workflow,
             "prompt": prompt,
             "count": count,
             "quality": quality,
             "size": size,
+            "source_images": source_images,
             "provider_profile": provider_profile,
             "runner": runner,
         },
@@ -209,14 +236,20 @@ class ImageWorkbenchHandler(BaseHTTPRequestHandler):
         self._serve_file(safe_path, send_body=send_body)
 
     def _handle_create_job(self) -> None:
-        payload = self._read_json_body()
-        if payload is None:
+        request = self._read_create_job_request()
+        if request is None:
             return
 
-        prompt = str(payload.get("prompt", "")).strip()
-        quality = str(payload.get("quality", "auto")).strip().lower()
-        size = str(payload.get("size", "auto")).strip().lower()
-        count = payload.get("count", 1)
+        try:
+            workflow = validate_workflow(request.workflow)
+        except ValueError as exc:
+            self._send_json({"error": str(exc)}, HTTPStatus.BAD_REQUEST)
+            return
+
+        prompt = request.prompt
+        quality = request.quality
+        size = request.size
+        count = request.count
 
         if not prompt:
             self._send_json({"error": "提示词不能为空。"}, HTTPStatus.BAD_REQUEST)
@@ -234,6 +267,9 @@ class ImageWorkbenchHandler(BaseHTTPRequestHandler):
         if not isinstance(count, int) or not 1 <= count <= MAX_IMAGE_COUNT:
             self._send_json({"error": f"生成数量必须在 1 到 {MAX_IMAGE_COUNT} 之间。"}, HTTPStatus.BAD_REQUEST)
             return
+        if requires_source_images(workflow) and not request.source_images:
+            self._send_json({"error": "图生图至少需要上传 1 张参考图。"}, HTTPStatus.BAD_REQUEST)
+            return
 
         provider_profile = PROVIDER_PROFILES.get_active_profile()
         if provider_profile is None:
@@ -243,8 +279,38 @@ class ImageWorkbenchHandler(BaseHTTPRequestHandler):
             self._send_json({"error": "当前提供方配置不完整，请补全 Base URL、API Key 和模型后再试。"}, HTTPStatus.CONFLICT)
             return
 
-        job = STORE.create(prompt=prompt, count=count, quality=quality, size=size)
-        _start_job_thread(job.id, prompt, count, quality, size, provider_profile)
+        job_id = uuid4().hex[:12]
+        source_images: list[dict] = []
+        if requires_source_images(workflow):
+            try:
+                source_images = save_source_images(
+                    job_id,
+                    [
+                        SourceImageFile(
+                            filename=item.filename,
+                            content_type=item.content_type,
+                            data=item.data,
+                        )
+                        for item in request.source_images
+                    ],
+                )
+            except ValueError as exc:
+                self._send_json({"error": str(exc)}, HTTPStatus.BAD_REQUEST)
+                return
+            except OSError as exc:
+                self._send_json({"error": f"参考图保存失败：{exc}"}, HTTPStatus.INTERNAL_SERVER_ERROR)
+                return
+
+        job = STORE.create(
+            prompt=prompt,
+            count=count,
+            quality=quality,
+            size=size,
+            workflow=workflow,
+            source_images=source_images,
+            job_id=job_id,
+        )
+        _start_job_thread(job.id, workflow, prompt, count, quality, size, source_images, provider_profile)
         self._send_json(STORE.snapshot(job.id), HTTPStatus.ACCEPTED)
 
     def _handle_job_status(self, job_id: str) -> None:
@@ -291,10 +357,12 @@ class ImageWorkbenchHandler(BaseHTTPRequestHandler):
         STORE.retry(job_id)
         _start_job_thread(
             job_id,
+            str(snapshot.get("workflow", "generate")).strip().lower(),
             str(snapshot.get("prompt", "")).strip(),
             int(snapshot.get("count", 1)),
             str(snapshot.get("quality", "auto")).strip().lower(),
             str(snapshot.get("size", "auto")).strip().lower(),
+            list(snapshot.get("source_images", [])),
             provider_profile,
         )
         self._send_json(STORE.snapshot(job_id), HTTPStatus.ACCEPTED)
@@ -416,6 +484,18 @@ class ImageWorkbenchHandler(BaseHTTPRequestHandler):
             return json.loads(raw_body.decode("utf-8")) if raw_body else {}
         except json.JSONDecodeError:
             self._send_json({"error": "请求体不是合法 JSON。"}, HTTPStatus.BAD_REQUEST)
+            return None
+
+    def _read_create_job_request(self) -> CreateJobRequest | None:
+        content_length = int(self.headers.get("Content-Length", "0"))
+        raw_body = self.rfile.read(content_length)
+        try:
+            return parse_create_job_request(
+                content_type=str(self.headers.get("Content-Type", "")),
+                raw_body=raw_body,
+            )
+        except ValueError as exc:
+            self._send_json({"error": str(exc)}, HTTPStatus.BAD_REQUEST)
             return None
 
     def _serve_file(self, path: Path, send_body: bool = True) -> None:

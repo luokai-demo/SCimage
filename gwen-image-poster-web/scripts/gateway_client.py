@@ -123,29 +123,7 @@ def _run_command(command: list[str]) -> subprocess.CompletedProcess[str]:
     return subprocess.run(command, capture_output=True, text=True, encoding="utf-8")
 
 
-def _post_json_once(
-    *,
-    url: str,
-    headers: dict[str, str],
-    payload: dict,
-    config: GatewayConfig,
-) -> dict:
-    command = [
-        _curl_binary(),
-        "-sS",
-        url,
-        "-H",
-        f"Authorization: {headers['Authorization']}",
-        "-H",
-        f"Content-Type: {headers['Content-Type']}",
-        "--connect-timeout",
-        str(config.connect_timeout),
-        "--max-time",
-        str(config.request_max_time),
-        "-d",
-        json.dumps(payload, ensure_ascii=False),
-    ]
-    result = _run_command(command)
+def _parse_json_response(result: subprocess.CompletedProcess[str]) -> dict:
     if result.returncode != 0:
         message = _normalize_message(result.stderr or result.stdout or "curl request failed.")
         if _is_retryable_message(message):
@@ -168,34 +146,89 @@ def _post_json_once(
         raise GatewayFatalError(message)
 
 
-def request_generation(
+def _post_json_once(
     *,
-    base_url: str,
+    url: str,
     headers: dict[str, str],
     payload: dict,
     config: GatewayConfig,
+) -> dict:
+    command = [
+        _curl_binary(),
+        "-sS",
+        url,
+        "-H",
+        f"Authorization: {headers['Authorization']}",
+        "-H",
+        f"Content-Type: {headers['Content-Type']}",
+        "--connect-timeout",
+        str(config.connect_timeout),
+        "--max-time",
+        str(config.request_max_time),
+        "-d",
+        json.dumps(payload, ensure_ascii=False),
+    ]
+    return _parse_json_response(_run_command(command))
+
+
+def _post_multipart_once(
+    *,
+    url: str,
+    headers: dict[str, str],
+    fields: dict[str, object],
+    file_fields: list[tuple[str, Path]],
+    config: GatewayConfig,
+) -> dict:
+    command = [
+        _curl_binary(),
+        "-sS",
+        url,
+        "-H",
+        f"Authorization: {headers['Authorization']}",
+        "--connect-timeout",
+        str(config.connect_timeout),
+        "--max-time",
+        str(config.request_max_time),
+    ]
+    for key, value in fields.items():
+        if value is None:
+            continue
+        command.extend(["--form-string", f"{key}={value}"])
+    for field_name, file_path in file_fields:
+        field_value = f"{field_name}=@{file_path}"
+        command.extend(["-F", field_value])
+    return _parse_json_response(_run_command(command))
+
+
+def _request_image_operation(
+    *,
+    url: str,
+    config: GatewayConfig,
+    attempt_label: str,
+    final_error_label: str,
+    retry_label: str,
+    request_once: Callable[[], dict],
     status_callback: StatusCallback = None,
 ) -> dict:
-    url = f"{base_url.rstrip('/')}/images/generations"
     last_error = ""
 
     for attempt in range(1, config.generation_attempts + 1):
         _report_status(
             status_callback,
-            f"正在请求图像接口，第 {attempt}/{config.generation_attempts} 次尝试。",
+            f"{attempt_label}，第 {attempt}/{config.generation_attempts} 次尝试。",
         )
         try:
-            response = _post_json_once(url=url, headers=headers, payload=payload, config=config)
+            response = request_once()
         except GatewayRetryableError as exc:
             last_error = str(exc)
             if attempt == config.generation_attempts:
-                    raise GatewayRetryableError(
-                        f"图像接口在 {config.generation_attempts} 次尝试后仍失败：{last_error}"
-                    ) from exc
+                raise GatewayRetryableError(
+                    f"{final_error_label}在 {config.generation_attempts} 次尝试后仍失败：{last_error}"
+                ) from exc
             _sleep_before_retry(
                 attempt=attempt,
                 total_attempts=config.generation_attempts,
-                label="请求接口",
+                label=retry_label,
                 config=config,
                 callback=status_callback,
                 error=last_error,
@@ -209,12 +242,12 @@ def request_generation(
                 last_error = message
                 if attempt == config.generation_attempts:
                     raise GatewayRetryableError(
-                        f"图像接口在 {config.generation_attempts} 次尝试后仍返回异常：{last_error}"
+                        f"{final_error_label}在 {config.generation_attempts} 次尝试后仍返回异常：{last_error}"
                     )
                 _sleep_before_retry(
                     attempt=attempt,
                     total_attempts=config.generation_attempts,
-                    label="请求接口",
+                    label=retry_label,
                     config=config,
                     callback=status_callback,
                     error=last_error,
@@ -229,18 +262,65 @@ def request_generation(
         last_error = "Gateway response did not include image data."
         if attempt == config.generation_attempts:
             raise GatewayRetryableError(
-                f"图像接口在 {config.generation_attempts} 次尝试后仍未返回图片数据。"
+                f"{final_error_label}在 {config.generation_attempts} 次尝试后仍未返回图片数据。"
             )
         _sleep_before_retry(
             attempt=attempt,
             total_attempts=config.generation_attempts,
-            label="请求接口",
+            label=retry_label,
             config=config,
             callback=status_callback,
             error=last_error,
         )
 
-    raise GatewayRetryableError(last_error or "Gateway request failed.")
+    raise GatewayRetryableError(last_error or f"{url} request failed.")
+
+
+def request_generation(
+    *,
+    base_url: str,
+    headers: dict[str, str],
+    payload: dict,
+    config: GatewayConfig,
+    status_callback: StatusCallback = None,
+) -> dict:
+    url = f"{base_url.rstrip('/')}/images/generations"
+    return _request_image_operation(
+        url=url,
+        config=config,
+        attempt_label="正在请求图像接口",
+        final_error_label="图像接口",
+        retry_label="请求接口",
+        request_once=lambda: _post_json_once(url=url, headers=headers, payload=payload, config=config),
+        status_callback=status_callback,
+    )
+
+
+def request_edit(
+    *,
+    base_url: str,
+    headers: dict[str, str],
+    fields: dict[str, object],
+    image_paths: list[Path],
+    config: GatewayConfig,
+    status_callback: StatusCallback = None,
+) -> dict:
+    url = f"{base_url.rstrip('/')}/images/edits"
+    return _request_image_operation(
+        url=url,
+        config=config,
+        attempt_label="正在请求图像编辑接口",
+        final_error_label="图像编辑接口",
+        retry_label="请求编辑接口",
+        request_once=lambda: _post_multipart_once(
+            url=url,
+            headers=headers,
+            fields=fields,
+            file_fields=[("image", path) for path in image_paths],
+            config=config,
+        ),
+        status_callback=status_callback,
+    )
 
 
 def download_file(

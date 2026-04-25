@@ -12,7 +12,6 @@ const LIST_TIMEOUT_MS = 10000;
 const ACTION_TIMEOUT_MS = 20000;
 const POLL_INTERVAL_MS = 3000;
 const RUNNING_STATUSES = new Set(["queued", "running", "canceling"]);
-const PROBLEM_STATUSES = new Set(["partial", "failed", "canceled"]);
 const SUPPORTED_WORKFLOWS = new Set(["generate", "image-to-image"]);
 
 const elements = {
@@ -55,6 +54,7 @@ const elements = {
   failurePopupPrompt: document.getElementById("failurePopupPrompt"),
   failurePopupContent: document.getElementById("failurePopupContent"),
   failurePopupRetry: document.getElementById("failurePopupRetry"),
+  failurePopupDelete: document.getElementById("failurePopupDelete"),
   failurePopupConfirm: document.getElementById("failurePopupConfirm"),
   lightbox: document.getElementById("lightbox"),
   lightboxImg: document.getElementById("lightboxImg"),
@@ -229,6 +229,18 @@ function formatSize(value) {
   return value === "auto" ? "自动" : value || "自动";
 }
 
+function getWorkflowLabel(workflow) {
+  return window.WorkspacePanel?.getWorkflowConfig?.(workflow)?.label || (workflow === "image-to-image" ? "图生图" : "文生图");
+}
+
+function getWorkflowSourceCount(job) {
+  return Array.isArray(job?.source_images) ? job.source_images.length : 0;
+}
+
+function getSelectedSourceFiles() {
+  return window.WorkspacePanel?.getSourceFiles?.() || [];
+}
+
 function getStatusMeta(status) {
   switch (status) {
     case "queued":
@@ -269,7 +281,14 @@ function isRetryableJob(job) {
 }
 
 function getJobOptionSummary(job) {
-  return `尺寸 ${formatSize(job.size)} · 质量 ${formatQuality(job.quality)} · 数量 ${job.count || 1}`;
+  const parts = [getWorkflowLabel(job?.workflow)];
+  if (job?.workflow === "image-to-image") {
+    parts.push(`参考图 ${getWorkflowSourceCount(job)} 张`);
+  }
+  parts.push(`尺寸 ${formatSize(job.size)}`);
+  parts.push(`质量 ${formatQuality(job.quality)}`);
+  parts.push(`数量 ${job.count || 1}`);
+  return parts.join(" · ");
 }
 
 function getJobMessage(job) {
@@ -362,11 +381,30 @@ function formatJobFailureMessage(job) {
 }
 
 function isProblemPopupStatus(status) {
-  return status === "failed" || status === "partial";
+  return status === "failed";
 }
 
 function getProblemJobKey(job) {
   return `${job.id}:${job.status || ""}:${job.updated_at || ""}`;
+}
+
+function syncFailurePopupActions() {
+  if (!activeFailurePopup) {
+    return;
+  }
+
+  const jobId = activeFailurePopup.jobId || "";
+  const isBusy = Boolean(jobId && actionJobIds.has(jobId));
+  if (elements.failurePopupRetry) {
+    elements.failurePopupRetry.style.display = activeFailurePopup.retryable ? "" : "none";
+    elements.failurePopupRetry.disabled = activeFailurePopup.retryable ? isBusy : true;
+    elements.failurePopupRetry.dataset.jobId = jobId;
+  }
+  if (elements.failurePopupDelete) {
+    elements.failurePopupDelete.style.display = jobId ? "" : "none";
+    elements.failurePopupDelete.disabled = !jobId || isBusy;
+    elements.failurePopupDelete.dataset.jobId = jobId;
+  }
 }
 
 function showNextFailurePopup() {
@@ -376,11 +414,7 @@ function showNextFailurePopup() {
   activeFailurePopup = failurePopupQueue.shift();
   elements.failurePopupPrompt.textContent = activeFailurePopup.prompt || "未提供提示词";
   elements.failurePopupContent.textContent = activeFailurePopup.message;
-  if (elements.failurePopupRetry) {
-    elements.failurePopupRetry.style.display = activeFailurePopup.retryable ? "" : "none";
-    elements.failurePopupRetry.disabled = activeFailurePopup.retryable ? actionJobIds.has(activeFailurePopup.jobId) : true;
-    elements.failurePopupRetry.dataset.jobId = activeFailurePopup.jobId || "";
-  }
+  syncFailurePopupActions();
   elements.failurePopup.classList.add("open");
 }
 
@@ -458,12 +492,24 @@ function getJobSnapshotSignature(jobs) {
       count: Number(job.count || 0),
       quality: job.quality || "",
       size: job.size || "",
+      workflow: job.workflow || "generate",
       status: job.status || "",
       message: job.message || "",
       created_at: job.created_at || "",
+      run_started_at: job.run_started_at || "",
       updated_at: job.updated_at || "",
       error: job.error || "",
       warnings: Array.isArray(job.warnings) ? [...job.warnings] : [],
+      source_images: Array.isArray(job.source_images)
+        ? [...job.source_images]
+            .map((image) => ({
+              slot: Number(image.slot || 0),
+              name: image.name || "",
+              url: image.url || "",
+              path: image.path || "",
+            }))
+            .sort((left, right) => left.slot - right.slot)
+        : [],
       images: Array.isArray(job.images)
         ? [...job.images]
             .map((image) => ({
@@ -486,7 +532,19 @@ function getGallerySnapshotSignature(jobs) {
       id: job.id || "",
       prompt: job.prompt || "",
       status: job.status || "",
+      workflow: job.workflow || "generate",
       created_at: job.created_at || "",
+      run_started_at: job.run_started_at || "",
+      source_images: Array.isArray(job.source_images)
+        ? [...job.source_images]
+            .map((image) => ({
+              slot: Number(image.slot || 0),
+              name: image.name || "",
+              url: image.url || "",
+              path: image.path || "",
+            }))
+            .sort((left, right) => left.slot - right.slot)
+        : [],
       images: Array.isArray(job.images)
         ? [...job.images]
             .map((image) => ({
@@ -545,16 +603,24 @@ function getActiveWorkflow() {
   return window.WorkspacePanel?.getActiveWorkflow?.() || "generate";
 }
 
+function hasRequiredSourcesForWorkflow(workflow) {
+  return workflow !== "image-to-image" || getSelectedSourceFiles().length > 0;
+}
+
 function syncPrimaryActionState(isBusy = false) {
   const workflow = getActiveWorkflow();
   const config = window.WorkspacePanel?.getWorkflowConfig?.(workflow);
-  const isEnabled = Boolean(config?.submitEnabled);
+  const isEnabled = Boolean(config?.submitEnabled) && hasRequiredSourcesForWorkflow(workflow);
   elements.generateBtn.disabled = isBusy || !isEnabled;
   elements.generateBtn.setAttribute("aria-disabled", String(isBusy || !isEnabled));
 }
 
 function handleWorkflowChange(name) {
   localStorage.setItem(ACTIVE_TAB_KEY, name);
+  syncPrimaryActionState();
+}
+
+function handleSourceFilesChange() {
   syncPrimaryActionState();
 }
 
@@ -982,12 +1048,13 @@ async function apiRequest(path, options = {}) {
   const controller = new AbortController();
   const timeoutMs = options.timeoutMs || ACTION_TIMEOUT_MS;
   const timeoutId = window.setTimeout(() => controller.abort(), timeoutMs);
+  const hasJsonBody = options.body && !(options.body instanceof FormData);
 
   try {
     const response = await fetch(path, {
       method: options.method || "GET",
-      headers: options.body ? { "Content-Type": "application/json" } : undefined,
-      body: options.body ? JSON.stringify(options.body) : undefined,
+      headers: hasJsonBody ? { "Content-Type": "application/json" } : undefined,
+      body: options.body ? (hasJsonBody ? JSON.stringify(options.body) : options.body) : undefined,
       signal: controller.signal,
     });
 
@@ -1038,14 +1105,15 @@ function appendElapsedMeta(container, label, createdAt) {
 }
 
 function getJobDurationText(job) {
-  if (!job?.created_at) {
+  const runStartedAt = job?.run_started_at || job?.created_at;
+  if (!runStartedAt) {
     return "--";
   }
   if (isActiveStatus(job.status)) {
-    return formatElapsed(job.created_at);
+    return formatElapsed(runStartedAt);
   }
   if (job.updated_at) {
-    const startedAt = new Date(job.created_at);
+    const startedAt = new Date(runStartedAt);
     const finishedAt = new Date(job.updated_at);
     if (!Number.isNaN(startedAt.getTime()) && !Number.isNaN(finishedAt.getTime())) {
       const seconds = Math.max(0, Math.floor((finishedAt.getTime() - startedAt.getTime()) / 1000));
@@ -1133,7 +1201,11 @@ function buildTaskGallerySection(job) {
   const section = createElement("section", "gallery-task-section");
   const head = createElement("div", "gallery-task-section-head");
   const title = createElement("div", "gallery-task-section-title", job.prompt || "未提供提示词");
-  const meta = createElement("div", "gallery-task-section-meta", `${getJobProgressText(job)} · ${formatDateTime(job.updated_at || job.created_at)}`);
+  const meta = createElement(
+    "div",
+    "gallery-task-section-meta",
+    `${getWorkflowLabel(job.workflow)} · ${getJobProgressText(job)} · ${formatDateTime(job.updated_at || job.created_at)}`
+  );
   const grid = createElement("div", "gallery-task-section-grid");
 
   head.append(title, meta);
@@ -1157,7 +1229,7 @@ function buildLeftTaskCard(job) {
   const card = createElement("article", `left-task-card is-${job.status || "unknown"}`);
   const top = createElement("div", "left-task-top");
   const statusMeta = getStatusMeta(job.status);
-  const type = createElement("span", "left-task-type", "任务");
+  const type = createElement("span", "left-task-type", getWorkflowLabel(job.workflow));
   const badge = createElement("span", `left-task-badge ${job.status || "unknown"}`, statusMeta.label);
   top.append(type, badge);
 
@@ -1190,7 +1262,7 @@ function buildRunningBannerCard(job) {
   const statusMeta = getStatusMeta(job.status);
   top.append(
     createElement("span", "running-job-status", statusMeta.label),
-    createElement("span", "running-job-progress", getJobProgressText(job))
+    createElement("span", "running-job-progress", `${getWorkflowLabel(job.workflow)} · ${getJobProgressText(job)}`)
   );
 
   const prompt = createElement("div", "running-job-prompt", job.prompt || "未提供提示词");
@@ -1477,9 +1549,11 @@ async function deleteJob(jobId) {
   }
 
   actionJobIds.add(jobId);
+  syncFailurePopupActions();
   renderGallery();
   try {
     await apiRequest(`/api/jobs/${jobId}`, { method: "DELETE", timeoutMs: ACTION_TIMEOUT_MS });
+    clearFailurePopupEntries(jobId);
     if (lightboxSelection && lightboxSelection.jobId === jobId) {
       closeLightbox();
       lightboxSelection = null;
@@ -1492,6 +1566,7 @@ async function deleteJob(jobId) {
     setStatus("error", error.message);
   } finally {
     actionJobIds.delete(jobId);
+    syncFailurePopupActions();
     renderGallery();
   }
 }
@@ -1623,19 +1698,41 @@ function switchTab(name) {
   handleWorkflowChange(name);
 }
 
-function submitActiveWorkflow() {
-  if (getActiveWorkflow() !== "generate") {
-    setStatus("error", "当前模式的接口还未接入，先保留了完整排版。", { timeoutMs: 2400 });
-    return;
+function buildCreateJobRequestBody(workflow, prompt, size) {
+  const basePayload = {
+    workflow,
+    prompt,
+    quality: elements.quality.value,
+    size,
+    count: Number.parseInt(elements.count.value, 10) || 1,
+  };
+
+  if (workflow !== "image-to-image") {
+    return basePayload;
   }
+
+  const sourceFiles = getSelectedSourceFiles();
+  if (!sourceFiles.length) {
+    alert("请先上传至少 1 张参考图");
+    return null;
+  }
+
+  const formData = new FormData();
+  Object.entries(basePayload).forEach(([key, value]) => {
+    formData.append(key, String(value));
+  });
+  sourceFiles.forEach((file) => {
+    formData.append("source_image", file, file.name);
+  });
+  return formData;
+}
+
+function submitActiveWorkflow() {
   generate();
 }
 
 async function generate() {
-  if (getActiveWorkflow() !== "generate") {
-    setStatus("error", "当前模式的接口还未接入，先保留了完整排版。", { timeoutMs: 2400 });
-    return;
-  }
+  const workflow = getActiveWorkflow();
 
   const prompt = elements.prompt.value.trim();
   if (!prompt) {
@@ -1649,18 +1746,17 @@ async function generate() {
     return;
   }
 
+  const payload = buildCreateJobRequestBody(workflow, prompt, size);
+  if (!payload) {
+    syncPrimaryActionState(false);
+    return;
+  }
+
   syncPrimaryActionState(true);
   saveFormState();
   setStatus("loading", "正在创建任务...");
 
   try {
-    const payload = {
-      prompt,
-      quality: elements.quality.value,
-      size,
-      count: Number.parseInt(elements.count.value, 10) || 1,
-    };
-
     const job = await apiRequest("/api/jobs", {
       method: "POST",
       body: payload,
@@ -1668,7 +1764,7 @@ async function generate() {
     });
 
     await refreshJobs({ silent: true });
-    setStatus("success", `任务已创建，开始并行生成 ${job.count} 张图片。`, { timeoutMs: 2600 });
+    setStatus("success", `任务已创建，开始并行处理 ${job.count} 张图片。`, { timeoutMs: 2600 });
   } catch (error) {
     console.error("Create job failed:", error);
     setStatus("error", error.message);
@@ -1742,10 +1838,12 @@ function resetFormState(options = {}) {
   };
   applyFormState(defaults);
   writeJson(FORM_STORAGE_KEY, defaults);
+  window.WorkspacePanel?.clearSourceFiles?.();
   if (!options.silent) {
     switchTab("generate");
     setStatus("success", "表单已重置。", { timeoutMs: 2000 });
   }
+  syncPrimaryActionState();
 }
 
 function handleJobAction(actionButton) {
@@ -1838,6 +1936,14 @@ function bindEvents() {
       return;
     }
     retryJob(jobId);
+  });
+
+  elements.failurePopupDelete?.addEventListener("click", () => {
+    const jobId = elements.failurePopupDelete.dataset.jobId;
+    if (!jobId) {
+      return;
+    }
+    deleteJob(jobId);
   });
 
   elements.galleryGrid.addEventListener("click", (event) => {
@@ -1941,6 +2047,7 @@ function hydrateStaticUi() {
   window.WorkspacePanel?.init({
     initialWorkflow,
     onWorkflowChange: handleWorkflowChange,
+    onSourceFilesChange: handleSourceFilesChange,
   });
   switchTab(initialWorkflow);
 }

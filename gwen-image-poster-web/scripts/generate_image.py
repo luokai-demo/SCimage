@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Generate images through an OpenAI-compatible image endpoint."""
+"""Generate or edit images through an OpenAI-compatible image endpoint."""
 
 from __future__ import annotations
 
@@ -11,12 +11,13 @@ import time
 from typing import List
 from urllib.parse import urljoin, urlparse
 
-from gateway_client import GatewayConfig, download_file, request_generation
+from gateway_client import GatewayConfig, download_file, request_edit, request_generation
 
 DEFAULT_BASE_URL = os.getenv("IMAGE_API_BASE_URL") or os.getenv("OPENAI_BASE_URL") or ""
 DEFAULT_MODEL = os.getenv("IMAGE_API_MODEL") or "gpt-image-2"
 DEFAULT_SIZE = "1024x1024"
 QUALITY_OPTIONS = ("auto", "low", "medium", "high")
+WORKFLOW_OPTIONS = ("generate", "image-to-image")
 
 
 def _die(message: str) -> "None":
@@ -74,8 +75,19 @@ def _print_status(message: str) -> None:
     print(f"STATUS: {message}", file=sys.stderr, flush=True)
 
 
+def _resolve_source_images(paths: list[str]) -> list[Path]:
+    resolved_paths: list[Path] = []
+    for index, raw_path in enumerate(paths, start=1):
+        path = Path(raw_path)
+        if not path.exists() or not path.is_file():
+            _die(f"Missing source image #{index}: {path}")
+        resolved_paths.append(path)
+    return resolved_paths
+
+
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Generate images through a configurable image endpoint")
+    parser = argparse.ArgumentParser(description="Generate or edit images through a configurable image endpoint")
+    parser.add_argument("--workflow", default="generate", choices=WORKFLOW_OPTIONS)
     parser.add_argument("--prompt")
     parser.add_argument("--prompt-file")
     parser.add_argument("--api-key")
@@ -86,6 +98,7 @@ def main() -> int:
     parser.add_argument("--n", type=int, default=1)
     parser.add_argument("--out")
     parser.add_argument("--out-dir")
+    parser.add_argument("--source-image", action="append", default=[])
     args = parser.parse_args()
 
     prompt = _read_prompt(args.prompt, args.prompt_file)
@@ -95,14 +108,6 @@ def main() -> int:
     base_url = args.base_url.rstrip("/")
     if not base_url:
         _die("Missing base URL. Set IMAGE_API_BASE_URL / OPENAI_BASE_URL, or pass --base-url.")
-    payload = {
-        "model": args.model,
-        "prompt": prompt,
-        "n": args.n,
-        "size": args.size,
-    }
-    if args.quality != "auto":
-        payload["quality"] = args.quality
     headers = {
         "Authorization": f"Bearer {api_key}",
         "Content-Type": "application/json",
@@ -110,13 +115,42 @@ def main() -> int:
 
     config = GatewayConfig()
     try:
-        response = request_generation(
-            base_url=base_url,
-            headers=headers,
-            payload=payload,
-            config=config,
-            status_callback=_print_status,
-        )
+        if args.workflow == "image-to-image":
+            source_images = _resolve_source_images(args.source_image)
+            if not source_images:
+                _die("Image-to-image workflow requires at least one --source-image.")
+            fields = {
+                "model": args.model,
+                "prompt": prompt,
+                "n": args.n,
+                "size": args.size,
+            }
+            if args.quality != "auto":
+                fields["quality"] = args.quality
+            response = request_edit(
+                base_url=base_url,
+                headers=headers,
+                fields=fields,
+                image_paths=source_images,
+                config=config,
+                status_callback=_print_status,
+            )
+        else:
+            payload = {
+                "model": args.model,
+                "prompt": prompt,
+                "n": args.n,
+                "size": args.size,
+            }
+            if args.quality != "auto":
+                payload["quality"] = args.quality
+            response = request_generation(
+                base_url=base_url,
+                headers=headers,
+                payload=payload,
+                config=config,
+                status_callback=_print_status,
+            )
     except Exception as exc:
         _die(str(exc))
 

@@ -15,9 +15,9 @@
     },
     "image-to-image": {
       label: "图生图",
-      chipLabel: "待接入",
-      chipState: "planned",
-      submitEnabled: false,
+      chipLabel: "已接入",
+      chipState: "live",
+      submitEnabled: true,
       promptHint: "可上传多张参考图，再描述你希望统一迁移出的画面效果。",
       promptPlaceholder: "参考多张样图的构图与质感，输出统一风格的人像海报",
       actionLabel: "开始图生图",
@@ -57,6 +57,7 @@
   let initialized = false;
   let providerConfigTouched = false;
   let workflowChangeHandler = null;
+  let sourceFilesChangeHandler = null;
   let sourceFiles = [];
   let isPanelCollapsed = false;
 
@@ -128,6 +129,7 @@
         const targetKey = buildSourceFileKey(file);
         sourceFiles = sourceFiles.filter((item) => buildSourceFileKey(item) !== targetKey);
         renderSourcePreview();
+        emitSourceFilesChange();
       });
 
       wrap.append(image, removeButton);
@@ -150,6 +152,19 @@
       }
     });
     renderSourcePreview();
+    emitSourceFilesChange();
+  }
+
+  function emitSourceFilesChange() {
+    if (typeof sourceFilesChangeHandler === "function") {
+      sourceFilesChangeHandler([...sourceFiles]);
+    }
+  }
+
+  function clearSourceFiles() {
+    sourceFiles = [];
+    renderSourcePreview();
+    emitSourceFilesChange();
   }
 
   function applyWorkflowUi(name) {
@@ -312,6 +327,7 @@
 
   function init(options = {}) {
     workflowChangeHandler = typeof options.onWorkflowChange === "function" ? options.onWorkflowChange : null;
+    sourceFilesChangeHandler = typeof options.onSourceFilesChange === "function" ? options.onSourceFilesChange : null;
 
     if (!initialized) {
       bindEvents();
@@ -330,12 +346,15 @@
     syncPromptBankToggleState();
     syncPanelToggleState();
     renderSourcePreview();
+    emitSourceFilesChange();
   }
 
   window.WorkspacePanel = {
     init,
     getActiveWorkflow: () => activeWorkflow,
     getWorkflowConfig,
+    getSourceFiles: () => [...sourceFiles],
+    clearSourceFiles,
     openPromptBank,
     setActiveWorkflow,
     setPromptBankMeta,

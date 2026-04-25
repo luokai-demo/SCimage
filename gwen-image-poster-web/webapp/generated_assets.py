@@ -5,6 +5,8 @@ from pathlib import Path
 
 from config import GENERATED_DIR
 
+OUTPUT_IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".webp"}
+
 
 def job_output_dir(job_id: str) -> Path:
     return GENERATED_DIR / job_id
@@ -12,9 +14,10 @@ def job_output_dir(job_id: str) -> Path:
 
 def recreate_job_output_dir(job_id: str) -> Path:
     output_dir = job_output_dir(job_id)
-    if output_dir.exists():
-        shutil.rmtree(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
+    for child in list(output_dir.iterdir()):
+        if child.is_file() and child.suffix.lower() in OUTPUT_IMAGE_EXTENSIONS:
+            child.unlink()
     return output_dir
 
 

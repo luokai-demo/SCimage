@@ -15,6 +15,8 @@ from typing import TYPE_CHECKING, Callable, Dict, List
 from config import MAX_PARALLEL_IMAGE_WORKERS, SCRIPT_PATH
 from generated_assets import recreate_job_output_dir
 from provider_profiles import ProviderProfile
+from source_images import resolve_source_image_paths
+from workflows import requires_source_images
 
 if TYPE_CHECKING:
     from job_control import JobRunner
@@ -32,6 +34,7 @@ class JobCanceled(RuntimeError):
 
 
 def _build_command(
+    workflow: str,
     prompt: str,
     output_path: Path,
     quality: str,
@@ -39,10 +42,13 @@ def _build_command(
     *,
     base_url: str,
     model: str,
+    source_image_paths: List[Path] | None = None,
 ) -> List[str]:
     command = [
         sys.executable,
         str(SCRIPT_PATH),
+        "--workflow",
+        workflow,
         "--prompt",
         prompt,
         "--out",
@@ -56,6 +62,8 @@ def _build_command(
         command.extend(["--quality", quality])
     if size and size != "auto":
         command.extend(["--size", size])
+    for source_image_path in source_image_paths or []:
+        command.extend(["--source-image", str(source_image_path)])
     return command
 
 
@@ -221,12 +229,14 @@ def _build_image_payload(job_id: str, file_path: Path, slot: int) -> Dict[str, s
 def _run_single_image(
     *,
     job_id: str,
+    workflow: str,
     prompt: str,
     slot: int,
     quality: str,
     size: str,
     output_dir: Path,
     provider_profile: ProviderProfile,
+    source_image_paths: List[Path] | None = None,
     cancel_event: Event | None = None,
     runner: "JobRunner" | None = None,
 ) -> Dict[str, str]:
@@ -235,12 +245,14 @@ def _run_single_image(
 
     output_path = output_dir / f"image-{slot}.png"
     command = _build_command(
+        workflow=workflow,
         prompt=prompt,
         output_path=output_path,
         quality=quality,
         size=size,
         base_url=provider_profile.base_url,
         model=provider_profile.model,
+        source_image_paths=source_image_paths,
     )
     script_env = os.environ.copy()
     script_env["IMAGE_API_BASE_URL"] = provider_profile.base_url
@@ -262,10 +274,12 @@ def _run_single_image(
 
 def generate_images(
     job_id: str,
+    workflow: str,
     prompt: str,
     count: int,
     quality: str,
     size: str,
+    source_images: List[Dict[str, str]],
     provider_profile: ProviderProfile,
     status_callback: Callable[[str], None] | None = None,
     image_callback: Callable[[Dict[str, str], int, int], None] | None = None,
@@ -275,12 +289,13 @@ def generate_images(
     if cancel_event and cancel_event.is_set():
         return GenerationResult(images=[], errors=[], cancelled=True)
 
+    source_image_paths = resolve_source_image_paths(source_images) if requires_source_images(workflow) else []
     output_dir = recreate_job_output_dir(job_id)
 
     workers = min(max(1, count), MAX_PARALLEL_IMAGE_WORKERS)
     if status_callback:
         status_callback(
-            f"正在调用图像生成脚本，目标 {count} 张，当前 {workers} 路并行，模型 {provider_profile.model}。"
+            f"正在调用图像脚本，目标 {count} 张，当前 {workers} 路并行，模型 {provider_profile.model}。"
         )
 
     images: List[Dict[str, str]] = []
@@ -292,12 +307,14 @@ def generate_images(
             executor.submit(
                 _run_single_image,
                 job_id=job_id,
+                workflow=workflow,
                 prompt=prompt,
                 slot=slot,
                 quality=quality,
                 size=size,
                 output_dir=output_dir,
                 provider_profile=provider_profile,
+                source_image_paths=source_image_paths,
                 cancel_event=cancel_event,
                 runner=runner,
             ): slot
@@ -327,10 +344,10 @@ def generate_images(
                 pending = max(0, count - len(images) - len(errors))
                 if errors:
                     status_callback(
-                        f"并行生成中，已完成 {len(images)}/{count} 张，失败 {len(errors)} 张，剩余 {pending} 张。"
+                        f"并行处理中，已完成 {len(images)}/{count} 张，失败 {len(errors)} 张，剩余 {pending} 张。"
                     )
                 else:
-                    status_callback(f"并行生成中，已完成 {len(images)}/{count} 张，剩余 {pending} 张。")
+                    status_callback(f"并行处理中，已完成 {len(images)}/{count} 张，剩余 {pending} 张。")
 
     if cancel_event and cancel_event.is_set():
         return GenerationResult(images=images, errors=errors, cancelled=True)

@@ -7,6 +7,7 @@ from typing import Dict, List, Optional
 from uuid import uuid4
 
 from job_persistence import load_job_records, save_job_records
+from workflows import DEFAULT_WORKFLOW, normalize_workflow
 
 
 def _now() -> str:
@@ -20,11 +21,14 @@ class JobRecord:
     count: int
     quality: str
     size: str = "auto"
+    workflow: str = DEFAULT_WORKFLOW
     status: str = "queued"
     message: str = "任务已创建，等待生成。"
     created_at: str = field(default_factory=_now)
+    run_started_at: str = field(default_factory=_now)
     updated_at: str = field(default_factory=_now)
     images: List[Dict[str, str]] = field(default_factory=list)
+    source_images: List[Dict[str, str]] = field(default_factory=list)
     warnings: List[str] = field(default_factory=list)
     error: Optional[str] = None
 
@@ -40,13 +44,29 @@ class JobStore:
         if self._jobs:
             save_job_records(self._jobs)
 
-    def create(self, prompt: str, count: int, quality: str, size: str = "auto") -> JobRecord:
+    def create(
+        self,
+        prompt: str,
+        count: int,
+        quality: str,
+        size: str = "auto",
+        *,
+        workflow: str = DEFAULT_WORKFLOW,
+        source_images: Optional[List[Dict[str, str]]] = None,
+        job_id: Optional[str] = None,
+    ) -> JobRecord:
+        created_time = _now()
         job = JobRecord(
-            id=uuid4().hex[:12],
+            id=job_id or uuid4().hex[:12],
+            workflow=normalize_workflow(workflow),
             prompt=prompt,
             count=count,
             quality=quality,
             size=size,
+            created_at=created_time,
+            run_started_at=created_time,
+            updated_at=created_time,
+            source_images=sorted(source_images or [], key=lambda item: item.get("slot", 0)),
         )
         with self._lock:
             self._jobs[job.id] = job
@@ -134,7 +154,7 @@ class JobStore:
             job.images = []
             job.warnings = []
             job.error = None
-            job.created_at = retry_time
+            job.run_started_at = retry_time
             job.updated_at = retry_time
             self._persist_unlocked()
             return asdict(job)

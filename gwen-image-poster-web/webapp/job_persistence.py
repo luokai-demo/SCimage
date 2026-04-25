@@ -7,6 +7,8 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from config import GENERATED_DIR, JOB_RECORDS_PATH, LOCAL_STATE_DIR
+from source_images import build_source_images_from_job_dir, normalize_source_images
+from workflows import DEFAULT_WORKFLOW, IMAGE_TO_IMAGE_WORKFLOW, normalize_workflow
 
 if TYPE_CHECKING:
     from job_store import JobRecord
@@ -50,7 +52,9 @@ def normalize_job_record(job_id: str, raw_job: dict) -> dict | None:
         return None
 
     images = normalize_images(job_id, job.get("images", []))
+    source_images = normalize_source_images(job_id, job.get("source_images", []))
     created_at = _normalize_timestamp(job.get("created_at"))
+    run_started_at = _normalize_timestamp(job.get("run_started_at"), fallback=created_at)
     updated_at = _normalize_timestamp(job.get("updated_at"), fallback=created_at)
     warnings = job.get("warnings", [])
     if not isinstance(warnings, list):
@@ -65,11 +69,17 @@ def normalize_job_record(job_id: str, raw_job: dict) -> dict | None:
         "count": _to_int(job.get("count"), default=len(images) or 1),
         "quality": str(job.get("quality", "auto") or "auto"),
         "size": str(job.get("size", "auto") or "auto"),
+        "workflow": normalize_workflow(
+            job.get("workflow"),
+            fallback=IMAGE_TO_IMAGE_WORKFLOW if source_images else DEFAULT_WORKFLOW,
+        ),
         "status": str(job.get("status", "completed") or "completed"),
         "message": str(job.get("message", "") or "").strip(),
         "created_at": created_at,
+        "run_started_at": run_started_at,
         "updated_at": updated_at,
         "images": images,
+        "source_images": source_images,
         "warnings": [str(item) for item in warnings if item is not None],
         "error": normalized_error,
     }
@@ -114,6 +124,7 @@ def recover_jobs_from_generated_dir(existing_jobs: dict[str, dict]) -> dict[str,
             continue
 
         job_id = directory.name
+        source_images = build_source_images_from_job_dir(directory)
         existing = existing_jobs.get(job_id)
         if existing:
             existing_images = normalize_images(job_id, existing.get("images", []))
@@ -123,6 +134,15 @@ def recover_jobs_from_generated_dir(existing_jobs: dict[str, dict]) -> dict[str,
                     existing_images.append(image)
             existing_images.sort(key=lambda item: item.get("slot", 0))
             existing["images"] = existing_images
+            existing_source_images = normalize_source_images(job_id, existing.get("source_images", []))
+            existing_source_names = {image["name"] for image in existing_source_images}
+            for source_image in source_images:
+                if source_image["name"] not in existing_source_names:
+                    existing_source_images.append(source_image)
+            existing_source_images.sort(key=lambda item: item.get("slot", 0))
+            existing["source_images"] = existing_source_images
+            if existing_source_images and normalize_workflow(existing.get("workflow")) == DEFAULT_WORKFLOW:
+                existing["workflow"] = IMAGE_TO_IMAGE_WORKFLOW
             if existing.get("count", 0) < len(existing_images):
                 existing["count"] = len(existing_images)
             if not existing.get("message"):
@@ -136,11 +156,14 @@ def recover_jobs_from_generated_dir(existing_jobs: dict[str, dict]) -> dict[str,
             "count": len(images),
             "quality": "auto",
             "size": "auto",
+            "workflow": IMAGE_TO_IMAGE_WORKFLOW if source_images else DEFAULT_WORKFLOW,
             "status": "completed",
             "message": "已从本地目录恢复历史图片。",
             "created_at": created_at,
+            "run_started_at": created_at,
             "updated_at": updated_at,
             "images": images,
+            "source_images": source_images,
             "warnings": [],
             "error": None,
         }

@@ -1215,6 +1215,19 @@ input[type="file"]::file-selector-button:hover { border-color: var(--border-hove
 .failure-popup-actions .failure-popup-retry:hover {
   border-color: var(--border-hover);
 }
+.failure-popup-actions .failure-popup-delete {
+  border-color: rgba(229,72,77,0.4);
+  color: #ffd6d6;
+  background: rgba(229,72,77,0.08);
+}
+.failure-popup-actions .failure-popup-delete:hover {
+  border-color: rgba(229,72,77,0.65);
+  background: rgba(229,72,77,0.14);
+}
+.failure-popup-actions button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
 </style>
 </head>
 <body>
@@ -1339,7 +1352,7 @@ input[type="file"]::file-selector-button:hover { border-color: var(--border-hove
                 <div class="workspace-group-head">
                   <div>
                     <div class="workspace-group-title">输出参数</div>
-                    <div class="workspace-group-hint">三种工作流共用这一组基础配置。</div>
+                    <div class="workspace-group-hint">两种工作流共用这一组基础配置。</div>
                   </div>
                 </div>
                 <div class="row">
@@ -1476,6 +1489,7 @@ input[type="file"]::file-selector-button:hover { border-color: var(--border-hove
     <div id="failurePopupContent" class="failure-popup-content"></div>
     <div class="failure-popup-actions">
       <button type="button" id="failurePopupRetry" class="failure-popup-retry">重试</button>
+      <button type="button" id="failurePopupDelete" class="failure-popup-delete">删除任务</button>
       <button type="button" id="failurePopupConfirm">确定</button>
     </div>
   </div>
