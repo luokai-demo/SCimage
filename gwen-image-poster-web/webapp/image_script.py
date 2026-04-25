@@ -13,7 +13,7 @@ from typing import TYPE_CHECKING, Callable, Optional
 
 from config import SCRIPT_PATH
 from generated_assets import OUTPUT_IMAGE_EXTENSIONS
-from output_options import normalize_quality, resolve_api_size_value
+from output_options import resolve_api_size_value
 
 if TYPE_CHECKING:
     from job_control import JobRunner
@@ -55,8 +55,6 @@ def build_image_script_command(request: ImageScriptRequest) -> list[str]:
         request.model,
         "--n",
         str(request.count),
-        "--quality",
-        normalize_quality(request.quality),
         "--size",
         resolve_api_size_value(request.size, request.quality),
     ]

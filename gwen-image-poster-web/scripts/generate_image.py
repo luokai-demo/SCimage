@@ -16,7 +16,6 @@ from gateway_client import GatewayConfig, download_file, request_edit, request_g
 DEFAULT_BASE_URL = os.getenv("IMAGE_API_BASE_URL") or os.getenv("OPENAI_BASE_URL") or ""
 DEFAULT_MODEL = os.getenv("IMAGE_API_MODEL") or "gpt-image-2"
 DEFAULT_SIZE = "1024x1024"
-QUALITY_OPTIONS = ("low", "medium", "high")
 WORKFLOW_OPTIONS = ("generate", "image-to-image")
 
 
@@ -94,7 +93,6 @@ def main() -> int:
     parser.add_argument("--base-url", default=os.getenv("IMAGE_API_BASE_URL") or os.getenv("OPENAI_BASE_URL") or DEFAULT_BASE_URL)
     parser.add_argument("--model", default=DEFAULT_MODEL)
     parser.add_argument("--size", default=DEFAULT_SIZE)
-    parser.add_argument("--quality", default="low", choices=QUALITY_OPTIONS)
     parser.add_argument("--n", type=int, default=1)
     parser.add_argument("--out")
     parser.add_argument("--out-dir")
@@ -124,7 +122,6 @@ def main() -> int:
                 "prompt": prompt,
                 "n": args.n,
                 "size": args.size,
-                "quality": args.quality,
             }
             response = request_edit(
                 base_url=base_url,
@@ -140,7 +137,6 @@ def main() -> int:
                 "prompt": prompt,
                 "n": args.n,
                 "size": args.size,
-                "quality": args.quality,
             }
             response = request_generation(
                 base_url=base_url,

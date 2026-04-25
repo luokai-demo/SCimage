@@ -636,6 +636,7 @@ function populateOutputOptionSelects() {
       node.selected = option.value === OUTPUT_OPTIONS.DEFAULT_QUALITY;
       elements.quality.appendChild(node);
     });
+    elements.quality.disabled = true;
   }
 }
 
@@ -1861,7 +1862,6 @@ function buildCreateJobRequestBody(workflow, prompt, outputParams) {
   const basePayload = {
     workflow,
     prompt,
-    quality: outputParams.quality,
     size: outputParams.size,
     count: Number.parseInt(elements.count.value, 10) || 1,
   };
