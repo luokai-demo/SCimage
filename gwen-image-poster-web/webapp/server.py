@@ -73,10 +73,10 @@ def _run_job(
         STORE.append_image(
             job_id,
             image,
-            message=f"并行处理中，已完成 {completed_count}/{total_count} 张图片。",
+            message=f"接口已返回，已保存 {completed_count}/{total_count} 张图片。",
         )
 
-    report(f"任务已创建，准备并行处理 {count} 张图片。")
+    report(f"任务已创建，准备一次请求生成 {count} 张图片。")
     try:
         result = generate_images(
             job_id=job_id,

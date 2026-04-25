@@ -59,7 +59,7 @@ def _build_output_paths(out: str | None, out_dir: str | None, count: int) -> Lis
     if out_dir:
         base = Path(out_dir)
         base.mkdir(parents=True, exist_ok=True)
-        return [base / f"image-{index}.png" for index in range(count)]
+        return [base / f"image-{index}.png" for index in range(1, count + 1)]
     if not out:
         out = str(_default_download_root() / _default_output_name())
     out_path = Path(out)
@@ -68,7 +68,7 @@ def _build_output_paths(out: str | None, out_dir: str | None, count: int) -> Lis
         return [out_path]
     stem = out_path.stem
     suffix = out_path.suffix or ".png"
-    return [out_path.with_name(f"{stem}-{index}{suffix}") for index in range(count)]
+    return [out_path.with_name(f"{stem}-{index}{suffix}") for index in range(1, count + 1)]
 
 
 def _print_status(message: str) -> None:

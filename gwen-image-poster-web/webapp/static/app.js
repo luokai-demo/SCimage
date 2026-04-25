@@ -1979,7 +1979,7 @@ async function generate(workflowOverride) {
     });
 
     await refreshJobs({ silent: true });
-    setStatus("success", `任务已创建，开始并行处理 ${job.count} 张图片。`, { timeoutMs: 2600 });
+    setStatus("success", `任务已创建，开始请求生成 ${job.count} 张图片。`, { timeoutMs: 2600 });
   } catch (error) {
     console.error("Create job failed:", error);
     setStatus("error", error.message);
