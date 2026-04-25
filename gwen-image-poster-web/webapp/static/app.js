@@ -10,6 +10,12 @@ if (!WORKFLOW_STATE) {
   throw new Error("WorkflowState must be loaded before app.js");
 }
 
+const GALLERY_RUNTIME = window.GalleryRuntime;
+if (!GALLERY_RUNTIME) {
+  throw new Error("GalleryRuntime must be loaded before app.js");
+}
+const SUPPORTS_VIEW_TIMELINE = Boolean(window.CSS?.supports?.("animation-timeline: view()"));
+
 const LIST_TIMEOUT_MS = 10000;
 const ACTION_TIMEOUT_MS = 20000;
 const POLL_INTERVAL_MS = 3000;
@@ -33,6 +39,8 @@ const elements = {
   clearPromptBankBtn: document.getElementById("clearPromptBankBtn"),
   status: document.getElementById("status"),
   savedPrompts: document.getElementById("savedPrompts"),
+  galleryArea: document.querySelector(".gallery-area"),
+  galleryWindow: document.getElementById("galleryWindow"),
   taskPanelPreview: document.getElementById("taskPanelPreview"),
   galleryGrid: document.getElementById("galleryGrid"),
   galleryEmpty: document.getElementById("galleryEmpty"),
@@ -95,6 +103,7 @@ let pollTimer = null;
 let clockTimer = null;
 let resizeTimer = null;
 let statusClearTimer = null;
+let galleryActivationFrame = null;
 let lastSyncAt = null;
 let lastSyncError = "";
 let lastJobSnapshotSignature = "";
@@ -113,6 +122,38 @@ const formFieldIds = ["prompt", "size", "quality", "count"];
 const LIGHTBOX_ZOOM_MIN = 1;
 const LIGHTBOX_ZOOM_MAX = 5;
 const LIGHTBOX_ZOOM_STEP = 0.25;
+const GALLERY_PRELOAD_SCREENS = 1;
+const GALLERY_PRELOAD_EXTRA_PX = 24;
+const GALLERY_REVEAL_ACTIVE_SCREENS = 0.35;
+const GALLERY_REVEAL_ACTIVE_EXTRA_PX = 64;
+const GALLERY_REVEAL_MAX_OFFSET_PX = 12;
+const GALLERY_REVEAL_MIN_SCALE = 0.995;
+const GALLERY_REVEAL_EDGE_FADE_FRACTION = 0.16;
+const GALLERY_REVEAL_MIN_EDGE_FADE_PX = 72;
+const GALLERY_REVEAL_MAX_EDGE_FADE_PX = 140;
+
+const galleryScrollRoot = new GALLERY_RUNTIME.GalleryScrollRoot({
+  root: elements.galleryWindow || elements.galleryArea,
+  fallbackRoot: elements.galleryArea || null,
+});
+const galleryImageLoader = new GALLERY_RUNTIME.GalleryImageLoader({
+  scrollRoot: galleryScrollRoot,
+  preloadScreens: GALLERY_PRELOAD_SCREENS,
+  preloadExtraPx: GALLERY_PRELOAD_EXTRA_PX,
+  immediateExtraPx: GALLERY_PRELOAD_EXTRA_PX,
+});
+const galleryRevealController = SUPPORTS_VIEW_TIMELINE
+  ? null
+  : new GALLERY_RUNTIME.GalleryRevealController({
+      scrollRoot: galleryScrollRoot,
+      activeScreens: GALLERY_REVEAL_ACTIVE_SCREENS,
+      activeExtraPx: GALLERY_REVEAL_ACTIVE_EXTRA_PX,
+      maxOffsetPx: GALLERY_REVEAL_MAX_OFFSET_PX,
+      minScale: GALLERY_REVEAL_MIN_SCALE,
+      edgeFadeFraction: GALLERY_REVEAL_EDGE_FADE_FRACTION,
+      minEdgeFadePx: GALLERY_REVEAL_MIN_EDGE_FADE_PX,
+      maxEdgeFadePx: GALLERY_REVEAL_MAX_EDGE_FADE_PX,
+    });
 
 function createElement(tag, className, text) {
   const node = document.createElement(tag);
@@ -248,6 +289,15 @@ function getJobProgressText(job) {
   const total = Number(job.count || 0);
   const done = Array.isArray(job.images) ? job.images.length : 0;
   return total > 0 ? `${done}/${total}` : `${done}`;
+}
+
+function getJobProgressPercent(job) {
+  const total = Number(job?.count || 0);
+  const done = Array.isArray(job?.images) ? job.images.length : 0;
+  if (total <= 0) {
+    return done > 0 ? 100 : 0;
+  }
+  return Math.max(0, Math.min(100, Math.round((done / total) * 100)));
 }
 
 function isRetryableJob(job) {
@@ -1187,6 +1237,60 @@ function createGalleryTimeNode(value) {
   return timeNode;
 }
 
+function handleGalleryImageLoaded(card, imageNode) {
+  if (!card || !imageNode) {
+    return;
+  }
+  card.classList.remove("is-loading", "is-error");
+  card.classList.add("is-loaded");
+  imageNode.style.removeProperty("min-height");
+  imageNode.dataset.loadingState = "loaded";
+  imageNode.classList.add("is-loaded");
+  galleryRevealController?.scheduleLayoutRefresh();
+}
+
+function handleGalleryImageError(card, imageNode) {
+  card.classList.remove("is-loading");
+  card.classList.add("is-error");
+  imageNode.style.removeProperty("min-height");
+  imageNode.dataset.loadingState = "error";
+  galleryRevealController?.scheduleLayoutRefresh();
+}
+
+function resetGalleryImageObserver() {
+  if (galleryActivationFrame) {
+    window.cancelAnimationFrame(galleryActivationFrame);
+    galleryActivationFrame = null;
+  }
+  galleryImageLoader.reset();
+  galleryRevealController?.reset();
+}
+
+function activateGalleryImageCard(card) {
+  if (!card) {
+    return;
+  }
+  galleryRevealController?.register(card);
+  galleryImageLoader.register(card);
+}
+
+function refreshGalleryViewportEffects() {
+  galleryImageLoader.refresh();
+  galleryRevealController?.refresh();
+  galleryRevealController?.scheduleLayoutRefresh();
+}
+
+function scheduleGalleryCardActivation() {
+  if (galleryActivationFrame) {
+    window.cancelAnimationFrame(galleryActivationFrame);
+  }
+  galleryActivationFrame = window.requestAnimationFrame(() => {
+    galleryActivationFrame = null;
+    elements.galleryGrid.querySelectorAll(".gallery-item").forEach((card) => activateGalleryImageCard(card));
+    galleryRevealController?.scheduleLayoutRefresh();
+  });
+}
+
 function buildImageCard(job, image) {
   const imageUrl = normalizeImageUrl(image.url);
   if (!imageUrl) {
@@ -1202,6 +1306,7 @@ function buildImageCard(job, image) {
   }) - 1;
 
   const card = createElement("div", "gallery-item");
+  card.classList.add("is-loading");
   card.dataset.openLightbox = String(openIndex);
   card.tabIndex = 0;
   card.setAttribute("role", "button");
@@ -1210,9 +1315,14 @@ function buildImageCard(job, image) {
   const imageNode = new Image();
   imageNode.decoding = "async";
   imageNode.loading = "eager";
-  imageNode.fetchPriority = openIndex < 24 ? "high" : "auto";
-  imageNode.src = imageUrl;
+  imageNode.fetchPriority = "auto";
+  imageNode.dataset.src = imageUrl;
+  imageNode.dataset.loadingState = "idle";
   imageNode.alt = job.prompt || "";
+  imageNode.style.minHeight = "140px";
+  imageNode.addEventListener("load", () => handleGalleryImageLoaded(card, imageNode), { once: true });
+  imageNode.addEventListener("error", () => handleGalleryImageError(card, imageNode), { once: true });
+  card.dataset.lazyImage = "true";
 
   const overlay = createElement("div", "gallery-overlay");
   const promptPreview = createElement("div", "prompt-preview", job.prompt);
@@ -1319,23 +1429,40 @@ function buildLeftTaskCard(job) {
 
 function buildRunningBannerCard(job) {
   const card = createElement("article", "running-job-card");
+  const header = createElement("div", "running-job-header");
+  const main = createElement("div", "running-job-main");
   const top = createElement("div", "running-job-top");
   const statusMeta = getStatusMeta(job.status);
+  const progressPercent = getJobProgressPercent(job);
   top.append(
     createElement("span", "running-job-status", statusMeta.label),
-    createElement("span", "running-job-progress", `${getWorkflowLabel(job.workflow)} · ${getJobProgressText(job)}`)
+    createElement("span", "running-job-type", getWorkflowLabel(job.workflow)),
+    createElement("span", "running-job-summary", `${getJobProgressText(job)} · ${getJobDurationText(job)} · ${progressPercent}%`)
   );
 
   const prompt = createElement("div", "running-job-prompt", job.prompt || "未提供提示词");
-  const footer = createElement("div", "running-job-footer");
-  footer.appendChild(createElement("span", "", `已运行 ${getJobDurationText(job)}`));
+  const progressBlock = createElement("div", "running-job-progress-block");
+  const progressHead = createElement("div", "running-job-progress-head");
+  progressHead.append(
+    createElement("span", "", "进度"),
+    createElement("span", "", `剩余 ${Math.max(0, Number(job.count || 0) - (Array.isArray(job.images) ? job.images.length : 0))} 张`)
+  );
+  const progressTrack = createElement("div", "running-job-progress-track");
+  const progressFill = createElement("div", "running-job-progress-fill");
+  progressFill.style.width = progressPercent > 0 ? `${Math.max(progressPercent, 6)}%` : "0%";
+  progressTrack.appendChild(progressFill);
+  const progressNote = createElement("div", "running-job-progress-note", getJobMessage(job));
+  progressBlock.append(progressHead, progressTrack, progressNote);
 
+  const footer = createElement("div", "running-job-footer");
   const actions = createElement("div", "running-job-actions");
   actions.appendChild(createActionButton("复制", "copy-job-prompt", job.id));
   actions.appendChild(createActionButton("中断", "cancel-job", job.id));
-  footer.appendChild(actions);
+  footer.append(actions);
 
-  card.append(top, prompt, footer);
+  main.append(top, prompt);
+  header.append(main);
+  card.append(header, progressBlock, footer);
   return card;
 }
 
@@ -1419,6 +1546,7 @@ function renderGallery() {
   lastGallerySnapshotSignature = getGallerySnapshotSignature(jobsState);
   renderLeftTaskList();
   renderRunningBanner();
+  resetGalleryImageObserver();
   galleryFlatList = [];
   elements.galleryGrid.innerHTML = "";
   elements.galleryGrid.classList.toggle("grouped-by-task", currentGalleryFilter === "tasks");
@@ -1457,6 +1585,8 @@ function renderGallery() {
     : "";
   updateSyncIndicators();
   refreshRelativeTimes();
+  scheduleGalleryCardActivation();
+  galleryRevealController?.scheduleUpdate();
   syncLightboxSelection();
 }
 
@@ -2227,6 +2357,8 @@ function bindEvents() {
   elements.runningBannerToggle?.addEventListener("click", () => {
     const collapsed = elements.runningBanner.classList.toggle("is-collapsed");
     elements.runningBannerToggle.setAttribute("aria-expanded", String(!collapsed));
+    window.requestAnimationFrame(() => refreshGalleryViewportEffects());
+    window.setTimeout(() => refreshGalleryViewportEffects(), 220);
   });
 
   elements.runningBannerBody?.addEventListener("click", (event) => {
@@ -2278,7 +2410,7 @@ function bindEvents() {
 
   window.addEventListener("resize", () => {
     window.clearTimeout(resizeTimer);
-    resizeTimer = window.setTimeout(() => renderGallery(), 120);
+    resizeTimer = window.setTimeout(() => refreshGalleryViewportEffects(), 120);
   });
 
   document.addEventListener("visibilitychange", () => {
