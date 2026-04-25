@@ -1,9 +1,11 @@
 #!/usr/bin/env python3
-"""Generate or edit images through an OpenAI-compatible image endpoint."""
+"""Generate or edit images through a configurable image endpoint."""
 
 from __future__ import annotations
 
 import argparse
+import base64
+import mimetypes
 import os
 from pathlib import Path
 import sys
@@ -11,11 +13,26 @@ import time
 from typing import List
 from urllib.parse import urljoin, urlparse
 
-from gateway_client import GatewayConfig, download_file, request_edit, request_generation
+from gateway_client import (
+    GatewayConfig,
+    download_file,
+    request_chat_completion_images,
+    request_generation,
+)
+
+WEBAPP_DIR = Path(__file__).resolve().parents[1] / "webapp"
+if str(WEBAPP_DIR) not in sys.path:
+    sys.path.insert(0, str(WEBAPP_DIR))
+
+from output_options import (  # noqa: E402
+    DEFAULT_QUALITY,
+    DEFAULT_SIZE_OPTION,
+    normalize_quality,
+    normalize_size_value,
+)
 
 DEFAULT_BASE_URL = os.getenv("IMAGE_API_BASE_URL") or os.getenv("OPENAI_BASE_URL") or ""
 DEFAULT_MODEL = os.getenv("IMAGE_API_MODEL") or "gpt-image-2"
-DEFAULT_SIZE = "1024x1024"
 WORKFLOW_OPTIONS = ("generate", "image-to-image")
 
 
@@ -84,6 +101,59 @@ def _resolve_source_images(paths: list[str]) -> list[Path]:
     return resolved_paths
 
 
+def _file_to_data_url(path: Path) -> str:
+    mime_type = mimetypes.guess_type(path.name)[0] or "application/octet-stream"
+    encoded = base64.b64encode(path.read_bytes()).decode("ascii")
+    return f"data:{mime_type};base64,{encoded}"
+
+
+def _write_base64_image(target: Path, payload: str) -> None:
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_bytes(base64.b64decode(payload))
+
+
+def _write_data_url_image(target: Path, payload: str) -> None:
+    if "," not in payload:
+        _die("Gateway response data URL is invalid.")
+    _, encoded = payload.split(",", 1)
+    _write_base64_image(target, encoded)
+
+
+def _save_response_item(
+    *,
+    item: dict,
+    target: Path,
+    config: GatewayConfig,
+    origin: str,
+    image_index: int,
+    image_total: int,
+) -> None:
+    raw_url = item.get("url")
+    if isinstance(raw_url, str) and raw_url.strip():
+        file_url = raw_url if raw_url.startswith("http") else urljoin(origin, raw_url)
+        download_file(
+            url=file_url,
+            target=target,
+            config=config,
+            status_callback=_print_status,
+            image_index=image_index,
+            image_total=image_total,
+        )
+        return
+
+    data_url = item.get("data_url")
+    if isinstance(data_url, str) and data_url.strip():
+        _write_data_url_image(target, data_url.strip())
+        return
+
+    b64_json = item.get("b64_json")
+    if isinstance(b64_json, str) and b64_json.strip():
+        _write_base64_image(target, b64_json.strip())
+        return
+
+    _die("Gateway response item is missing image payload.")
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Generate or edit images through a configurable image endpoint")
     parser.add_argument("--workflow", default="generate", choices=WORKFLOW_OPTIONS)
@@ -92,7 +162,8 @@ def main() -> int:
     parser.add_argument("--api-key")
     parser.add_argument("--base-url", default=os.getenv("IMAGE_API_BASE_URL") or os.getenv("OPENAI_BASE_URL") or DEFAULT_BASE_URL)
     parser.add_argument("--model", default=DEFAULT_MODEL)
-    parser.add_argument("--size", default=DEFAULT_SIZE)
+    parser.add_argument("--size", default=DEFAULT_SIZE_OPTION)
+    parser.add_argument("--quality", default=DEFAULT_QUALITY)
     parser.add_argument("--n", type=int, default=1)
     parser.add_argument("--out")
     parser.add_argument("--out-dir")
@@ -106,6 +177,10 @@ def main() -> int:
     base_url = args.base_url.rstrip("/")
     if not base_url:
         _die("Missing base URL. Set IMAGE_API_BASE_URL / OPENAI_BASE_URL, or pass --base-url.")
+
+    normalized_quality = normalize_quality(args.quality, fallback=DEFAULT_QUALITY)
+    normalized_size = normalize_size_value(args.size, fallback=DEFAULT_SIZE_OPTION, quality=normalized_quality)
+
     headers = {
         "Authorization": f"Bearer {api_key}",
         "Content-Type": "application/json",
@@ -117,17 +192,31 @@ def main() -> int:
             source_images = _resolve_source_images(args.source_image)
             if not source_images:
                 _die("Image-to-image workflow requires at least one --source-image.")
-            fields = {
+
+            content = [{"type": "text", "text": prompt}]
+            content.extend(
+                {
+                    "type": "image_url",
+                    "image_url": {"url": _file_to_data_url(path)},
+                }
+                for path in source_images
+            )
+            payload = {
                 "model": args.model,
-                "prompt": prompt,
-                "n": args.n,
-                "size": args.size,
+                "stream": True,
+                "quality": normalized_quality,
+                "size": normalized_size,
+                "messages": [
+                    {
+                        "role": "user",
+                        "content": content,
+                    }
+                ],
             }
-            response = request_edit(
+            response = request_chat_completion_images(
                 base_url=base_url,
                 headers=headers,
-                fields=fields,
-                image_paths=source_images,
+                payload=payload,
                 config=config,
                 status_callback=_print_status,
             )
@@ -136,7 +225,8 @@ def main() -> int:
                 "model": args.model,
                 "prompt": prompt,
                 "n": args.n,
-                "size": args.size,
+                "size": normalized_size,
+                "quality": normalized_quality,
             }
             response = request_generation(
                 base_url=base_url,
@@ -155,16 +245,12 @@ def main() -> int:
 
     origin = f"{urlparse(base_url).scheme}://{urlparse(base_url).netloc}"
     for index, (item, target) in enumerate(zip(data, output_paths), start=1):
-        raw_url = item.get("url")
-        if not raw_url:
-            _die("Gateway response item is missing url.")
-        file_url = raw_url if raw_url.startswith("http") else urljoin(origin, raw_url)
         try:
-            download_file(
-                url=file_url,
+            _save_response_item(
+                item=item,
                 target=target,
                 config=config,
-                status_callback=_print_status,
+                origin=origin,
                 image_index=index,
                 image_total=len(output_paths),
             )

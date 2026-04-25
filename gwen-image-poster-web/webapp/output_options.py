@@ -1,25 +1,87 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from math import floor
+import re
 
 
-DEFAULT_QUALITY = "low"
-DEFAULT_SIZE_OPTION = "9:16"
-QUALITY_OPTIONS = ("low", "medium", "high")
+QUALITY_STANDARD = "standard"
+QUALITY_HD = "hd"
+QUALITY_4K = "4k"
+
+DEFAULT_QUALITY = QUALITY_STANDARD
+DEFAULT_SIZE_OPTION = "720x1280"
+QUALITY_OPTIONS = (QUALITY_STANDARD, QUALITY_HD, QUALITY_4K)
 QUALITY_LABELS = {
-    "low": "标准 1K",
-    "medium": "高清 2K",
-    "high": "超清 4K",
+    QUALITY_STANDARD: "标准 1K",
+    QUALITY_HD: "高清 2K",
+    QUALITY_4K: "超清 4K",
 }
-API_EDGE_MULTIPLE = 16
-API_MAX_EDGE = 3840
-API_MAX_PIXELS = 8_294_400
-API_MIN_PIXELS = 655_360
-QUALITY_TARGET_LONG_EDGES = {
-    "low": 1024,
-    "medium": 2048,
-    "high": API_MAX_EDGE,
+QUALITY_ALIAS_MAP = {
+    "standard": QUALITY_STANDARD,
+    "1k": QUALITY_STANDARD,
+    "low": QUALITY_STANDARD,
+    "hd": QUALITY_HD,
+    "2k": QUALITY_HD,
+    "medium": QUALITY_HD,
+    "4k": QUALITY_4K,
+    "high": QUALITY_4K,
+    "ultra": QUALITY_4K,
+}
+PIXEL_SIZE_PATTERN = re.compile(r"^[1-9]\d*x[1-9]\d*$", re.IGNORECASE)
+TIER_LONG_EDGE_MAX = {
+    QUALITY_STANDARD: 1600,
+    QUALITY_HD: 2800,
+}
+
+ASPECT_LABELS = {
+    "1:1": "1:1 方形",
+    "16:9": "16:9 横屏",
+    "9:16": "9:16 竖屏",
+    "3:2": "3:2 横屏（相机）",
+    "2:3": "2:3 竖屏（相机）",
+    "4:3": "4:3 横屏",
+    "3:4": "3:4 竖屏",
+    "5:4": "5:4 横屏",
+    "4:5": "4:5 竖屏（社媒）",
+    "21:9": "21:9 超宽屏",
+}
+PRESET_SIZE_VALUES = {
+    QUALITY_STANDARD: (
+        ("1:1", "1024x1024"),
+        ("16:9", "1280x720"),
+        ("9:16", "720x1280"),
+        ("3:2", "1248x832"),
+        ("2:3", "832x1248"),
+        ("4:3", "1152x864"),
+        ("3:4", "864x1152"),
+        ("5:4", "1120x896"),
+        ("4:5", "896x1120"),
+        ("21:9", "1456x624"),
+    ),
+    QUALITY_HD: (
+        ("1:1", "2048x2048"),
+        ("16:9", "2560x1440"),
+        ("9:16", "1440x2560"),
+        ("3:2", "2496x1664"),
+        ("2:3", "1664x2496"),
+        ("4:3", "2304x1728"),
+        ("3:4", "1728x2304"),
+        ("5:4", "2240x1792"),
+        ("4:5", "1792x2240"),
+        ("21:9", "3024x1296"),
+    ),
+    QUALITY_4K: (
+        ("1:1", "2880x2880"),
+        ("16:9", "3840x2160"),
+        ("9:16", "2160x3840"),
+        ("3:2", "3504x2336"),
+        ("2:3", "2336x3504"),
+        ("4:3", "3264x2448"),
+        ("3:4", "2448x3264"),
+        ("5:4", "3200x2560"),
+        ("4:5", "2560x3200"),
+        ("21:9", "3696x1584"),
+    ),
 }
 
 
@@ -27,82 +89,166 @@ QUALITY_TARGET_LONG_EDGES = {
 class SizeOption:
     value: str
     label: str
-    width_ratio: int
-    height_ratio: int
+    aspect: str
+    quality: str
+    width: int
+    height: int
 
 
-SIZE_OPTIONS = (
-    SizeOption("1:1", "1:1 方形", 1, 1),
-    SizeOption("16:9", "16:9 横屏", 16, 9),
-    SizeOption("9:16", "9:16 竖屏", 9, 16),
-    SizeOption("4:3", "4:3 横屏", 4, 3),
-    SizeOption("3:4", "3:4 竖屏", 3, 4),
-    SizeOption("3:2", "3:2 横屏（相机）", 3, 2),
-    SizeOption("2:3", "2:3 竖屏（相机）", 2, 3),
-    SizeOption("4:5", "4:5 竖屏（社媒）", 4, 5),
-    SizeOption("5:4", "5:4 横屏", 5, 4),
-    SizeOption("21:9", "21:9 超宽屏", 21, 9),
-)
+def _parse_pixel_size(value: object) -> tuple[int, int] | None:
+    normalized = str(value or "").strip().lower()
+    if not PIXEL_SIZE_PATTERN.fullmatch(normalized):
+        return None
+    width_text, height_text = normalized.split("x", 1)
+    return int(width_text), int(height_text)
+
+
+def _build_size_options() -> tuple[SizeOption, ...]:
+    options: list[SizeOption] = []
+    for quality in QUALITY_OPTIONS:
+        for aspect, value in PRESET_SIZE_VALUES[quality]:
+            width, height = _parse_pixel_size(value) or (0, 0)
+            options.append(
+                SizeOption(
+                    value=value,
+                    label=f"{ASPECT_LABELS[aspect]} · {value}",
+                    aspect=aspect,
+                    quality=quality,
+                    width=width,
+                    height=height,
+                )
+            )
+    return tuple(options)
+
+
+SIZE_OPTIONS = _build_size_options()
+SIZE_OPTIONS_BY_QUALITY = {
+    quality: tuple(option for option in SIZE_OPTIONS if option.quality == quality)
+    for quality in QUALITY_OPTIONS
+}
 SIZE_OPTION_MAP = {option.value: option for option in SIZE_OPTIONS}
+SIZE_OPTIONS_BY_ASPECT_AND_QUALITY = {
+    aspect: {
+        quality: next(option for option in SIZE_OPTIONS_BY_QUALITY[quality] if option.aspect == aspect)
+        for quality in QUALITY_OPTIONS
+    }
+    for aspect in ASPECT_LABELS
+}
 
 
 def normalize_quality(value: object, *, fallback: str = DEFAULT_QUALITY) -> str:
     normalized = str(value or "").strip().lower()
-    return normalized if normalized in QUALITY_OPTIONS else fallback
+    mapped = QUALITY_ALIAS_MAP.get(normalized, normalized)
+    return mapped if mapped in QUALITY_OPTIONS else fallback
 
 
-def normalize_size_option(value: object, *, fallback: str = DEFAULT_SIZE_OPTION) -> str:
+def is_supported_quality(value: object) -> bool:
+    return normalize_quality(value, fallback="") in QUALITY_OPTIONS
+
+
+def available_size_options(quality: object) -> tuple[SizeOption, ...]:
+    return SIZE_OPTIONS_BY_QUALITY[normalize_quality(quality)]
+
+
+def default_size_for_quality(quality: object) -> str:
+    normalized_quality = normalize_quality(quality)
+    return SIZE_OPTIONS_BY_ASPECT_AND_QUALITY["9:16"][normalized_quality].value
+
+
+def infer_quality_from_size(value: object, *, fallback: str = DEFAULT_QUALITY) -> str:
+    pixel_size = _parse_pixel_size(value)
+    if pixel_size is None:
+        normalized = str(value or "").strip().lower()
+        if normalized in ASPECT_LABELS:
+            return normalize_quality(fallback)
+        return normalize_quality(fallback)
+
+    long_edge = max(pixel_size)
+    if long_edge <= TIER_LONG_EDGE_MAX[QUALITY_STANDARD]:
+        return QUALITY_STANDARD
+    if long_edge <= TIER_LONG_EDGE_MAX[QUALITY_HD]:
+        return QUALITY_HD
+    return QUALITY_4K
+
+
+def coerce_size_to_quality(value: object, quality: object, *, fallback: str | None = None) -> str:
+    normalized_quality = normalize_quality(quality)
+    normalized = str(value or "").strip().lower()
+
+    if _parse_pixel_size(normalized):
+        return normalized
+    if normalized in SIZE_OPTION_MAP:
+        return SIZE_OPTIONS_BY_ASPECT_AND_QUALITY[SIZE_OPTION_MAP[normalized].aspect][normalized_quality].value
+    if normalized in ASPECT_LABELS:
+        return SIZE_OPTIONS_BY_ASPECT_AND_QUALITY[normalized][normalized_quality].value
+    if fallback:
+        fallback_normalized = str(fallback).strip().lower()
+        if _parse_pixel_size(fallback_normalized):
+            return fallback_normalized
+    return default_size_for_quality(normalized_quality)
+
+
+def map_size_to_quality(value: object, quality: object, *, fallback: str | None = None) -> str:
+    normalized_quality = normalize_quality(quality)
     normalized = str(value or "").strip().lower()
     if normalized in SIZE_OPTION_MAP:
+        return SIZE_OPTIONS_BY_ASPECT_AND_QUALITY[SIZE_OPTION_MAP[normalized].aspect][normalized_quality].value
+    if normalized in ASPECT_LABELS:
+        return SIZE_OPTIONS_BY_ASPECT_AND_QUALITY[normalized][normalized_quality].value
+    if _parse_pixel_size(normalized):
         return normalized
-    return fallback
+    return coerce_size_to_quality(normalized, normalized_quality, fallback=fallback)
+
+
+def normalize_size_value(
+    value: object,
+    *,
+    fallback: str = DEFAULT_SIZE_OPTION,
+    quality: object = DEFAULT_QUALITY,
+) -> str:
+    normalized = str(value or "").strip().lower()
+    if _parse_pixel_size(normalized):
+        return normalized
+    if normalized in ASPECT_LABELS:
+        return SIZE_OPTIONS_BY_ASPECT_AND_QUALITY[normalized][normalize_quality(quality)].value
+    fallback_normalized = str(fallback or "").strip().lower()
+    if _parse_pixel_size(fallback_normalized):
+        return fallback_normalized
+    if fallback_normalized in ASPECT_LABELS:
+        return SIZE_OPTIONS_BY_ASPECT_AND_QUALITY[fallback_normalized][normalize_quality(quality)].value
+    return default_size_for_quality(quality)
+
+
+def is_supported_size_value(value: object) -> bool:
+    normalized = str(value or "").strip().lower()
+    return bool(_parse_pixel_size(normalized) or normalized in ASPECT_LABELS or normalized in SIZE_OPTION_MAP)
+
+
+def normalize_size_option(
+    value: object,
+    *,
+    fallback: str = DEFAULT_SIZE_OPTION,
+    quality: object = DEFAULT_QUALITY,
+) -> str:
+    return normalize_size_value(value, fallback=fallback, quality=quality)
 
 
 def is_supported_size_option(value: object) -> bool:
-    normalized_size = str(value or "").strip().lower()
-    return normalized_size in SIZE_OPTION_MAP
+    return is_supported_size_value(value)
 
 
 def resolve_api_size_value(size: object, quality: object) -> str:
-    option = SIZE_OPTION_MAP[normalize_size_option(size)]
-    normalized_quality = normalize_quality(quality)
-    target_long_edge = QUALITY_TARGET_LONG_EDGES[normalized_quality]
-    return _resolve_api_dimensions(option, target_long_edge)
+    effective_quality = infer_quality_from_size(size, fallback=quality)
+    return normalize_size_value(size, fallback=default_size_for_quality(effective_quality), quality=effective_quality)
 
 
-def _resolve_api_dimensions(option: SizeOption, target_long_edge: int) -> str:
-    width_ratio = option.width_ratio
-    height_ratio = option.height_ratio
-    ratio = width_ratio / height_ratio
-    if width_ratio >= height_ratio:
-        width = _floor_to_multiple(target_long_edge)
-        height = _floor_to_multiple(width / ratio)
-    else:
-        height = _floor_to_multiple(target_long_edge)
-        width = _floor_to_multiple(height * ratio)
-
-    while width * height > API_MAX_PIXELS:
-        if width >= height:
-            width -= API_EDGE_MULTIPLE
-            height = _floor_to_multiple(width / ratio)
-        else:
-            height -= API_EDGE_MULTIPLE
-            width = _floor_to_multiple(height * ratio)
-
-    while width * height < API_MIN_PIXELS:
-        if width >= height:
-            width += API_EDGE_MULTIPLE
-            height = _floor_to_multiple(width / ratio)
-        else:
-            height += API_EDGE_MULTIPLE
-            width = _floor_to_multiple(height * ratio)
-        if width > API_MAX_EDGE or height > API_MAX_EDGE:
-            break
-
-    width = min(API_MAX_EDGE, max(API_EDGE_MULTIPLE, width))
-    height = min(API_MAX_EDGE, max(API_EDGE_MULTIPLE, height))
-    return f"{width}x{height}"
+def quality_label(value: object) -> str:
+    return QUALITY_LABELS[normalize_quality(value)]
 
 
-def _floor_to_multiple(value: float, multiple: int = API_EDGE_MULTIPLE) -> int:
-    return max(multiple, int(floor(value / multiple) * multiple))
+def size_label(value: object, *, quality: object = DEFAULT_QUALITY) -> str:
+    normalized = normalize_size_value(value, quality=quality)
+    option = SIZE_OPTION_MAP.get(normalized)
+    if option:
+        return option.label
+    return normalized

@@ -19,9 +19,11 @@ from output_options import (
     DEFAULT_SIZE_OPTION,
     QUALITY_LABELS,
     QUALITY_OPTIONS,
-    SIZE_OPTIONS,
-    is_supported_size_option,
-    normalize_size_option,
+    infer_quality_from_size,
+    is_supported_quality,
+    is_supported_size_value,
+    normalize_quality,
+    normalize_size_value,
 )
 from prompt_guard import validate_prompt
 from provider_profiles import ProviderProfileStore
@@ -50,7 +52,7 @@ def _quality_options_text() -> str:
 
 
 def _size_options_text() -> str:
-    return "、".join(f"{option.label}（{option.value}）" for option in SIZE_OPTIONS)
+    return "需为 WxH 像素，例如 720x1280、1440x2560、2160x3840。"
 
 
 def _run_job(
@@ -256,8 +258,8 @@ class ImageWorkbenchHandler(BaseHTTPRequestHandler):
             return
 
         prompt = request.prompt
-        quality = request.quality
-        size = request.size
+        quality = normalize_quality(request.quality, fallback="")
+        size = str(request.size or "").strip().lower()
         count = request.count
 
         if not prompt:
@@ -267,13 +269,14 @@ class ImageWorkbenchHandler(BaseHTTPRequestHandler):
         if guard_message:
             self._send_json({"error": guard_message}, HTTPStatus.BAD_REQUEST)
             return
-        if quality not in QUALITY_OPTIONS:
+        if not is_supported_quality(quality):
             self._send_json({"error": f"质量参数无效，可选值：{_quality_options_text()}。"}, HTTPStatus.BAD_REQUEST)
             return
-        if not is_supported_size_option(size):
+        if not is_supported_size_value(size):
             self._send_json({"error": f"尺寸参数无效，可选值：{_size_options_text()}。"}, HTTPStatus.BAD_REQUEST)
             return
-        size = normalize_size_option(size)
+        size = normalize_size_value(size, quality=quality)
+        quality = infer_quality_from_size(size, fallback=quality)
         if not isinstance(count, int) or not 1 <= count <= MAX_IMAGE_COUNT:
             self._send_json({"error": f"生成数量必须在 1 到 {MAX_IMAGE_COUNT} 之间。"}, HTTPStatus.BAD_REQUEST)
             return
@@ -365,19 +368,16 @@ class ImageWorkbenchHandler(BaseHTTPRequestHandler):
             return
 
         STORE.retry(job_id)
-        retry_quality = str(snapshot.get("quality", DEFAULT_QUALITY)).strip().lower()
-        if retry_quality not in QUALITY_OPTIONS:
-            retry_quality = DEFAULT_QUALITY
-        retry_size = str(snapshot.get("size", DEFAULT_SIZE_OPTION)).strip().lower()
-        if not is_supported_size_option(retry_size):
-            retry_size = DEFAULT_SIZE_OPTION
+        retry_quality = normalize_quality(snapshot.get("quality"), fallback=DEFAULT_QUALITY)
+        retry_size = normalize_size_value(snapshot.get("size"), fallback=DEFAULT_SIZE_OPTION, quality=retry_quality)
+        retry_quality = infer_quality_from_size(retry_size, fallback=retry_quality)
         _start_job_thread(
             job_id,
             str(snapshot.get("workflow", "generate")).strip().lower(),
             str(snapshot.get("prompt", "")).strip(),
             int(snapshot.get("count", 1)),
             retry_quality,
-            normalize_size_option(retry_size),
+            retry_size,
             list(snapshot.get("source_images", [])),
             provider_profile,
         )

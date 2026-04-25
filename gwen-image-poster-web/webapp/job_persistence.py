@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from config import GENERATED_DIR, JOB_RECORDS_PATH, LOCAL_STATE_DIR
-from output_options import DEFAULT_QUALITY, DEFAULT_SIZE_OPTION, normalize_quality, normalize_size_option
+from output_options import DEFAULT_QUALITY, DEFAULT_SIZE_OPTION, normalize_quality, normalize_size_value
 from source_images import build_source_images_from_job_dir, normalize_source_images
 from workflows import DEFAULT_WORKFLOW, IMAGE_TO_IMAGE_WORKFLOW, normalize_workflow
 
@@ -64,12 +64,13 @@ def normalize_job_record(job_id: str, raw_job: dict) -> dict | None:
     raw_error = str(job.get("error", "")).strip()
     normalized_error = raw_error if raw_error and raw_error.lower() not in {"none", "null"} else None
 
+    normalized_quality = normalize_quality(job.get("quality"))
     normalized = {
         "id": job_id,
         "prompt": str(job.get("prompt", "")).strip(),
         "count": _to_int(job.get("count"), default=len(images) or 1),
-        "quality": normalize_quality(job.get("quality")),
-        "size": normalize_size_option(job.get("size")),
+        "quality": normalized_quality,
+        "size": normalize_size_value(job.get("size"), quality=normalized_quality),
         "workflow": normalize_workflow(
             job.get("workflow"),
             fallback=IMAGE_TO_IMAGE_WORKFLOW if source_images else DEFAULT_WORKFLOW,

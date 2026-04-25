@@ -67,10 +67,15 @@
   function normalizeForm(rawForm, workflow) {
     const defaults = cloneDefaultForm(workflow);
     const form = rawForm && typeof rawForm === "object" ? rawForm : {};
+    const rawSize = form.size ?? defaults.size;
+    const nextQuality = OUTPUT_OPTIONS.normalizeQuality(
+      form.quality ?? OUTPUT_OPTIONS.inferQualityFromSize(rawSize, defaults.quality),
+      defaults.quality
+    );
     const nextForm = {
       prompt: String(form.prompt ?? defaults.prompt),
-      size: OUTPUT_OPTIONS.normalizeSizeOption(form.size ?? defaults.size, defaults.size),
-      quality: OUTPUT_OPTIONS.normalizeQuality(form.quality ?? defaults.quality, defaults.quality),
+      size: OUTPUT_OPTIONS.normalizeSizeOption(rawSize, defaults.size, nextQuality),
+      quality: nextQuality,
       count: String(form.count ?? defaults.count),
     };
     if (!nextForm.count || Number.isNaN(Number.parseInt(nextForm.count, 10))) {
@@ -143,12 +148,17 @@
       return null;
     }
     const workflow = normalizeWorkflow(entry.workflow, fallbackWorkflow);
+    const rawSize = entry.size;
+    const nextQuality = OUTPUT_OPTIONS.normalizeQuality(
+      entry.quality ?? OUTPUT_OPTIONS.inferQualityFromSize(rawSize, OUTPUT_OPTIONS.DEFAULT_QUALITY),
+      OUTPUT_OPTIONS.DEFAULT_QUALITY
+    );
     return {
       id: String(entry.id || createId()),
       workflow,
       prompt,
-      size: OUTPUT_OPTIONS.normalizeSizeOption(entry.size),
-      quality: OUTPUT_OPTIONS.normalizeQuality(entry.quality),
+      size: OUTPUT_OPTIONS.normalizeSizeOption(rawSize, OUTPUT_OPTIONS.DEFAULT_SIZE_OPTION, nextQuality),
+      quality: nextQuality,
       count: Number.parseInt(entry.count, 10) || 1,
       createdAt: entry.createdAt || entry.updatedAt || new Date().toISOString(),
       updatedAt: entry.updatedAt || entry.createdAt || new Date().toISOString(),

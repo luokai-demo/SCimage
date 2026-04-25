@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 import shutil
 import subprocess
 import time
@@ -20,11 +21,11 @@ RETRYABLE_CURL_MARKERS = (
     "recv failure",
     "connection was reset",
     "proxy connect aborted",
+    "ssl connection timeout",
+    "ssl_error_syscall",
 )
 
 RETRYABLE_GATEWAY_MARKERS = (
-    "auth_required",
-    "chat-requirements failed",
     "504 gateway time-out",
     "504 gateway timeout",
     "gateway request timed out",
@@ -32,11 +33,18 @@ RETRYABLE_GATEWAY_MARKERS = (
     "service unavailable",
     "bad gateway",
     "too many requests",
+    "server internal error",
     '"code":"429"',
+    '"code":"500"',
     '"code":"502"',
     '"code":"503"',
+    '"code": "429"',
+    '"code": "500"',
+    '"code": "502"',
+    '"code": "503"',
     "<html",
 )
+HTTP_IMAGE_URL_PATTERN = re.compile(r"https?://[^\s\"'<>]+", re.IGNORECASE)
 
 
 class GatewayRetryableError(RuntimeError):
@@ -50,8 +58,8 @@ class GatewayFatalError(RuntimeError):
 @dataclass(frozen=True)
 class GatewayConfig:
     connect_timeout: int = 20
-    request_max_time: int = 210
-    download_max_time: int = 180
+    request_max_time: int = 480
+    download_max_time: int = 240
     generation_attempts: int = 4
     download_attempts: int = 3
     retry_delays: tuple[int, ...] = (8, 18, 35)
@@ -123,6 +131,152 @@ def _run_command(command: list[str]) -> subprocess.CompletedProcess[str]:
     return subprocess.run(command, capture_output=True, text=True, encoding="utf-8")
 
 
+def _extract_image_items_from_block(block: object) -> list[dict]:
+    items: list[dict] = []
+    if isinstance(block, dict):
+        if block.get("b64_json"):
+            items.append({"b64_json": str(block["b64_json"])})
+        if block.get("base64"):
+            items.append({"b64_json": str(block["base64"])})
+        if block.get("data_url"):
+            items.append({"data_url": str(block["data_url"])})
+
+        url = block.get("url")
+        if isinstance(url, str) and url.strip():
+            normalized_url = url.strip()
+            if normalized_url.startswith("data:image/"):
+                items.append({"data_url": normalized_url})
+            else:
+                items.append({"url": normalized_url})
+
+        image_url = block.get("image_url")
+        if isinstance(image_url, dict):
+            nested_url = image_url.get("url")
+            if isinstance(nested_url, str) and nested_url.strip():
+                normalized_url = nested_url.strip()
+                if normalized_url.startswith("data:image/"):
+                    items.append({"data_url": normalized_url})
+                else:
+                    items.append({"url": normalized_url})
+        elif isinstance(image_url, str) and image_url.strip():
+            normalized_url = image_url.strip()
+            if normalized_url.startswith("data:image/"):
+                items.append({"data_url": normalized_url})
+            else:
+                items.append({"url": normalized_url})
+
+        text = block.get("text")
+        if isinstance(text, str) and text.strip():
+            items.extend(_extract_image_items_from_content(text))
+
+    elif isinstance(block, str):
+        items.extend(_extract_image_items_from_content(block))
+
+    return items
+
+
+def _extract_image_items_from_content(content: object) -> list[dict]:
+    if isinstance(content, list):
+        items: list[dict] = []
+        for block in content:
+            items.extend(_extract_image_items_from_block(block))
+        return items
+
+    if isinstance(content, dict):
+        return _extract_image_items_from_block(content)
+
+    if not isinstance(content, str):
+        return []
+
+    stripped = content.strip()
+    if not stripped:
+        return []
+    if stripped.startswith("data:image/"):
+        return [{"data_url": stripped}]
+
+    try:
+        payload = json.loads(stripped)
+    except json.JSONDecodeError:
+        return [{"url": url.rstrip(".,)") } for url in HTTP_IMAGE_URL_PATTERN.findall(stripped)]
+    return _extract_image_items_from_content(payload)
+
+
+def _normalize_image_items(items: list[dict]) -> list[dict]:
+    normalized: list[dict] = []
+    seen: set[tuple[str, str]] = set()
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        if item.get("url"):
+            key = ("url", str(item["url"]))
+            if key not in seen:
+                seen.add(key)
+                normalized.append({"url": str(item["url"])})
+        elif item.get("data_url"):
+            key = ("data_url", str(item["data_url"]))
+            if key not in seen:
+                seen.add(key)
+                normalized.append({"data_url": str(item["data_url"])})
+        elif item.get("b64_json"):
+            key = ("b64_json", str(item["b64_json"]))
+            if key not in seen:
+                seen.add(key)
+                normalized.append({"b64_json": str(item["b64_json"])})
+    return normalized
+
+
+def _extract_image_data(response: dict) -> list[dict]:
+    data = response.get("data")
+    if isinstance(data, list):
+        return _normalize_image_items(data)
+
+    choices = response.get("choices")
+    if not isinstance(choices, list):
+        return []
+
+    items: list[dict] = []
+    for choice in choices:
+        if not isinstance(choice, dict):
+            continue
+        for payload_key in ("message", "delta"):
+            payload = choice.get(payload_key)
+            if isinstance(payload, dict):
+                items.extend(_extract_image_items_from_content(payload.get("content")))
+    return _normalize_image_items(items)
+
+
+def _parse_sse_response(body: str) -> dict | None:
+    events: list[dict] = []
+    for raw_line in body.splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith(":") or not line.startswith("data:"):
+            continue
+        payload = line.removeprefix("data:").strip()
+        if not payload or payload == "[DONE]":
+            continue
+        try:
+            event = json.loads(payload)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(event, dict):
+            events.append(event)
+
+    if not events:
+        return None
+
+    for event in reversed(events):
+        if event.get("error"):
+            return {"error": event["error"]}
+
+    items: list[dict] = []
+    for event in events:
+        items.extend(_extract_image_data(event))
+    if items:
+        return {"data": _normalize_image_items(items)}
+
+    return events[-1]
+
+
 def _parse_json_response(result: subprocess.CompletedProcess[str]) -> dict:
     if result.returncode != 0:
         message = _normalize_message(result.stderr or result.stdout or "curl request failed.")
@@ -139,6 +293,11 @@ def _parse_json_response(result: subprocess.CompletedProcess[str]) -> dict:
                 return _parse_last_json_document(body)
             except json.JSONDecodeError:
                 pass
+
+        sse_payload = _parse_sse_response(body)
+        if sse_payload is not None:
+            return sse_payload
+
         snippet = _normalize_message(body[:400])
         message = f"Gateway returned non-JSON content: {exc}. Snippet: {snippet}"
         if _is_retryable_message(message):
@@ -195,8 +354,7 @@ def _post_multipart_once(
             continue
         command.extend(["--form-string", f"{key}={value}"])
     for field_name, file_path in file_fields:
-        field_value = f"{field_name}=@{file_path}"
-        command.extend(["-F", field_value])
+        command.extend(["-F", f"{field_name}=@{file_path}"])
     return _parse_json_response(_run_command(command))
 
 
@@ -255,9 +413,11 @@ def _request_image_operation(
                 continue
             raise GatewayFatalError(message)
 
-        data = response.get("data")
-        if isinstance(data, list) and data:
-            return response
+        data = _extract_image_data(response)
+        if data:
+            normalized_response = dict(response)
+            normalized_response["data"] = data
+            return normalized_response
 
         last_error = "Gateway response did not include image data."
         if attempt == config.generation_attempts:
@@ -319,6 +479,26 @@ def request_edit(
             file_fields=[("image", path) for path in image_paths],
             config=config,
         ),
+        status_callback=status_callback,
+    )
+
+
+def request_chat_completion_images(
+    *,
+    base_url: str,
+    headers: dict[str, str],
+    payload: dict,
+    config: GatewayConfig,
+    status_callback: StatusCallback = None,
+) -> dict:
+    url = f"{base_url.rstrip('/')}/chat/completions"
+    return _request_image_operation(
+        url=url,
+        config=config,
+        attempt_label="正在请求图生图接口",
+        final_error_label="图生图接口",
+        retry_label="请求图生图接口",
+        request_once=lambda: _post_json_once(url=url, headers=headers, payload=payload, config=config),
         status_callback=status_callback,
     )
 

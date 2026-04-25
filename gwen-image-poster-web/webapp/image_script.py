@@ -13,7 +13,7 @@ from typing import TYPE_CHECKING, Callable, Optional
 
 from config import SCRIPT_PATH
 from generated_assets import OUTPUT_IMAGE_EXTENSIONS
-from output_options import resolve_api_size_value
+from output_options import normalize_quality, normalize_size_value
 
 if TYPE_CHECKING:
     from job_control import JobRunner
@@ -40,6 +40,7 @@ class JobCanceled(RuntimeError):
 
 
 def build_image_script_command(request: ImageScriptRequest) -> list[str]:
+    normalized_quality = normalize_quality(request.quality)
     command = [
         sys.executable,
         str(SCRIPT_PATH),
@@ -55,8 +56,10 @@ def build_image_script_command(request: ImageScriptRequest) -> list[str]:
         request.model,
         "--n",
         str(request.count),
+        "--quality",
+        normalized_quality,
         "--size",
-        resolve_api_size_value(request.size, request.quality),
+        normalize_size_value(request.size, quality=normalized_quality),
     ]
     for source_image_path in request.source_image_paths:
         command.extend(["--source-image", str(source_image_path)])
@@ -138,19 +141,29 @@ def normalize_script_error(message: str) -> str:
         cleaned = cleaned.removeprefix("Error:").strip()
     normalized = cleaned.lower()
 
+    if '"code": "401"' in normalized or '"code":"401"' in normalized:
+        return "API Key 无效或已过期，接口返回了 401。"
+    if '"code": "402"' in normalized or '"code":"402"' in normalized:
+        return "接口余额不足，接口返回了 402。"
+    if '"code": "403"' in normalized or '"code":"403"' in normalized:
+        return "当前账号无权限访问这个接口，接口返回了 403。"
     if "在 4 次尝试后仍返回异常" in cleaned or "在 4 次尝试后仍失败" in cleaned:
         if "auth_required" in normalized or "chat-requirements failed" in normalized:
             return "图像服务已经自动重试多次，但上游仍返回 auth_required / chat-requirements failed。建议稍后再试。"
     if "auth_required" in normalized or "chat-requirements failed" in normalized:
         return "上游图像服务当前未通过权限校验，接口返回了 auth_required / chat-requirements failed。"
+    if '"code": "429"' in normalized or '"code":"429"' in normalized:
+        return "图像服务当前请求过于频繁，接口返回了 429，请稍后再试。"
+    if '"code": "500"' in normalized or '"code":"500"' in normalized:
+        return "图像服务内部错误，接口返回了 500。"
+    if '"code": "502"' in normalized or '"code":"502"' in normalized:
+        return "图像服务上游不可用，接口返回了 502。"
     if "504 gateway time-out" in normalized or "504 gateway timeout" in normalized or "gateway request timed out" in normalized:
         return "图像服务超时了。脚本已经自动重试过，建议稍后再试。"
     if "operation timed out" in normalized or "timed out" in normalized:
-        return "图像服务长时间没有返回结果。脚本已经自动重试过，建议稍后再试。"
+        return "图像服务长时间没有返回结果。当前图片生成超时上限约 8 分钟，脚本已经自动重试过，建议稍后再试。"
     if "gateway returned invalid response" in normalized or "gateway returned non-json content" in normalized or "<html" in normalized:
         return "图像服务返回了异常页面，脚本已经自动重试过，通常是上游超时或临时故障。"
-    if "429" in normalized:
-        return "图像服务当前请求过多，脚本已经自动重试过，请稍后再试。"
     if "502" in normalized or "503" in normalized or "temporarily unavailable" in normalized:
         return "图像服务暂时不可用，脚本已经自动重试过，请稍后再试。"
 

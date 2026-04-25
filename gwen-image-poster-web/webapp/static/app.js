@@ -199,8 +199,8 @@ function formatQuality(value) {
   return OUTPUT_OPTIONS.formatQuality(value);
 }
 
-function formatSize(value) {
-  return OUTPUT_OPTIONS.formatSize(value);
+function formatSize(value, quality = OUTPUT_OPTIONS.DEFAULT_QUALITY) {
+  return OUTPUT_OPTIONS.formatSize(value, quality);
 }
 
 function getWorkflowLabel(workflow) {
@@ -259,7 +259,7 @@ function getJobOptionSummary(job) {
   if (job?.workflow === "image-to-image") {
     parts.push(`参考图 ${getWorkflowSourceCount(job)} 张`);
   }
-  parts.push(`尺寸 ${formatSize(job.size)}`);
+  parts.push(`尺寸 ${formatSize(job.size, job.quality)}`);
   parts.push(`质量 ${formatQuality(job.quality)}`);
   parts.push(`数量 ${job.count || 1}`);
   return parts.join(" · ");
@@ -619,15 +619,6 @@ function handleSourceFilesChange() {
 }
 
 function populateOutputOptionSelects() {
-  if (elements.size) {
-    elements.size.innerHTML = "";
-    OUTPUT_OPTIONS.SIZE_OPTIONS.forEach((option) => {
-      const node = createElement("option", "", option.label);
-      node.value = option.value;
-      node.selected = option.value === OUTPUT_OPTIONS.DEFAULT_SIZE_OPTION;
-      elements.size.appendChild(node);
-    });
-  }
   if (elements.quality) {
     elements.quality.innerHTML = "";
     OUTPUT_OPTIONS.QUALITY_OPTIONS.forEach((option) => {
@@ -636,7 +627,43 @@ function populateOutputOptionSelects() {
       node.selected = option.value === OUTPUT_OPTIONS.DEFAULT_QUALITY;
       elements.quality.appendChild(node);
     });
-    elements.quality.disabled = true;
+    elements.quality.disabled = false;
+  }
+  syncSizeOptionsForQuality(
+    elements.quality?.value || OUTPUT_OPTIONS.DEFAULT_QUALITY,
+    elements.size?.value || OUTPUT_OPTIONS.DEFAULT_SIZE_OPTION
+  );
+}
+
+function syncSizeOptionsForQuality(quality, preferredSize) {
+  if (!elements.size) {
+    return;
+  }
+
+  const normalizedQuality = OUTPUT_OPTIONS.normalizeQuality(quality, OUTPUT_OPTIONS.DEFAULT_QUALITY);
+  const nextSize = OUTPUT_OPTIONS.mapSizeToQuality(
+    preferredSize,
+    normalizedQuality,
+    OUTPUT_OPTIONS.defaultSizeForQuality(normalizedQuality)
+  );
+
+  elements.size.innerHTML = "";
+  OUTPUT_OPTIONS.getSizeOptions(normalizedQuality).forEach((option) => {
+    const node = createElement("option", "", option.label);
+    node.value = option.value;
+    node.selected = option.value === nextSize;
+    elements.size.appendChild(node);
+  });
+  if (!Array.from(elements.size.options).some((option) => option.value === nextSize)) {
+    const customNode = createElement("option", "", `自定义像素 · ${nextSize}`);
+    customNode.value = nextSize;
+    customNode.selected = true;
+    elements.size.appendChild(customNode);
+  }
+  elements.size.value = nextSize;
+
+  if (elements.quality) {
+    elements.quality.value = normalizedQuality;
   }
 }
 
@@ -653,13 +680,13 @@ function readFormFromUi(workflow = getActiveWorkflow()) {
 
 function applyFormToUi(form, workflow = getActiveWorkflow()) {
   const nextState = WORKFLOW_STATE.normalizeForm(form, workflow);
-  formFieldIds.forEach((fieldId) => {
-    const field = document.getElementById(fieldId);
-    if (!field || nextState[fieldId] == null) {
-      return;
-    }
-    field.value = nextState[fieldId];
-  });
+  if (elements.prompt && nextState.prompt != null) {
+    elements.prompt.value = nextState.prompt;
+  }
+  if (elements.count && nextState.count != null) {
+    elements.count.value = nextState.count;
+  }
+  syncSizeOptionsForQuality(nextState.quality, nextState.size);
 }
 
 function saveActiveWorkflowForm(workflow = getActiveWorkflow()) {
@@ -689,8 +716,12 @@ function readOutputParamsFromUi() {
   }
 
   return {
-    size: OUTPUT_OPTIONS.normalizeSizeOption(size),
-    quality: OUTPUT_OPTIONS.normalizeQuality(quality),
+    size: OUTPUT_OPTIONS.normalizeSizeOption(
+      size,
+      OUTPUT_OPTIONS.defaultSizeForQuality(quality),
+      quality
+    ),
+    quality: OUTPUT_OPTIONS.normalizeQuality(quality, OUTPUT_OPTIONS.DEFAULT_QUALITY),
   };
 }
 
@@ -818,8 +849,8 @@ function applySavedPrompt(promptId) {
   }
   applyFormToUi({
     prompt: entry.prompt,
-    size: OUTPUT_OPTIONS.normalizeSizeOption(entry.size),
-    quality: OUTPUT_OPTIONS.normalizeQuality(entry.quality),
+    size: entry.size,
+    quality: entry.quality,
     count: String(entry.count || 1),
   }, workflow);
   saveActiveWorkflowForm(workflow);
@@ -1862,6 +1893,7 @@ function buildCreateJobRequestBody(workflow, prompt, outputParams) {
   const basePayload = {
     workflow,
     prompt,
+    quality: outputParams.quality,
     size: outputParams.size,
     count: Number.parseInt(elements.count.value, 10) || 1,
   };
@@ -2053,7 +2085,7 @@ function bindEvents() {
     if (!field) {
       return;
     }
-    if (fieldId === "size") {
+    if (fieldId === "size" || fieldId === "quality") {
       return;
     }
     field.addEventListener("input", () => saveActiveWorkflowForm());
@@ -2061,6 +2093,11 @@ function bindEvents() {
   });
 
   elements.size.addEventListener("change", () => {
+    saveActiveWorkflowForm();
+  });
+
+  elements.quality?.addEventListener("change", () => {
+    syncSizeOptionsForQuality(elements.quality.value, elements.size.value);
     saveActiveWorkflowForm();
   });
 

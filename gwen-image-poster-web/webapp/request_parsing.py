@@ -51,8 +51,8 @@ def _parse_json_create_job_request(raw_body: bytes) -> CreateJobRequest:
     return CreateJobRequest(
         workflow=str(payload.get("workflow", DEFAULT_WORKFLOW)).strip() or DEFAULT_WORKFLOW,
         prompt=str(payload.get("prompt", "")).strip(),
-        quality=str(payload.get("quality", DEFAULT_QUALITY)).strip().lower(),
-        size=str(payload.get("size", DEFAULT_SIZE_OPTION)).strip().lower(),
+        quality=str(payload.get("quality") or DEFAULT_QUALITY).strip().lower(),
+        size=str(payload.get("size") or DEFAULT_SIZE_OPTION).strip().lower(),
         count=_parse_count(payload.get("count", 1)),
         source_images=(),
     )
@@ -80,8 +80,8 @@ def _parse_multipart_create_job_request(*, content_type: str, raw_body: bytes) -
     return CreateJobRequest(
         workflow=form.getfirst("workflow", DEFAULT_WORKFLOW).strip() or DEFAULT_WORKFLOW,
         prompt=form.getfirst("prompt", "").strip(),
-        quality=form.getfirst("quality", DEFAULT_QUALITY).strip().lower(),
-        size=form.getfirst("size", DEFAULT_SIZE_OPTION).strip().lower(),
+        quality=(form.getfirst("quality") or DEFAULT_QUALITY).strip().lower(),
+        size=(form.getfirst("size") or DEFAULT_SIZE_OPTION).strip().lower(),
         count=_parse_count(form.getfirst("count", "1")),
         source_images=tuple(source_images),
     )
