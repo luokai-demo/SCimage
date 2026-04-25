@@ -114,12 +114,6 @@ const LIGHTBOX_ZOOM_MIN = 1;
 const LIGHTBOX_ZOOM_MAX = 5;
 const LIGHTBOX_ZOOM_STEP = 0.25;
 
-function escapeHtml(value) {
-  const node = document.createElement("div");
-  node.textContent = value == null ? "" : String(value);
-  return node.innerHTML;
-}
-
 function createElement(tag, className, text) {
   const node = document.createElement(tag);
   if (className) {
@@ -1109,16 +1103,6 @@ function getFilteredJobs() {
   return sortedJobs;
 }
 
-function appendElapsedMeta(container, label, createdAt) {
-  const meta = createElement("span");
-  meta.append(`${label} `);
-  const value = createElement("span");
-  value.dataset.elapsedFrom = createdAt || "";
-  value.textContent = formatElapsed(createdAt);
-  meta.appendChild(value);
-  container.appendChild(meta);
-}
-
 function getJobDurationText(job) {
   const runStartedAt = job?.run_started_at || job?.created_at;
   if (!runStartedAt) {
@@ -1370,34 +1354,6 @@ function renderLeftTaskList() {
   sortedJobs.forEach((job) => {
     elements.taskList.appendChild(buildLeftTaskCard(job));
   });
-}
-
-function buildTaskCard(job) {
-  const card = createElement("div", "gallery-item gallery-task-card");
-  const header = createElement("div", "gallery-task-head");
-  const statusMeta = getStatusMeta(job.status);
-  const statusPill = createElement("span", `gallery-status-pill ${statusMeta.className}`, statusMeta.label);
-  const progressPill = createElement("span", "gallery-progress-pill", getJobProgressText(job));
-
-  const promptNode = createElement("div", "gallery-task-prompt", job.prompt || "未提供提示词");
-  const messageNode = createElement("div", "gallery-task-message", getJobMessage(job));
-  const meta = createElement("div", "gallery-task-meta");
-  const createdNode = createElement("span", "", `创建于 ${formatDateTime(job.created_at)}`);
-  meta.appendChild(createdNode);
-  appendElapsedMeta(meta, "已等待", job.created_at);
-
-  const options = createElement("div", "gallery-task-options", getJobOptionSummary(job));
-  const actions = createElement("div", "gallery-task-actions");
-  actions.appendChild(createActionButton("复制提示词", "copy-job-prompt", job.id));
-  if (isActiveStatus(job.status)) {
-    actions.appendChild(createActionButton("中断任务", "cancel-job", job.id));
-  } else {
-    actions.appendChild(createActionButton("删除任务", "delete-job", job.id, "gallery-del-btn"));
-  }
-
-  header.append(statusPill, progressPill);
-  card.append(header, promptNode, messageNode, meta, options, actions);
-  return card;
 }
 
 function updateSyncIndicators() {

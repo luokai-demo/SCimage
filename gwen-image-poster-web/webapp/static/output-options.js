@@ -25,28 +25,12 @@
   const sizeByValue = new Map(SIZE_OPTIONS.map((option) => [option.value, option]));
 
   function normalizeQuality(value, fallback = DEFAULT_QUALITY) {
-    const aliases = {
-      standard: "low",
-      standard_1k: "low",
-      "1k": "low",
-      hd: "medium",
-      hd_2k: "medium",
-      "2k": "medium",
-      ultra: "high",
-      ultra_4k: "high",
-      "4k": "high",
-    };
     const normalized = String(value || "").trim().toLowerCase();
-    const nextValue = aliases[normalized] || normalized;
-    return qualityByValue.has(nextValue) ? nextValue : fallback;
+    return qualityByValue.has(normalized) ? normalized : fallback;
   }
 
   function isSupportedQuality(value) {
     return qualityByValue.has(String(value || "").trim().toLowerCase());
-  }
-
-  function isPixelSize(value) {
-    return /^[1-9]\d*x[1-9]\d*$/i.test(String(value || "").trim());
   }
 
   function normalizeSizeOption(value, fallback = DEFAULT_SIZE_OPTION) {
@@ -70,9 +54,6 @@
     const normalized = String(value || "").trim().toLowerCase();
     if (sizeByValue.has(normalized)) {
       return sizeByValue.get(normalized).label;
-    }
-    if (isPixelSize(normalized)) {
-      return normalized;
     }
     return sizeByValue.get(DEFAULT_SIZE_OPTION).label;
   }

@@ -21,9 +21,7 @@ from output_options import (
     QUALITY_OPTIONS,
     SIZE_OPTIONS,
     is_supported_size_option,
-    is_supported_size_value,
     normalize_size_option,
-    normalize_size_value,
 )
 from prompt_guard import validate_prompt
 from provider_profiles import ProviderProfileStore
@@ -371,7 +369,7 @@ class ImageWorkbenchHandler(BaseHTTPRequestHandler):
         if retry_quality not in QUALITY_OPTIONS:
             retry_quality = DEFAULT_QUALITY
         retry_size = str(snapshot.get("size", DEFAULT_SIZE_OPTION)).strip().lower()
-        if not is_supported_size_value(retry_size):
+        if not is_supported_size_option(retry_size):
             retry_size = DEFAULT_SIZE_OPTION
         _start_job_thread(
             job_id,
@@ -379,7 +377,7 @@ class ImageWorkbenchHandler(BaseHTTPRequestHandler):
             str(snapshot.get("prompt", "")).strip(),
             int(snapshot.get("count", 1)),
             retry_quality,
-            normalize_size_value(retry_size),
+            normalize_size_option(retry_size),
             list(snapshot.get("source_images", [])),
             provider_profile,
         )

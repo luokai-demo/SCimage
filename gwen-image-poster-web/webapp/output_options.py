@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from math import floor
-import re
 
 
 DEFAULT_QUALITY = "low"
@@ -13,7 +12,6 @@ QUALITY_LABELS = {
     "medium": "高清 2K",
     "high": "超清 4K",
 }
-_PIXEL_SIZE_PATTERN = re.compile(r"^[1-9]\d*x[1-9]\d*$", re.IGNORECASE)
 API_EDGE_MULTIPLE = 16
 API_MAX_EDGE = 3840
 API_MAX_PIXELS = 8_294_400
@@ -50,27 +48,7 @@ SIZE_OPTION_MAP = {option.value: option for option in SIZE_OPTIONS}
 
 def normalize_quality(value: object, *, fallback: str = DEFAULT_QUALITY) -> str:
     normalized = str(value or "").strip().lower()
-    aliases = {
-        "standard": "low",
-        "standard_1k": "low",
-        "1k": "low",
-        "hd": "medium",
-        "hd_2k": "medium",
-        "2k": "medium",
-        "ultra": "high",
-        "ultra_4k": "high",
-        "4k": "high",
-    }
-    normalized = aliases.get(normalized, normalized)
     return normalized if normalized in QUALITY_OPTIONS else fallback
-
-
-def is_supported_quality(value: object) -> bool:
-    return str(value or "").strip().lower() in QUALITY_OPTIONS
-
-
-def is_pixel_size(value: object) -> bool:
-    return bool(_PIXEL_SIZE_PATTERN.fullmatch(str(value or "").strip()))
 
 
 def normalize_size_option(value: object, *, fallback: str = DEFAULT_SIZE_OPTION) -> str:
@@ -85,41 +63,11 @@ def is_supported_size_option(value: object) -> bool:
     return normalized_size in SIZE_OPTION_MAP
 
 
-def normalize_size_value(value: object, *, fallback: str = DEFAULT_SIZE_OPTION) -> str:
-    normalized = str(value or "").strip().lower()
-    if normalized in SIZE_OPTION_MAP or is_pixel_size(normalized):
-        return normalized
-    return fallback
-
-
-def is_supported_size_value(value: object) -> bool:
-    normalized_size = str(value or "").strip().lower()
-    return normalized_size in SIZE_OPTION_MAP or is_pixel_size(normalized_size)
-
-
 def resolve_api_size_value(size: object, quality: object) -> str:
-    normalized_size = normalize_size_value(size)
-    if is_pixel_size(normalized_size):
-        return normalized_size
-
-    option = SIZE_OPTION_MAP[normalize_size_option(normalized_size)]
+    option = SIZE_OPTION_MAP[normalize_size_option(size)]
     normalized_quality = normalize_quality(quality)
     target_long_edge = QUALITY_TARGET_LONG_EDGES[normalized_quality]
     return _resolve_api_dimensions(option, target_long_edge)
-
-
-def quality_label(value: object) -> str:
-    return QUALITY_LABELS.get(normalize_quality(value), QUALITY_LABELS[DEFAULT_QUALITY])
-
-
-def size_label(value: object) -> str:
-    normalized = str(value or "").strip().lower()
-    option = SIZE_OPTION_MAP.get(normalized)
-    if option:
-        return option.label
-    if is_pixel_size(normalized):
-        return normalized
-    return SIZE_OPTION_MAP[DEFAULT_SIZE_OPTION].label
 
 
 def _resolve_api_dimensions(option: SizeOption, target_long_edge: int) -> str:

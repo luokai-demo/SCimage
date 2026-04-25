@@ -134,7 +134,6 @@ class ProviderProfileStore:
 
         profiles: list[ProviderProfile] = []
         seen_ids: set[str] = set()
-        legacy_id_map: dict[str, str] = {}
         mutated = False
         for raw_profile in raw_profiles:
             if not isinstance(raw_profile, dict):
@@ -142,17 +141,6 @@ class ProviderProfileStore:
             profile = _deserialize_profile(raw_profile)
             if profile is None:
                 continue
-            if profile.id == "default":
-                next_profile_id = uuid4().hex[:12]
-                legacy_id_map[profile.id] = next_profile_id
-                profile = ProviderProfile(
-                    id=next_profile_id,
-                    name=profile.name,
-                    base_url=profile.base_url,
-                    api_key=profile.api_key,
-                    model=profile.model,
-                )
-                mutated = True
             if profile.id in seen_ids:
                 continue
             seen_ids.add(profile.id)
@@ -160,9 +148,6 @@ class ProviderProfileStore:
 
         profiles.sort(key=lambda profile: profile.name.lower())
         active_profile_id = str(payload.get("active_profile_id", "")).strip() or None
-        if active_profile_id in legacy_id_map:
-            active_profile_id = legacy_id_map[active_profile_id]
-            mutated = True
         if active_profile_id and _find_profile(active_profile_id, profiles) is None:
             active_profile_id = None
         if not active_profile_id and profiles:

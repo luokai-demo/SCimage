@@ -9,15 +9,9 @@
   const FORM_STORAGE_KEY = "image_workbench_form_state_v1";
   const PROMPT_BANK_KEY = "image_workbench_saved_prompts_v1";
   const ACTIVE_WORKFLOW_KEY = "image_workbench_active_tab_v1";
-  const LEGACY_STORAGE_KEYS = {
-    [FORM_STORAGE_KEY]: ["gwen_local_form_state_v1"],
-    [PROMPT_BANK_KEY]: ["gwen_saved_prompts_v1"],
-    [ACTIVE_WORKFLOW_KEY]: ["gwen_active_tab_v1"],
-  };
 
   const WORKFLOW_IDS = ["generate", "image-to-image"];
   const DEFAULT_WORKFLOW = "generate";
-  const FORM_STORE_VERSION = 3;
   const DEFAULT_FORM_BY_WORKFLOW = {
     generate: {
       prompt: "",
@@ -59,19 +53,6 @@
     localStorage.setItem(storageKey, JSON.stringify(value));
   }
 
-  function migrateLegacyStorage() {
-    Object.entries(LEGACY_STORAGE_KEYS).forEach(([targetKey, legacyKeys]) => {
-      if (localStorage.getItem(targetKey) != null) {
-        return;
-      }
-      const legacyKey = legacyKeys.find((key) => localStorage.getItem(key) != null);
-      if (!legacyKey) {
-        return;
-      }
-      localStorage.setItem(targetKey, localStorage.getItem(legacyKey));
-    });
-  }
-
   function createId() {
     if (window.crypto && typeof window.crypto.randomUUID === "function") {
       return window.crypto.randomUUID();
@@ -103,42 +84,7 @@
     WORKFLOW_IDS.forEach((workflow) => {
       workflows[workflow] = cloneDefaultForm(workflow);
     });
-    return { version: FORM_STORE_VERSION, workflows };
-  }
-
-  function normalizeLegacyForm(rawForm, workflow) {
-    const defaults = cloneDefaultForm(workflow);
-    const form = rawForm && typeof rawForm === "object" ? rawForm : {};
-    return normalizeForm(
-      {
-        prompt: form.prompt ?? defaults.prompt,
-        size: defaults.size,
-        quality: defaults.quality,
-        count: form.count ?? defaults.count,
-      },
-      workflow
-    );
-  }
-
-  function normalizePromptMap(rawPrompts, legacyPrompt = "") {
-    const prompts = {};
-    WORKFLOW_IDS.forEach((workflow) => {
-      prompts[workflow] = "";
-    });
-    const hasWorkflowPromptState = rawPrompts && typeof rawPrompts === "object" && !Array.isArray(rawPrompts);
-    if (hasWorkflowPromptState) {
-      Object.entries(rawPrompts).forEach(([workflow, prompt]) => {
-        const normalizedWorkflow = normalizeWorkflow(workflow, "");
-        if (normalizedWorkflow) {
-          prompts[normalizedWorkflow] = String(prompt || "");
-        }
-      });
-      return prompts;
-    }
-    if (typeof legacyPrompt === "string") {
-      prompts.generate = legacyPrompt;
-    }
-    return prompts;
+    return { workflows };
   }
 
   function normalizeFormStore(rawStore) {
@@ -149,30 +95,14 @@
     }
 
     if (raw.workflows && typeof raw.workflows === "object") {
-      const useLegacyOutputDefaults = Number(raw.version || 0) < FORM_STORE_VERSION;
       WORKFLOW_IDS.forEach((workflow) => {
-        store.workflows[workflow] = useLegacyOutputDefaults
-          ? normalizeLegacyForm(raw.workflows[workflow], workflow)
-          : normalizeForm(raw.workflows[workflow], workflow);
+        store.workflows[workflow] = normalizeForm(raw.workflows[workflow], workflow);
       });
-      return store;
     }
-
-    const prompts = normalizePromptMap(raw.promptsByWorkflow, raw.prompt);
-    WORKFLOW_IDS.forEach((workflow) => {
-      store.workflows[workflow] = normalizeLegacyForm(
-        {
-          prompt: prompts[workflow],
-          count: raw.count,
-        },
-        workflow
-      );
-    });
     return store;
   }
 
   function readFormStore() {
-    migrateLegacyStorage();
     return normalizeFormStore(parseJsonStorage(FORM_STORAGE_KEY, null));
   }
 
@@ -197,7 +127,6 @@
   }
 
   function readActiveWorkflow() {
-    migrateLegacyStorage();
     return normalizeWorkflow(localStorage.getItem(ACTIVE_WORKFLOW_KEY), DEFAULT_WORKFLOW);
   }
 
@@ -231,21 +160,11 @@
     WORKFLOW_IDS.forEach((workflow) => {
       workflows[workflow] = [];
     });
-    return { version: 2, workflows };
+    return { workflows };
   }
 
   function normalizePromptBankStore(rawStore) {
     const store = createEmptyPromptBankStore();
-    if (Array.isArray(rawStore)) {
-      rawStore.forEach((entry) => {
-        const normalizedEntry = normalizePromptEntry(entry, normalizeWorkflow(entry?.workflow, DEFAULT_WORKFLOW));
-        if (normalizedEntry) {
-          store.workflows[normalizedEntry.workflow].push(normalizedEntry);
-        }
-      });
-      return store;
-    }
-
     if (rawStore?.workflows && typeof rawStore.workflows === "object") {
       Object.entries(rawStore.workflows).forEach(([workflow, entries]) => {
         const normalizedWorkflow = normalizeWorkflow(workflow, "");
@@ -261,7 +180,6 @@
   }
 
   function readPromptBankStore() {
-    migrateLegacyStorage();
     return normalizePromptBankStore(parseJsonStorage(PROMPT_BANK_KEY, null));
   }
 
