@@ -1,18 +1,14 @@
 "use strict";
 
-const FORM_STORAGE_KEY = "image_workbench_form_state_v1";
-const PROMPT_BANK_KEY = "image_workbench_saved_prompts_v1";
-const ACTIVE_TAB_KEY = "image_workbench_active_tab_v1";
-const LEGACY_STORAGE_KEYS = {
-  [FORM_STORAGE_KEY]: ["gwen_local_form_state_v1"],
-  [PROMPT_BANK_KEY]: ["gwen_saved_prompts_v1"],
-  [ACTIVE_TAB_KEY]: ["gwen_active_tab_v1"],
-};
+const WORKFLOW_STATE = window.WorkflowState;
+if (!WORKFLOW_STATE) {
+  throw new Error("WorkflowState must be loaded before app.js");
+}
+
 const LIST_TIMEOUT_MS = 10000;
 const ACTION_TIMEOUT_MS = 20000;
 const POLL_INTERVAL_MS = 3000;
 const RUNNING_STATUSES = new Set(["queued", "running", "canceling"]);
-const SUPPORTED_WORKFLOWS = new Set(["generate", "image-to-image"]);
 
 const elements = {
   baseUrl: document.getElementById("baseUrl"),
@@ -64,6 +60,7 @@ const elements = {
   lightboxNext: document.getElementById("lightboxNext"),
   lightboxDl: document.getElementById("lightboxDl"),
   lightboxCopy: document.getElementById("lightboxCopy"),
+  lightboxAddSource: document.getElementById("lightboxAddSource"),
   lightboxDel: document.getElementById("lightboxDel"),
   cleanupGeneratedBtn: document.getElementById("cleanupGeneratedBtn"),
 };
@@ -86,6 +83,7 @@ let lastJobSnapshotSignature = "";
 let lastGallerySnapshotSignature = "";
 let providerProfilesInFlight = null;
 let cleanupGeneratedInFlight = null;
+let createJobInFlight = false;
 let isApiKeyVisible = false;
 const actionJobIds = new Set();
 const seenProblemJobKeys = new Set();
@@ -121,40 +119,6 @@ function syncApiKeyVisibilityUi() {
   const label = isApiKeyVisible ? "隐藏 API Key" : "显示 API Key";
   elements.toggleApiKeyVisibilityBtn.setAttribute("aria-label", label);
   elements.toggleApiKeyVisibilityBtn.setAttribute("title", label);
-}
-
-function safeParse(storageKey, fallback) {
-  try {
-    const raw = localStorage.getItem(storageKey);
-    return raw ? JSON.parse(raw) : fallback;
-  } catch (error) {
-    console.error(`Failed to parse localStorage key ${storageKey}:`, error);
-    return fallback;
-  }
-}
-
-function writeJson(storageKey, value) {
-  localStorage.setItem(storageKey, JSON.stringify(value));
-}
-
-function migrateLegacyStorage() {
-  Object.entries(LEGACY_STORAGE_KEYS).forEach(([targetKey, legacyKeys]) => {
-    if (localStorage.getItem(targetKey) != null) {
-      return;
-    }
-    const legacyKey = legacyKeys.find((key) => localStorage.getItem(key) != null);
-    if (!legacyKey) {
-      return;
-    }
-    localStorage.setItem(targetKey, localStorage.getItem(legacyKey));
-  });
-}
-
-function generateId() {
-  if (window.crypto && typeof window.crypto.randomUUID === "function") {
-    return window.crypto.randomUUID();
-  }
-  return `id-${Date.now()}-${Math.random().toString(16).slice(2)}`;
 }
 
 function formatDateTime(value) {
@@ -600,7 +564,15 @@ function setStatus(type, message, options = {}) {
 }
 
 function getActiveWorkflow() {
-  return window.WorkspacePanel?.getActiveWorkflow?.() || "generate";
+  return normalizeWorkflow(window.WorkspacePanel?.getActiveWorkflow?.(), WORKFLOW_STATE.readActiveWorkflow());
+}
+
+function normalizeWorkflow(value, fallback = WORKFLOW_STATE.DEFAULT_WORKFLOW) {
+  return WORKFLOW_STATE.normalizeWorkflow(value, fallback);
+}
+
+function isSupportedWorkflow(value) {
+  return WORKFLOW_STATE.isSupportedWorkflow(value);
 }
 
 function hasRequiredSourcesForWorkflow(workflow) {
@@ -611,12 +583,24 @@ function syncPrimaryActionState(isBusy = false) {
   const workflow = getActiveWorkflow();
   const config = window.WorkspacePanel?.getWorkflowConfig?.(workflow);
   const isEnabled = Boolean(config?.submitEnabled) && hasRequiredSourcesForWorkflow(workflow);
-  elements.generateBtn.disabled = isBusy || !isEnabled;
-  elements.generateBtn.setAttribute("aria-disabled", String(isBusy || !isEnabled));
+  const shouldDisable = isBusy || createJobInFlight || !isEnabled;
+  elements.generateBtn.disabled = shouldDisable;
+  elements.generateBtn.setAttribute("aria-disabled", String(shouldDisable));
 }
 
 function handleWorkflowChange(name) {
-  localStorage.setItem(ACTIVE_TAB_KEY, name);
+  const nextWorkflow = normalizeWorkflow(name, "");
+  if (!nextWorkflow) {
+    return;
+  }
+
+  const previousWorkflow = normalizeWorkflow(WORKFLOW_STATE.readActiveWorkflow());
+  if (nextWorkflow !== previousWorkflow) {
+    saveActiveWorkflowForm(previousWorkflow);
+  }
+  WORKFLOW_STATE.writeActiveWorkflow(nextWorkflow);
+  loadActiveWorkflowForm(nextWorkflow);
+  renderSavedPrompts();
   syncPrimaryActionState();
 }
 
@@ -628,39 +612,37 @@ function syncCustomSizeVisibility() {
   elements.customSizeGroup.style.display = elements.size.value === "custom" ? "" : "none";
 }
 
-function collectFormState() {
-  const state = {};
+function readFormFromUi(workflow = getActiveWorkflow()) {
+  const form = {};
   formFieldIds.forEach((fieldId) => {
     const field = document.getElementById(fieldId);
     if (field) {
-      state[fieldId] = field.value;
+      form[fieldId] = field.value;
     }
   });
-  return state;
+  return WORKFLOW_STATE.normalizeForm(form, workflow);
 }
 
-function saveFormState() {
-  writeJson(FORM_STORAGE_KEY, collectFormState());
-}
-
-function applyFormState(state) {
+function applyFormToUi(form, workflow = getActiveWorkflow()) {
+  const nextState = WORKFLOW_STATE.normalizeForm(form, workflow);
   formFieldIds.forEach((fieldId) => {
     const field = document.getElementById(fieldId);
-    if (!field || state[fieldId] == null) {
+    if (!field || nextState[fieldId] == null) {
       return;
     }
-    field.value = state[fieldId];
+    field.value = nextState[fieldId];
   });
   syncCustomSizeVisibility();
 }
 
-function loadFormState() {
-  const savedState = safeParse(FORM_STORAGE_KEY, null);
-  if (savedState) {
-    applyFormState(savedState);
-  } else {
-    resetFormState({ silent: true });
-  }
+function saveActiveWorkflowForm(workflow = getActiveWorkflow()) {
+  const normalizedWorkflow = normalizeWorkflow(workflow);
+  WORKFLOW_STATE.writeForm(normalizedWorkflow, readFormFromUi(normalizedWorkflow));
+}
+
+function loadActiveWorkflowForm(workflow = getActiveWorkflow()) {
+  const normalizedWorkflow = normalizeWorkflow(workflow);
+  applyFormToUi(WORKFLOW_STATE.readForm(normalizedWorkflow), normalizedWorkflow);
 }
 
 function resolveSizeValue() {
@@ -676,22 +658,16 @@ function resolveSizeValue() {
   return customSize.toLowerCase();
 }
 
-function readPromptBank() {
-  return safeParse(PROMPT_BANK_KEY, []);
-}
-
-function writePromptBank(promptBank) {
-  writeJson(PROMPT_BANK_KEY, promptBank);
-}
-
 function renderSavedPrompts() {
-  const promptBank = readPromptBank();
+  const workflow = normalizeWorkflow(getActiveWorkflow());
+  const workflowLabel = getWorkflowLabel(workflow);
+  const promptBank = WORKFLOW_STATE.readPromptBank(workflow);
   elements.savedPrompts.innerHTML = "";
   window.WorkspacePanel?.setPromptBankMeta(promptBank.length);
 
   if (!promptBank.length) {
     elements.savedPrompts.className = "prompt-bank-empty";
-    elements.savedPrompts.textContent = "还没有保存的提示词";
+    elements.savedPrompts.textContent = `还没有保存的${workflowLabel}提示词`;
     return;
   }
 
@@ -754,7 +730,9 @@ async function copyToClipboard(text, trigger, successLabel, restoreLabel) {
 }
 
 function saveCurrentPrompt() {
-  const prompt = elements.prompt.value.trim();
+  const workflow = normalizeWorkflow(getActiveWorkflow());
+  const form = readFormFromUi();
+  const prompt = form.prompt.trim();
   if (!prompt) {
     alert("请先输入提示词");
     elements.prompt.focus();
@@ -766,59 +744,57 @@ function saveCurrentPrompt() {
     return;
   }
 
-  const promptBank = readPromptBank();
-  const existing = promptBank.find((item) => item.prompt === prompt);
-  const nextEntry = {
-    id: existing ? existing.id : generateId(),
+  const nextEntry = WORKFLOW_STATE.savePrompt(workflow, {
+    workflow,
     prompt,
     size,
-    quality: elements.quality.value,
-    count: Number.parseInt(elements.count.value, 10) || 1,
-    createdAt: existing ? existing.createdAt : new Date().toISOString(),
-    updatedAt: new Date().toISOString(),
-  };
+    quality: form.quality,
+    count: Number.parseInt(form.count, 10) || 1,
+  });
+  if (!nextEntry) {
+    return;
+  }
 
-  const nextPromptBank = [nextEntry, ...promptBank.filter((item) => item.prompt !== prompt)].slice(0, 120);
-  writePromptBank(nextPromptBank);
+  saveActiveWorkflowForm(workflow);
   renderSavedPrompts();
   window.WorkspacePanel?.openPromptBank(true);
-  setStatus("success", "提示词已保存。", { timeoutMs: 2200 });
+  setStatus("success", `已保存到${getWorkflowLabel(workflow)}词库。`, { timeoutMs: 2200 });
 }
 
 function clearSavedPrompts() {
-  if (!readPromptBank().length) {
+  const workflow = normalizeWorkflow(getActiveWorkflow());
+  if (!WORKFLOW_STATE.readPromptBank(workflow).length) {
     return;
   }
-  if (!window.confirm("确定清空所有已保存提示词？")) {
+  if (!window.confirm(`确定清空${getWorkflowLabel(workflow)}已保存提示词？`)) {
     return;
   }
-  localStorage.removeItem(PROMPT_BANK_KEY);
+  WORKFLOW_STATE.clearPromptBank(workflow);
   renderSavedPrompts();
   setStatus("success", "提示词库已清空。", { timeoutMs: 2200 });
 }
 
 function applySavedPrompt(promptId) {
-  const entry = readPromptBank().find((item) => item.id === promptId);
+  const workflow = normalizeWorkflow(getActiveWorkflow());
+  const entry = WORKFLOW_STATE.findPrompt(workflow, promptId);
   if (!entry) {
     return;
   }
   const hasPresetSize = !!entry.size && Array.from(elements.size.options).some((option) => option.value === entry.size);
-  applyFormState({
+  applyFormToUi({
     prompt: entry.prompt,
     size: hasPresetSize ? entry.size : "custom",
     customSize: hasPresetSize ? "" : (entry.size || ""),
     quality: entry.quality || "auto",
     count: String(entry.count || 1),
-  });
-  syncCustomSizeVisibility();
-  saveFormState();
+  }, workflow);
+  saveActiveWorkflowForm(workflow);
   setStatus("success", "提示词已载入。", { timeoutMs: 2200 });
 }
 
 function deleteSavedPrompt(promptId) {
-  const promptBank = readPromptBank();
-  const nextPromptBank = promptBank.filter((item) => item.id !== promptId);
-  writePromptBank(nextPromptBank);
+  const workflow = normalizeWorkflow(getActiveWorkflow());
+  WORKFLOW_STATE.deletePrompt(workflow, promptId);
   renderSavedPrompts();
 }
 
@@ -1140,6 +1116,22 @@ function createActionButton(label, action, jobId, extraClassName = "") {
   return button;
 }
 
+function createGalleryTimeNode(value) {
+  const formatted = formatDateTime(value);
+  const timeNode = createElement("span", "time");
+  timeNode.setAttribute("aria-label", `生成时间 ${formatted}`);
+  const [datePart, clockPart] = formatted.split(/\s+/, 2);
+  if (!datePart || !clockPart) {
+    timeNode.textContent = formatted;
+    return timeNode;
+  }
+  timeNode.append(
+    createElement("span", "time-date", datePart),
+    createElement("span", "time-clock", clockPart)
+  );
+  return timeNode;
+}
+
 function buildImageCard(job, image) {
   const imageUrl = normalizeImageUrl(image.url);
   if (!imageUrl) {
@@ -1171,23 +1163,37 @@ function buildImageCard(job, image) {
   const promptPreview = createElement("div", "prompt-preview", job.prompt);
 
   const metaRow = createElement("div", "meta-row");
-  const timeNode = createElement("span", "time", formatDateTime(job.updated_at || job.created_at));
+  const timeNode = createGalleryTimeNode(job.updated_at || job.created_at);
   const actions = createElement("span", "meta-actions");
 
-  const copyButton = createActionButton("复制提示词", "copy-job-prompt", job.id);
+  const copyButton = createActionButton("复制", "copy-job-prompt", job.id);
+  copyButton.setAttribute("aria-label", "复制提示词");
+  copyButton.setAttribute("title", "复制提示词");
   actions.appendChild(copyButton);
+
+  const addSourceButton = createActionButton("参考", "add-source-reference", job.id);
+  addSourceButton.dataset.slot = String(image.slot || 0);
+  addSourceButton.setAttribute("aria-label", "加入图生图参考图");
+  addSourceButton.setAttribute("title", "加入图生图参考图");
+  actions.appendChild(addSourceButton);
 
   const downloadLink = createElement("a", "", "下载");
   downloadLink.href = imageUrl;
   downloadLink.download = image.name || `image-${image.slot || 1}.png`;
+  downloadLink.setAttribute("title", "下载图片");
   downloadLink.addEventListener("click", (event) => event.stopPropagation());
   actions.appendChild(downloadLink);
 
   if (isActiveStatus(job.status)) {
-    actions.appendChild(createActionButton("中断", "cancel-job", job.id));
+    const cancelButton = createActionButton("中断", "cancel-job", job.id);
+    cancelButton.setAttribute("aria-label", "中断任务");
+    cancelButton.setAttribute("title", "中断任务");
+    actions.appendChild(cancelButton);
   } else {
-    const deleteImageButton = createActionButton("删除图片", "delete-image", job.id, "gallery-del-btn");
+    const deleteImageButton = createActionButton("删除", "delete-image", job.id, "gallery-del-btn");
     deleteImageButton.dataset.slot = String(image.slot || 0);
+    deleteImageButton.setAttribute("aria-label", "删除图片");
+    deleteImageButton.setAttribute("title", "删除图片");
     actions.appendChild(deleteImageButton);
   }
 
@@ -1468,6 +1474,9 @@ function showLightboxItem(index) {
   elements.lightboxDl.href = item.src;
   elements.lightboxDl.download = item.filename;
   elements.lightboxCounter.textContent = `${index + 1} / ${galleryFlatList.length}`;
+  if (elements.lightboxAddSource) {
+    elements.lightboxAddSource.disabled = false;
+  }
   elements.lightboxPrev.disabled = index === 0;
   elements.lightboxNext.disabled = index === galleryFlatList.length - 1;
 
@@ -1530,6 +1539,63 @@ function copyPrompt() {
     return;
   }
   copyToClipboard(item.prompt, elements.lightboxCopy, "已复制", "复制提示词");
+}
+
+function findJobImage(jobId, slot) {
+  const job = getJobById(jobId);
+  if (!job) {
+    return null;
+  }
+  const normalizedSlot = Number(slot || 0);
+  return (job.images || []).find((image) => Number(image.slot || 0) === normalizedSlot) || null;
+}
+
+async function addGalleryImageToSource(jobId, slot) {
+  const image = findJobImage(jobId, slot);
+  if (!image?.url) {
+    setStatus("error", "要加入参考图的图片不存在。", { timeoutMs: 2200 });
+    return;
+  }
+  if (!window.WorkspacePanel?.addSourceImageFromUrl) {
+    setStatus("error", "当前工作区暂不支持加入参考图。", { timeoutMs: 2200 });
+    return;
+  }
+
+  const imageUrl = normalizeImageUrl(image.url);
+  const filename = image.name || `image-${image.slot || 1}.png`;
+  try {
+    const addedCount = await window.WorkspacePanel.addSourceImageFromUrl({
+      url: imageUrl,
+      filename,
+      sourceKey: `gallery:${imageUrl}`,
+    });
+    switchTab("image-to-image");
+    setStatus(
+      "success",
+      addedCount > 0 ? "已加入图生图参考图。" : "这张图片已经在图生图参考图中。",
+      { timeoutMs: 2200 }
+    );
+  } catch (error) {
+    console.error("Add source reference failed:", error);
+    setStatus("error", error.message);
+  }
+}
+
+async function addLightboxImageToSource() {
+  const item = galleryFlatList[lightboxIndex];
+  if (!item) {
+    return;
+  }
+  if (elements.lightboxAddSource) {
+    elements.lightboxAddSource.disabled = true;
+  }
+  try {
+    await addGalleryImageToSource(item.jobId, item.slot);
+  } finally {
+    if (elements.lightboxAddSource) {
+      elements.lightboxAddSource.disabled = false;
+    }
+  }
 }
 
 async function deleteJob(jobId) {
@@ -1688,14 +1754,11 @@ function toggleSettingsPanel() {
 }
 
 function switchTab(name) {
-  if (!SUPPORTED_WORKFLOWS.has(name)) {
+  if (!isSupportedWorkflow(name)) {
     return;
   }
 
-  if (!window.WorkspacePanel?.setActiveWorkflow(name)) {
-    return;
-  }
-  handleWorkflowChange(name);
+  window.WorkspacePanel?.setActiveWorkflow(name);
 }
 
 function buildCreateJobRequestBody(workflow, prompt, size) {
@@ -1727,12 +1790,23 @@ function buildCreateJobRequestBody(workflow, prompt, size) {
   return formData;
 }
 
-function submitActiveWorkflow() {
-  generate();
+function submitActiveWorkflow(event) {
+  event?.preventDefault();
+  event?.stopPropagation();
+  const workflow = event?.currentTarget?.dataset.workflow || getActiveWorkflow();
+  generate(workflow);
 }
 
-async function generate() {
-  const workflow = getActiveWorkflow();
+async function generate(workflowOverride) {
+  if (createJobInFlight) {
+    return;
+  }
+
+  const workflow = normalizeWorkflow(workflowOverride || getActiveWorkflow(), "");
+  if (!workflow) {
+    setStatus("error", "当前工作流无效，请重新选择文生图或图生图。", { timeoutMs: 2400 });
+    return;
+  }
 
   const prompt = elements.prompt.value.trim();
   if (!prompt) {
@@ -1752,8 +1826,9 @@ async function generate() {
     return;
   }
 
+  createJobInFlight = true;
   syncPrimaryActionState(true);
-  saveFormState();
+  saveActiveWorkflowForm(workflow);
   setStatus("loading", "正在创建任务...");
 
   try {
@@ -1769,6 +1844,7 @@ async function generate() {
     console.error("Create job failed:", error);
     setStatus("error", error.message);
   } finally {
+    createJobInFlight = false;
     syncPrimaryActionState(false);
   }
 }
@@ -1829,18 +1905,14 @@ function refreshGallery() {
 }
 
 function resetFormState(options = {}) {
-  const defaults = {
-    prompt: "",
-    size: "1024x1024",
-    customSize: "",
-    quality: "high",
-    count: "1",
-  };
-  applyFormState(defaults);
-  writeJson(FORM_STORAGE_KEY, defaults);
+  const defaultWorkflow = WORKFLOW_STATE.DEFAULT_WORKFLOW;
+  WORKFLOW_STATE.resetForms();
+  WORKFLOW_STATE.writeActiveWorkflow(defaultWorkflow);
+  window.WorkspacePanel?.setActiveWorkflow(defaultWorkflow, { emit: false });
+  loadActiveWorkflowForm(defaultWorkflow);
   window.WorkspacePanel?.clearSourceFiles?.();
+  renderSavedPrompts();
   if (!options.silent) {
-    switchTab("generate");
     setStatus("success", "表单已重置。", { timeoutMs: 2000 });
   }
   syncPrimaryActionState();
@@ -1866,6 +1938,10 @@ function handleJobAction(actionButton) {
     retryJob(jobId);
     return;
   }
+  if (action === "add-source-reference") {
+    addGalleryImageToSource(jobId, Number(actionButton.dataset.slot || 0));
+    return;
+  }
   if (action === "delete-job") {
     deleteJob(jobId);
     return;
@@ -1881,13 +1957,16 @@ function bindEvents() {
     if (!field) {
       return;
     }
-    field.addEventListener("input", saveFormState);
-    field.addEventListener("change", saveFormState);
+    if (fieldId === "size") {
+      return;
+    }
+    field.addEventListener("input", () => saveActiveWorkflowForm());
+    field.addEventListener("change", () => saveActiveWorkflowForm());
   });
 
   elements.size.addEventListener("change", () => {
     syncCustomSizeVisibility();
-    saveFormState();
+    saveActiveWorkflowForm();
   });
 
   elements.toggleApiKeyVisibilityBtn?.addEventListener("click", () => {
@@ -1911,7 +1990,8 @@ function bindEvents() {
 
     const promptId = button.dataset.promptId;
     const action = button.dataset.promptAction;
-    const prompt = readPromptBank().find((item) => item.id === promptId);
+    const workflow = normalizeWorkflow(getActiveWorkflow());
+    const prompt = WORKFLOW_STATE.findPrompt(workflow, promptId);
 
     if (action === "apply") {
       applySavedPrompt(promptId);
@@ -2039,17 +2119,16 @@ function bindEvents() {
 }
 
 function hydrateStaticUi() {
-  syncCustomSizeVisibility();
   syncApiKeyVisibilityUi();
-  renderSavedPrompts();
-  const storedWorkflow = localStorage.getItem(ACTIVE_TAB_KEY) || "generate";
-  const initialWorkflow = SUPPORTED_WORKFLOWS.has(storedWorkflow) ? storedWorkflow : "generate";
+  const initialWorkflow = normalizeWorkflow(WORKFLOW_STATE.readActiveWorkflow());
   window.WorkspacePanel?.init({
     initialWorkflow,
     onWorkflowChange: handleWorkflowChange,
     onSourceFilesChange: handleSourceFilesChange,
   });
-  switchTab(initialWorkflow);
+  loadActiveWorkflowForm(initialWorkflow);
+  renderSavedPrompts();
+  syncPrimaryActionState();
 }
 
 function startTimers() {
@@ -2064,9 +2143,7 @@ function startTimers() {
 }
 
 async function init() {
-  migrateLegacyStorage();
   bindEvents();
-  loadFormState();
   hydrateStaticUi();
   await loadProviderProfiles({ silent: true });
   updateSyncIndicators();

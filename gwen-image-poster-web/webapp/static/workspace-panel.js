@@ -59,6 +59,7 @@
   let workflowChangeHandler = null;
   let sourceFilesChangeHandler = null;
   let sourceFiles = [];
+  let sourceFilesTouchedBeforeHydration = false;
   let isPanelCollapsed = false;
 
   function getWorkflowConfig(name) {
@@ -95,7 +96,29 @@
   }
 
   function buildSourceFileKey(file) {
+    if (window.SourceImageStore?.getFileKey) {
+      return window.SourceImageStore.getFileKey(file);
+    }
     return [file.name, file.size, file.lastModified].join("::");
+  }
+
+  async function persistSourceFiles() {
+    if (!window.SourceImageStore?.saveFiles) {
+      return;
+    }
+    try {
+      await window.SourceImageStore.saveFiles(sourceFiles);
+    } catch (error) {
+      console.warn("Failed to persist source images:", error);
+    }
+  }
+
+  function syncSourceFiles(options = {}) {
+    renderSourcePreview();
+    emitSourceFilesChange();
+    if (options.persist !== false) {
+      persistSourceFiles();
+    }
   }
 
   function renderSourcePreview() {
@@ -128,8 +151,8 @@
         event.stopPropagation();
         const targetKey = buildSourceFileKey(file);
         sourceFiles = sourceFiles.filter((item) => buildSourceFileKey(item) !== targetKey);
-        renderSourcePreview();
-        emitSourceFilesChange();
+        sourceFilesTouchedBeforeHydration = true;
+        syncSourceFiles();
       });
 
       wrap.append(image, removeButton);
@@ -140,19 +163,24 @@
   function appendSourceFiles(fileList) {
     const nextFiles = Array.from(fileList || []).filter((file) => file && file.type.startsWith("image/"));
     if (!nextFiles.length) {
-      return;
+      return 0;
     }
 
     const existingKeys = new Set(sourceFiles.map(buildSourceFileKey));
+    let addedCount = 0;
     nextFiles.forEach((file) => {
       const fileKey = buildSourceFileKey(file);
       if (!existingKeys.has(fileKey)) {
         sourceFiles.push(file);
         existingKeys.add(fileKey);
+        addedCount += 1;
       }
     });
-    renderSourcePreview();
-    emitSourceFilesChange();
+    if (addedCount > 0) {
+      sourceFilesTouchedBeforeHydration = true;
+      syncSourceFiles();
+    }
+    return addedCount;
   }
 
   function emitSourceFilesChange() {
@@ -163,8 +191,38 @@
 
   function clearSourceFiles() {
     sourceFiles = [];
-    renderSourcePreview();
-    emitSourceFilesChange();
+    sourceFilesTouchedBeforeHydration = true;
+    if (window.SourceImageStore?.clearFiles) {
+      window.SourceImageStore.clearFiles().catch((error) => {
+        console.warn("Failed to clear persisted source images:", error);
+      });
+    }
+    syncSourceFiles({ persist: false });
+  }
+
+  async function hydratePersistedSourceFiles() {
+    if (!window.SourceImageStore?.loadFiles) {
+      syncSourceFiles({ persist: false });
+      return;
+    }
+
+    try {
+      const persistedFiles = await window.SourceImageStore.loadFiles();
+      if (!sourceFilesTouchedBeforeHydration) {
+        sourceFiles = persistedFiles;
+      }
+    } catch (error) {
+      console.warn("Failed to load persisted source images:", error);
+    }
+    syncSourceFiles({ persist: false });
+  }
+
+  async function addSourceImageFromUrl(options) {
+    if (!window.SourceImageStore?.createFileFromUrl) {
+      throw new Error("当前浏览器不支持持久化参考图。");
+    }
+    const file = await window.SourceImageStore.createFileFromUrl(options);
+    return appendSourceFiles([file]);
   }
 
   function applyWorkflowUi(name) {
@@ -210,13 +268,14 @@
 
     if (elements.primaryActionButton) {
       elements.primaryActionButton.textContent = config.actionLabel;
+      elements.primaryActionButton.dataset.workflow = name;
     }
 
     if (config.source && elements.sourceTitle && elements.sourceHint && elements.sourceDropText && elements.sourceBrowseBtn) {
       elements.sourceTitle.textContent = config.source.title;
       elements.sourceHint.textContent = config.source.hint;
-      elements.sourceDropText.textContent = config.source.text;
       elements.sourceBrowseBtn.textContent = config.source.buttonLabel;
+      renderSourcePreview();
     }
 
     return true;
@@ -347,6 +406,7 @@
     syncPanelToggleState();
     renderSourcePreview();
     emitSourceFilesChange();
+    hydratePersistedSourceFiles();
   }
 
   window.WorkspacePanel = {
@@ -354,6 +414,7 @@
     getActiveWorkflow: () => activeWorkflow,
     getWorkflowConfig,
     getSourceFiles: () => [...sourceFiles],
+    addSourceImageFromUrl,
     clearSourceFiles,
     openPromptBank,
     setActiveWorkflow,
