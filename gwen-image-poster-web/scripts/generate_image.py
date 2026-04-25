@@ -15,7 +15,7 @@ from gateway_client import GatewayConfig, download_file, request_edit, request_g
 
 DEFAULT_BASE_URL = os.getenv("IMAGE_API_BASE_URL") or os.getenv("OPENAI_BASE_URL") or ""
 DEFAULT_MODEL = os.getenv("IMAGE_API_MODEL") or "gpt-image-2"
-DEFAULT_SIZE = "9:16"
+DEFAULT_SIZE = "1024x1024"
 QUALITY_OPTIONS = ("low", "medium", "high")
 WORKFLOW_OPTIONS = ("generate", "image-to-image")
 
