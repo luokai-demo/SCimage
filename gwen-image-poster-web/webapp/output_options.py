@@ -4,19 +4,23 @@ from dataclasses import dataclass
 import re
 
 
+AUTO_OPTION = "auto"
 QUALITY_STANDARD = "standard"
 QUALITY_HD = "hd"
 QUALITY_4K = "4k"
 
 DEFAULT_QUALITY = QUALITY_STANDARD
 DEFAULT_SIZE_OPTION = "720x1280"
-QUALITY_OPTIONS = (QUALITY_STANDARD, QUALITY_HD, QUALITY_4K)
+FIXED_QUALITY_OPTIONS = (QUALITY_STANDARD, QUALITY_HD, QUALITY_4K)
+QUALITY_OPTIONS = (AUTO_OPTION, *FIXED_QUALITY_OPTIONS)
 QUALITY_LABELS = {
+    AUTO_OPTION: "自动",
     QUALITY_STANDARD: "标准 1K",
     QUALITY_HD: "高清 2K",
     QUALITY_4K: "超清 4K",
 }
 QUALITY_ALIAS_MAP = {
+    "auto": AUTO_OPTION,
     "standard": QUALITY_STANDARD,
     "1k": QUALITY_STANDARD,
     "low": QUALITY_STANDARD,
@@ -95,6 +99,9 @@ class SizeOption:
     height: int
 
 
+AUTO_SIZE_OPTION = SizeOption(AUTO_OPTION, "自动", AUTO_OPTION, AUTO_OPTION, 0, 0)
+
+
 def _parse_pixel_size(value: object) -> tuple[int, int] | None:
     normalized = str(value or "").strip().lower()
     if not PIXEL_SIZE_PATTERN.fullmatch(normalized):
@@ -103,9 +110,9 @@ def _parse_pixel_size(value: object) -> tuple[int, int] | None:
     return int(width_text), int(height_text)
 
 
-def _build_size_options() -> tuple[SizeOption, ...]:
+def _build_preset_size_options() -> tuple[SizeOption, ...]:
     options: list[SizeOption] = []
-    for quality in QUALITY_OPTIONS:
+    for quality in FIXED_QUALITY_OPTIONS:
         for aspect, value in PRESET_SIZE_VALUES[quality]:
             width, height = _parse_pixel_size(value) or (0, 0)
             options.append(
@@ -121,16 +128,23 @@ def _build_size_options() -> tuple[SizeOption, ...]:
     return tuple(options)
 
 
-SIZE_OPTIONS = _build_size_options()
+PRESET_SIZE_OPTIONS = _build_preset_size_options()
+SIZE_OPTIONS = (AUTO_SIZE_OPTION, *PRESET_SIZE_OPTIONS)
 SIZE_OPTIONS_BY_QUALITY = {
-    quality: tuple(option for option in SIZE_OPTIONS if option.quality == quality)
-    for quality in QUALITY_OPTIONS
+    AUTO_OPTION: (AUTO_SIZE_OPTION,),
+    **{
+        quality: (
+            AUTO_SIZE_OPTION,
+            *tuple(option for option in PRESET_SIZE_OPTIONS if option.quality == quality),
+        )
+        for quality in FIXED_QUALITY_OPTIONS
+    },
 }
 SIZE_OPTION_MAP = {option.value: option for option in SIZE_OPTIONS}
 SIZE_OPTIONS_BY_ASPECT_AND_QUALITY = {
     aspect: {
         quality: next(option for option in SIZE_OPTIONS_BY_QUALITY[quality] if option.aspect == aspect)
-        for quality in QUALITY_OPTIONS
+        for quality in FIXED_QUALITY_OPTIONS
     }
     for aspect in ASPECT_LABELS
 }
@@ -146,19 +160,28 @@ def is_supported_quality(value: object) -> bool:
     return normalize_quality(value, fallback="") in QUALITY_OPTIONS
 
 
+def _size_lookup_quality(quality: object) -> str:
+    normalized_quality = normalize_quality(quality)
+    return DEFAULT_QUALITY if normalized_quality == AUTO_OPTION else normalized_quality
+
+
 def available_size_options(quality: object) -> tuple[SizeOption, ...]:
     return SIZE_OPTIONS_BY_QUALITY[normalize_quality(quality)]
 
 
 def default_size_for_quality(quality: object) -> str:
     normalized_quality = normalize_quality(quality)
+    if normalized_quality == AUTO_OPTION:
+        return AUTO_OPTION
     return SIZE_OPTIONS_BY_ASPECT_AND_QUALITY["9:16"][normalized_quality].value
 
 
 def infer_quality_from_size(value: object, *, fallback: str = DEFAULT_QUALITY) -> str:
+    normalized = str(value or "").strip().lower()
+    if normalized == AUTO_OPTION:
+        return AUTO_OPTION
     pixel_size = _parse_pixel_size(value)
     if pixel_size is None:
-        normalized = str(value or "").strip().lower()
         if normalized in ASPECT_LABELS:
             return normalize_quality(fallback)
         return normalize_quality(fallback)
@@ -173,16 +196,24 @@ def infer_quality_from_size(value: object, *, fallback: str = DEFAULT_QUALITY) -
 
 def coerce_size_to_quality(value: object, quality: object, *, fallback: str | None = None) -> str:
     normalized_quality = normalize_quality(quality)
+    lookup_quality = _size_lookup_quality(normalized_quality)
     normalized = str(value or "").strip().lower()
 
+    if normalized == AUTO_OPTION:
+        return AUTO_OPTION
     if _parse_pixel_size(normalized):
         return normalized
     if normalized in SIZE_OPTION_MAP:
-        return SIZE_OPTIONS_BY_ASPECT_AND_QUALITY[SIZE_OPTION_MAP[normalized].aspect][normalized_quality].value
+        option = SIZE_OPTION_MAP[normalized]
+        if option.value == AUTO_OPTION:
+            return AUTO_OPTION
+        return SIZE_OPTIONS_BY_ASPECT_AND_QUALITY[option.aspect][lookup_quality].value
     if normalized in ASPECT_LABELS:
-        return SIZE_OPTIONS_BY_ASPECT_AND_QUALITY[normalized][normalized_quality].value
+        return SIZE_OPTIONS_BY_ASPECT_AND_QUALITY[normalized][lookup_quality].value
     if fallback:
         fallback_normalized = str(fallback).strip().lower()
+        if fallback_normalized == AUTO_OPTION:
+            return AUTO_OPTION
         if _parse_pixel_size(fallback_normalized):
             return fallback_normalized
     return default_size_for_quality(normalized_quality)
@@ -190,11 +221,17 @@ def coerce_size_to_quality(value: object, quality: object, *, fallback: str | No
 
 def map_size_to_quality(value: object, quality: object, *, fallback: str | None = None) -> str:
     normalized_quality = normalize_quality(quality)
+    lookup_quality = _size_lookup_quality(normalized_quality)
     normalized = str(value or "").strip().lower()
+    if normalized == AUTO_OPTION:
+        return AUTO_OPTION
     if normalized in SIZE_OPTION_MAP:
-        return SIZE_OPTIONS_BY_ASPECT_AND_QUALITY[SIZE_OPTION_MAP[normalized].aspect][normalized_quality].value
+        option = SIZE_OPTION_MAP[normalized]
+        if option.value == AUTO_OPTION:
+            return AUTO_OPTION
+        return SIZE_OPTIONS_BY_ASPECT_AND_QUALITY[option.aspect][lookup_quality].value
     if normalized in ASPECT_LABELS:
-        return SIZE_OPTIONS_BY_ASPECT_AND_QUALITY[normalized][normalized_quality].value
+        return SIZE_OPTIONS_BY_ASPECT_AND_QUALITY[normalized][lookup_quality].value
     if _parse_pixel_size(normalized):
         return normalized
     return coerce_size_to_quality(normalized, normalized_quality, fallback=fallback)
@@ -207,15 +244,20 @@ def normalize_size_value(
     quality: object = DEFAULT_QUALITY,
 ) -> str:
     normalized = str(value or "").strip().lower()
+    lookup_quality = _size_lookup_quality(quality)
+    if normalized == AUTO_OPTION:
+        return AUTO_OPTION
     if _parse_pixel_size(normalized):
         return normalized
     if normalized in ASPECT_LABELS:
-        return SIZE_OPTIONS_BY_ASPECT_AND_QUALITY[normalized][normalize_quality(quality)].value
+        return SIZE_OPTIONS_BY_ASPECT_AND_QUALITY[normalized][lookup_quality].value
     fallback_normalized = str(fallback or "").strip().lower()
+    if fallback_normalized == AUTO_OPTION:
+        return AUTO_OPTION
     if _parse_pixel_size(fallback_normalized):
         return fallback_normalized
     if fallback_normalized in ASPECT_LABELS:
-        return SIZE_OPTIONS_BY_ASPECT_AND_QUALITY[fallback_normalized][normalize_quality(quality)].value
+        return SIZE_OPTIONS_BY_ASPECT_AND_QUALITY[fallback_normalized][lookup_quality].value
     return default_size_for_quality(quality)
 
 

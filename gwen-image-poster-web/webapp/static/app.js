@@ -789,7 +789,6 @@ function populateOutputOptionSelects() {
       node.selected = option.value === OUTPUT_OPTIONS.DEFAULT_QUALITY;
       elements.quality.appendChild(node);
     });
-    elements.quality.disabled = false;
   }
   syncSizeOptionsForQuality(
     elements.quality?.value || OUTPUT_OPTIONS.DEFAULT_QUALITY,

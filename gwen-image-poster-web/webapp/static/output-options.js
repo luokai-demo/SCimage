@@ -1,18 +1,24 @@
 "use strict";
 
 (() => {
+  const AUTO_OPTION = "auto";
   const QUALITY_STANDARD = "standard";
   const QUALITY_HD = "hd";
   const QUALITY_4K = "4k";
 
   const DEFAULT_QUALITY = QUALITY_STANDARD;
   const DEFAULT_SIZE_OPTION = "720x1280";
-  const QUALITY_OPTIONS = [
+  const FIXED_QUALITY_OPTIONS = [
     { value: QUALITY_STANDARD, label: "标准 1K" },
     { value: QUALITY_HD, label: "高清 2K" },
     { value: QUALITY_4K, label: "超清 4K" },
   ];
+  const QUALITY_OPTIONS = [
+    { value: AUTO_OPTION, label: "自动" },
+    ...FIXED_QUALITY_OPTIONS,
+  ];
   const QUALITY_ALIAS_MAP = new Map([
+    ["auto", AUTO_OPTION],
     ["standard", QUALITY_STANDARD],
     ["1k", QUALITY_STANDARD],
     ["low", QUALITY_STANDARD],
@@ -79,7 +85,13 @@
   ]);
   const PIXEL_SIZE_PATTERN = /^[1-9]\d*x[1-9]\d*$/i;
 
-  const SIZE_OPTIONS = QUALITY_OPTIONS.flatMap((quality) => {
+  const AUTO_SIZE_OPTION = {
+    value: AUTO_OPTION,
+    aspect: AUTO_OPTION,
+    quality: AUTO_OPTION,
+    label: "自动",
+  };
+  const PRESET_SIZE_OPTIONS = FIXED_QUALITY_OPTIONS.flatMap((quality) => {
     return PRESET_SIZE_VALUES[quality.value].map(([aspect, value]) => ({
       value,
       aspect,
@@ -87,17 +99,24 @@
       label: `${ASPECT_LABELS[aspect]} · ${value}`,
     }));
   });
+  const SIZE_OPTIONS = [AUTO_SIZE_OPTION, ...PRESET_SIZE_OPTIONS];
   const SIZE_OPTIONS_BY_QUALITY = new Map(
-    QUALITY_OPTIONS.map((quality) => [
-      quality.value,
-      SIZE_OPTIONS.filter((option) => option.quality === quality.value),
-    ])
+    [
+      [AUTO_OPTION, [AUTO_SIZE_OPTION]],
+      ...FIXED_QUALITY_OPTIONS.map((quality) => [
+        quality.value,
+        [
+          AUTO_SIZE_OPTION,
+          ...PRESET_SIZE_OPTIONS.filter((option) => option.quality === quality.value),
+        ],
+      ]),
+    ]
   );
   const sizeByValue = new Map(SIZE_OPTIONS.map((option) => [option.value, option]));
   const sizeByAspectAndQuality = new Map();
   Object.keys(ASPECT_LABELS).forEach((aspect) => {
     const entries = new Map();
-    QUALITY_OPTIONS.forEach((quality) => {
+    FIXED_QUALITY_OPTIONS.forEach((quality) => {
       const option = SIZE_OPTIONS_BY_QUALITY.get(quality.value).find((item) => item.aspect === aspect);
       entries.set(quality.value, option);
     });
@@ -123,7 +142,16 @@
     return QUALITY_OPTIONS.some((option) => option.value === normalizeQuality(value, ""));
   }
 
+  function getSizeLookupQuality(quality) {
+    const normalizedQuality = normalizeQuality(quality);
+    return normalizedQuality === AUTO_OPTION ? DEFAULT_QUALITY : normalizedQuality;
+  }
+
   function inferQualityFromSize(value, fallback = DEFAULT_QUALITY) {
+    const normalized = String(value || "").trim().toLowerCase();
+    if (normalized === AUTO_OPTION) {
+      return AUTO_OPTION;
+    }
     const pixelSize = parsePixelSize(value);
     if (!pixelSize) {
       return normalizeQuality(fallback);
@@ -139,35 +167,61 @@
   }
 
   function defaultSizeForQuality(quality) {
-    return sizeByAspectAndQuality.get("9:16").get(normalizeQuality(quality)).value;
+    const normalizedQuality = normalizeQuality(quality);
+    if (normalizedQuality === AUTO_OPTION) {
+      return AUTO_OPTION;
+    }
+    return sizeByAspectAndQuality.get("9:16").get(normalizedQuality).value;
   }
 
   function coerceSizeToQuality(value, quality, fallback = null) {
     const normalizedQuality = normalizeQuality(quality);
+    const lookupQuality = getSizeLookupQuality(normalizedQuality);
     const normalized = String(value || "").trim().toLowerCase();
+    if (normalized === AUTO_OPTION) {
+      return AUTO_OPTION;
+    }
     if (parsePixelSize(normalized)) {
       return normalized;
     }
     if (sizeByValue.has(normalized)) {
-      return sizeByAspectAndQuality.get(sizeByValue.get(normalized).aspect).get(normalizedQuality).value;
+      const option = sizeByValue.get(normalized);
+      if (option.value === AUTO_OPTION) {
+        return AUTO_OPTION;
+      }
+      return sizeByAspectAndQuality.get(option.aspect).get(lookupQuality).value;
     }
     if (Object.prototype.hasOwnProperty.call(ASPECT_LABELS, normalized)) {
-      return sizeByAspectAndQuality.get(normalized).get(normalizedQuality).value;
+      return sizeByAspectAndQuality.get(normalized).get(lookupQuality).value;
     }
-    if (fallback && parsePixelSize(fallback)) {
-      return String(fallback).trim().toLowerCase();
+    if (fallback) {
+      const fallbackNormalized = String(fallback).trim().toLowerCase();
+      if (fallbackNormalized === AUTO_OPTION) {
+        return AUTO_OPTION;
+      }
+      if (parsePixelSize(fallbackNormalized)) {
+        return fallbackNormalized;
+      }
     }
     return defaultSizeForQuality(normalizedQuality);
   }
 
   function mapSizeToQuality(value, quality, fallback = null) {
     const normalizedQuality = normalizeQuality(quality);
+    const lookupQuality = getSizeLookupQuality(normalizedQuality);
     const normalized = String(value || "").trim().toLowerCase();
+    if (normalized === AUTO_OPTION) {
+      return AUTO_OPTION;
+    }
     if (sizeByValue.has(normalized)) {
-      return sizeByAspectAndQuality.get(sizeByValue.get(normalized).aspect).get(normalizedQuality).value;
+      const option = sizeByValue.get(normalized);
+      if (option.value === AUTO_OPTION) {
+        return AUTO_OPTION;
+      }
+      return sizeByAspectAndQuality.get(option.aspect).get(lookupQuality).value;
     }
     if (Object.prototype.hasOwnProperty.call(ASPECT_LABELS, normalized)) {
-      return sizeByAspectAndQuality.get(normalized).get(normalizedQuality).value;
+      return sizeByAspectAndQuality.get(normalized).get(lookupQuality).value;
     }
     if (parsePixelSize(normalized)) {
       return normalized;
@@ -177,18 +231,25 @@
 
   function normalizeSizeOption(value, fallback = DEFAULT_SIZE_OPTION, quality = DEFAULT_QUALITY) {
     const normalized = String(value || "").trim().toLowerCase();
+    const lookupQuality = getSizeLookupQuality(quality);
+    if (normalized === AUTO_OPTION) {
+      return AUTO_OPTION;
+    }
     if (parsePixelSize(normalized)) {
       return normalized;
     }
     if (Object.prototype.hasOwnProperty.call(ASPECT_LABELS, normalized)) {
-      return sizeByAspectAndQuality.get(normalized).get(normalizeQuality(quality)).value;
+      return sizeByAspectAndQuality.get(normalized).get(lookupQuality).value;
     }
     const fallbackNormalized = String(fallback || "").trim().toLowerCase();
+    if (fallbackNormalized === AUTO_OPTION) {
+      return AUTO_OPTION;
+    }
     if (parsePixelSize(fallbackNormalized)) {
       return fallbackNormalized;
     }
     if (Object.prototype.hasOwnProperty.call(ASPECT_LABELS, fallbackNormalized)) {
-      return sizeByAspectAndQuality.get(fallbackNormalized).get(normalizeQuality(quality)).value;
+      return sizeByAspectAndQuality.get(fallbackNormalized).get(lookupQuality).value;
     }
     return defaultSizeForQuality(quality);
   }
@@ -215,6 +276,7 @@
   }
 
   window.OutputOptions = {
+    AUTO_OPTION,
     DEFAULT_QUALITY,
     DEFAULT_SIZE_OPTION,
     QUALITY_OPTIONS,
