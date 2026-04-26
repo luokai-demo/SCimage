@@ -28,7 +28,7 @@ class JobRecord:
     created_at: str = field(default_factory=_now)
     run_started_at: str = field(default_factory=_now)
     updated_at: str = field(default_factory=_now)
-    images: List[Dict[str, str]] = field(default_factory=list)
+    images: List[dict] = field(default_factory=list)
     source_images: List[Dict[str, str]] = field(default_factory=list)
     warnings: List[str] = field(default_factory=list)
     error: Optional[str] = None
@@ -96,7 +96,7 @@ class JobStore:
             job.updated_at = _now()
             self._persist_unlocked()
 
-    def append_image(self, job_id: str, image: Dict[str, str], message: Optional[str] = None) -> None:
+    def append_image(self, job_id: str, image: dict, message: Optional[str] = None) -> None:
         with self._lock:
             job = self._jobs[job_id]
             remaining = [item for item in job.images if item.get("slot") != image.get("slot")]
@@ -107,7 +107,7 @@ class JobStore:
             job.updated_at = _now()
             self._persist_unlocked()
 
-    def complete(self, job_id: str, images: List[Dict[str, str]], warnings: Optional[List[str]] = None) -> None:
+    def complete(self, job_id: str, images: List[dict], warnings: Optional[List[str]] = None) -> None:
         with self._lock:
             job = self._jobs[job_id]
             job.images = sorted(images, key=lambda item: item.get("slot", 0))
@@ -121,7 +121,7 @@ class JobStore:
             job.updated_at = _now()
             self._persist_unlocked()
 
-    def cancel(self, job_id: str, images: List[Dict[str, str]], warnings: Optional[List[str]] = None) -> None:
+    def cancel(self, job_id: str, images: List[dict], warnings: Optional[List[str]] = None) -> None:
         with self._lock:
             job = self._jobs[job_id]
             job.status = "canceled"
@@ -166,14 +166,14 @@ class JobStore:
             self._persist_unlocked()
             return removed
 
-    def remove_image(self, job_id: str, slot: int) -> tuple[Optional[dict], Optional[Dict[str, str]], bool]:
+    def remove_image(self, job_id: str, slot: int) -> tuple[Optional[dict], Optional[dict], bool]:
         with self._lock:
             job = self._jobs.get(job_id)
             if job is None:
                 return None, None, False
 
-            remaining: List[Dict[str, str]] = []
-            removed_image: Optional[Dict[str, str]] = None
+            remaining: List[dict] = []
+            removed_image: Optional[dict] = None
             for image in job.images:
                 if removed_image is None and int(image.get("slot", 0)) == slot:
                     removed_image = image

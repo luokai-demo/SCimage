@@ -7,6 +7,7 @@ from threading import Event
 from typing import TYPE_CHECKING, Callable, Dict, List
 
 from generated_assets import recreate_job_output_dir
+from image_records import build_generated_image_record
 from image_script import (
     ImageScriptRequest,
     JobCanceled,
@@ -25,18 +26,13 @@ if TYPE_CHECKING:
 
 @dataclass(frozen=True)
 class GenerationResult:
-    images: List[Dict[str, str]]
+    images: List[dict]
     errors: List[str]
     cancelled: bool = False
 
 
-def _build_image_payload(job_id: str, file_path: Path, slot: int) -> Dict[str, str]:
-    return {
-        "slot": slot,
-        "name": file_path.name,
-        "path": str(file_path),
-        "url": f"/generated/{job_id}/{file_path.name}",
-    }
+def _build_image_payload(job_id: str, file_path: Path, slot: int) -> dict:
+    return build_generated_image_record(job_id, file_path, slot)
 
 
 def _build_script_env(provider_profile: ProviderProfile) -> dict[str, str]:
@@ -71,7 +67,7 @@ def _build_script_request(
     )
 
 
-def _images_from_paths(job_id: str, paths: list[Path], expected_count: int) -> list[Dict[str, str]]:
+def _images_from_paths(job_id: str, paths: list[Path], expected_count: int) -> list[dict]:
     return [
         _build_image_payload(job_id=job_id, file_path=file_path, slot=slot)
         for slot, file_path in enumerate(paths[:expected_count], start=1)
@@ -88,7 +84,7 @@ def generate_images(
     source_images: List[Dict[str, str]],
     provider_profile: ProviderProfile,
     status_callback: Callable[[str], None] | None = None,
-    image_callback: Callable[[Dict[str, str], int, int], None] | None = None,
+    image_callback: Callable[[dict, int, int], None] | None = None,
     cancel_event: Event | None = None,
     runner: "JobRunner" | None = None,
 ) -> GenerationResult:

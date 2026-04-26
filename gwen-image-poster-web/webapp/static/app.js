@@ -15,11 +15,15 @@ if (!GALLERY_RUNTIME) {
   throw new Error("GalleryRuntime must be loaded before app.js");
 }
 const SUPPORTS_VIEW_TIMELINE = Boolean(window.CSS?.supports?.("animation-timeline: view()"));
+// Native view timelines replay when the gallery viewport is resized by task status UI.
+const ENABLE_NATIVE_GALLERY_VIEW_TIMELINE = false;
+const USE_NATIVE_GALLERY_VIEW_TIMELINE = SUPPORTS_VIEW_TIMELINE && ENABLE_NATIVE_GALLERY_VIEW_TIMELINE;
 
 const LIST_TIMEOUT_MS = 10000;
 const ACTION_TIMEOUT_MS = 20000;
 const POLL_INTERVAL_MS = 3000;
 const RUNNING_STATUSES = new Set(["queued", "running", "canceling"]);
+const GALLERY_PLACEHOLDER_COLOR_PATTERN = /^#[0-9a-f]{6}$/i;
 
 const elements = {
   baseUrl: document.getElementById("baseUrl"),
@@ -40,6 +44,7 @@ const elements = {
   status: document.getElementById("status"),
   savedPrompts: document.getElementById("savedPrompts"),
   galleryArea: document.querySelector(".gallery-area"),
+  galleryWindowShell: document.getElementById("galleryWindowShell"),
   galleryWindow: document.getElementById("galleryWindow"),
   taskPanelPreview: document.getElementById("taskPanelPreview"),
   galleryGrid: document.getElementById("galleryGrid"),
@@ -104,6 +109,7 @@ let clockTimer = null;
 let resizeTimer = null;
 let statusClearTimer = null;
 let galleryActivationFrame = null;
+const galleryImageMetrics = new Map();
 let lastSyncAt = null;
 let lastSyncError = "";
 let lastJobSnapshotSignature = "";
@@ -122,8 +128,13 @@ const formFieldIds = ["prompt", "size", "quality", "count"];
 const LIGHTBOX_ZOOM_MIN = 1;
 const LIGHTBOX_ZOOM_MAX = 5;
 const LIGHTBOX_ZOOM_STEP = 0.25;
-const GALLERY_PRELOAD_SCREENS = 1;
-const GALLERY_PRELOAD_EXTRA_PX = 24;
+const GALLERY_COLUMN_TARGET_WIDTH = 190;
+const GALLERY_COLUMN_MIN = 1;
+const GALLERY_COLUMN_MAX = 5;
+const GALLERY_GRID_ROW_HEIGHT_PX = 8;
+const GALLERY_GRID_GAP_PX = 10;
+const GALLERY_PRELOAD_SCREENS = 3;
+const GALLERY_PRELOAD_EXTRA_PX = 160;
 const GALLERY_REVEAL_ACTIVE_SCREENS = 0.35;
 const GALLERY_REVEAL_ACTIVE_EXTRA_PX = 64;
 const GALLERY_REVEAL_MAX_OFFSET_PX = 12;
@@ -131,6 +142,13 @@ const GALLERY_REVEAL_MIN_SCALE = 0.995;
 const GALLERY_REVEAL_EDGE_FADE_FRACTION = 0.16;
 const GALLERY_REVEAL_MIN_EDGE_FADE_PX = 72;
 const GALLERY_REVEAL_MAX_EDGE_FADE_PX = 140;
+const GALLERY_VIRTUAL_OVERSCAN_SCREENS = 3;
+const GALLERY_VIRTUAL_ESTIMATED_HEIGHT_PX = 340;
+const GALLERY_VIRTUAL_MAX_CACHED_ITEMS = 180;
+const GALLERY_IMAGE_WARM_CONCURRENCY = 8;
+const GALLERY_IMAGE_WARM_MAX_ENTRIES = 220;
+const GALLERY_PREVIEW_WARM_CONCURRENCY = 48;
+const GALLERY_PREVIEW_WARM_MAX_ENTRIES = 420;
 
 const galleryScrollRoot = new GALLERY_RUNTIME.GalleryScrollRoot({
   root: elements.galleryWindow || elements.galleryArea,
@@ -142,7 +160,24 @@ const galleryImageLoader = new GALLERY_RUNTIME.GalleryImageLoader({
   preloadExtraPx: GALLERY_PRELOAD_EXTRA_PX,
   immediateExtraPx: GALLERY_PRELOAD_EXTRA_PX,
 });
-const galleryRevealController = SUPPORTS_VIEW_TIMELINE
+const galleryImageWarmCache = new GALLERY_RUNTIME.GalleryImageWarmCache({
+  concurrency: GALLERY_IMAGE_WARM_CONCURRENCY,
+  maxEntries: GALLERY_IMAGE_WARM_MAX_ENTRIES,
+});
+const galleryPreviewWarmCache = new GALLERY_RUNTIME.GalleryImageWarmCache({
+  concurrency: GALLERY_PREVIEW_WARM_CONCURRENCY,
+  maxEntries: GALLERY_PREVIEW_WARM_MAX_ENTRIES,
+});
+const galleryMasonryLayout = new GALLERY_RUNTIME.GalleryMasonryLayout({
+  targetColumnWidth: GALLERY_COLUMN_TARGET_WIDTH,
+  minColumns: GALLERY_COLUMN_MIN,
+  maxColumns: GALLERY_COLUMN_MAX,
+  rowHeightPx: GALLERY_GRID_ROW_HEIGHT_PX,
+  gapPx: GALLERY_GRID_GAP_PX,
+});
+elements.galleryWindowShell?.classList.toggle("use-view-timeline", USE_NATIVE_GALLERY_VIEW_TIMELINE);
+
+const galleryRevealController = USE_NATIVE_GALLERY_VIEW_TIMELINE
   ? null
   : new GALLERY_RUNTIME.GalleryRevealController({
       scrollRoot: galleryScrollRoot,
@@ -154,6 +189,32 @@ const galleryRevealController = SUPPORTS_VIEW_TIMELINE
       minEdgeFadePx: GALLERY_REVEAL_MIN_EDGE_FADE_PX,
       maxEdgeFadePx: GALLERY_REVEAL_MAX_EDGE_FADE_PX,
     });
+
+const galleryVirtualMasonry = new GALLERY_RUNTIME.GalleryVirtualMasonry({
+  scrollRoot: galleryScrollRoot,
+  container: elements.galleryGrid,
+  targetColumnWidth: GALLERY_COLUMN_TARGET_WIDTH,
+  minColumns: GALLERY_COLUMN_MIN,
+  maxColumns: GALLERY_COLUMN_MAX,
+  gapPx: GALLERY_GRID_GAP_PX,
+  overscanScreens: GALLERY_VIRTUAL_OVERSCAN_SCREENS,
+  estimatedHeightPx: GALLERY_VIRTUAL_ESTIMATED_HEIGHT_PX,
+  maxCachedItems: GALLERY_VIRTUAL_MAX_CACHED_ITEMS,
+  getKey: (entry) => entry.key,
+  getItemHeight: (entry, columnWidth) => getGalleryEntryHeight(entry, columnWidth),
+  renderItem: (entry, openIndex) => buildImageCard(entry.job, entry.image, {
+    imageUrl: entry.imageUrl,
+    key: entry.key,
+    openIndex,
+  }),
+  updateItem: (card, entry, openIndex) => syncImageCard(card, entry, openIndex),
+  onMount: (card, record) => {
+    galleryImageWarmCache.warm(record?.item?.imageUrl, { priority: "high" });
+    galleryPreviewWarmCache.warm(record?.item?.previewUrl, { priority: "high" });
+    activateGalleryImageCard(card);
+  },
+  onUnmount: (card) => deactivateGalleryImageCard(card),
+});
 
 function createElement(tag, className, text) {
   const node = document.createElement(tag);
@@ -508,6 +569,59 @@ function normalizeImageUrl(url) {
   }
 }
 
+function getGalleryPreviewUrl(image) {
+  return normalizeImageUrl(image?.preview?.url || "");
+}
+
+function getImageDimensions(image) {
+  const width = Number(image?.width || 0);
+  const height = Number(image?.height || 0);
+  if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) {
+    return null;
+  }
+  return { width, height };
+}
+
+function getImagePlaceholder(image) {
+  const color = String(image?.placeholder?.color || "").trim();
+  const accentColor = String(image?.placeholder?.accent_color || "").trim();
+  if (!GALLERY_PLACEHOLDER_COLOR_PATTERN.test(color)) {
+    return null;
+  }
+  return {
+    color,
+    accentColor: GALLERY_PLACEHOLDER_COLOR_PATTERN.test(accentColor) ? accentColor : color,
+  };
+}
+
+function toImageSignature(image) {
+  return {
+    slot: Number(image.slot || 0),
+    name: image.name || "",
+    url: image.url || "",
+    path: image.path || "",
+    width: Number(image.width || 0),
+    height: Number(image.height || 0),
+    placeholder: {
+      color: image.placeholder?.color || "",
+      accent_color: image.placeholder?.accent_color || "",
+    },
+    preview: {
+      name: image.preview?.name || "",
+      url: image.preview?.url || "",
+      path: image.preview?.path || "",
+      width: Number(image.preview?.width || 0),
+      height: Number(image.preview?.height || 0),
+    },
+  };
+}
+
+function toSortedImageSignatures(images) {
+  return Array.isArray(images)
+    ? [...images].map((image) => toImageSignature(image)).sort((left, right) => left.slot - right.slot)
+    : [];
+}
+
 function getJobSnapshotSignature(jobs) {
   const stableJobs = (Array.isArray(jobs) ? jobs : [])
     .map((job) => ({
@@ -534,16 +648,7 @@ function getJobSnapshotSignature(jobs) {
             }))
             .sort((left, right) => left.slot - right.slot)
         : [],
-      images: Array.isArray(job.images)
-        ? [...job.images]
-            .map((image) => ({
-              slot: Number(image.slot || 0),
-              name: image.name || "",
-              url: image.url || "",
-              path: image.path || "",
-            }))
-            .sort((left, right) => left.slot - right.slot)
-        : [],
+      images: toSortedImageSignatures(job.images),
     }))
     .sort((left, right) => left.id.localeCompare(right.id));
 
@@ -555,7 +660,6 @@ function getGallerySnapshotSignature(jobs) {
     .map((job) => ({
       id: job.id || "",
       prompt: job.prompt || "",
-      status: job.status || "",
       workflow: job.workflow || "generate",
       created_at: job.created_at || "",
       run_started_at: job.run_started_at || "",
@@ -569,16 +673,7 @@ function getGallerySnapshotSignature(jobs) {
             }))
             .sort((left, right) => left.slot - right.slot)
         : [],
-      images: Array.isArray(job.images)
-        ? [...job.images]
-            .map((image) => ({
-              slot: Number(image.slot || 0),
-              name: image.name || "",
-              url: image.url || "",
-              path: image.path || "",
-            }))
-            .sort((left, right) => left.slot - right.slot)
-        : [],
+      images: toSortedImageSignatures(job.images),
     }))
     .sort((left, right) => left.id.localeCompare(right.id));
 
@@ -586,6 +681,46 @@ function getGallerySnapshotSignature(jobs) {
     filter: currentGalleryFilter,
     sort: gallerySortAsc ? "asc" : "desc",
     jobs: stableJobs,
+  });
+}
+
+function buildGalleryTerminalAction(job, slot) {
+  const normalizedSlot = Number(slot || 0);
+  let button;
+  if (isActiveStatus(job?.status)) {
+    button = createActionButton("中断", "cancel-job", job.id);
+    button.setAttribute("aria-label", "中断任务");
+    button.setAttribute("title", "中断任务");
+  } else {
+    button = createActionButton("删除", "delete-image", job.id, "gallery-del-btn");
+    button.dataset.slot = String(normalizedSlot);
+    button.setAttribute("aria-label", "删除图片");
+    button.setAttribute("title", "删除图片");
+  }
+  button.dataset.galleryTerminal = "true";
+  return button;
+}
+
+function syncRenderedGalleryCardActions() {
+  elements.galleryGrid.querySelectorAll(".gallery-item[data-job-id]").forEach((card) => {
+    const jobId = card.dataset.jobId || "";
+    const slot = Number(card.dataset.imageSlot || 0);
+    const job = getJobById(jobId);
+    const actions = card.querySelector(".meta-actions");
+    if (!job || !actions) {
+      return;
+    }
+    const nextButton = buildGalleryTerminalAction(job, slot);
+    const currentButton = actions.querySelector("[data-gallery-terminal='true']");
+    if (!currentButton) {
+      actions.appendChild(nextButton);
+      return;
+    }
+    if (currentButton.dataset.action === nextButton.dataset.action && currentButton.disabled === nextButton.disabled) {
+      currentButton.disabled = nextButton.disabled;
+      return;
+    }
+    currentButton.replaceWith(nextButton);
   });
 }
 
@@ -1212,6 +1347,30 @@ function getJobDurationText(job) {
   return formatDateTime(job.updated_at || job.created_at);
 }
 
+function createJobDurationNode(job, options = {}) {
+  const prefix = options.prefix || "";
+  const node = createElement("span", "", `${prefix}${getJobDurationText(job)}`);
+  const runStartedAt = job?.run_started_at || job?.created_at;
+  if (isActiveStatus(job?.status) && runStartedAt) {
+    node.dataset.elapsedFrom = runStartedAt;
+    if (prefix) {
+      node.dataset.elapsedPrefix = prefix;
+    }
+  } else {
+    node.dataset.elapsedLive = "false";
+  }
+  return node;
+}
+
+function getSizeHeightRatio(size) {
+  const normalized = OUTPUT_OPTIONS.normalizeSizeOption(size);
+  const [widthRatio, heightRatio] = normalized.split(":").map((value) => Number(value));
+  if (!widthRatio || !heightRatio) {
+    return 16 / 9;
+  }
+  return heightRatio / widthRatio;
+}
+
 function createActionButton(label, action, jobId, extraClassName = "") {
   const button = createElement("button", extraClassName, label);
   button.type = "button";
@@ -1241,11 +1400,14 @@ function handleGalleryImageLoaded(card, imageNode) {
   if (!card || !imageNode) {
     return;
   }
+  rememberGalleryImageMetrics(card, imageNode);
+  galleryImageWarmCache.markLoaded(imageNode.dataset.src || imageNode.currentSrc || imageNode.src, imageNode);
   card.classList.remove("is-loading", "is-error");
   card.classList.add("is-loaded");
   imageNode.style.removeProperty("min-height");
   imageNode.dataset.loadingState = "loaded";
   imageNode.classList.add("is-loaded");
+  scheduleActiveGalleryLayout();
   galleryRevealController?.scheduleLayoutRefresh();
 }
 
@@ -1254,16 +1416,8 @@ function handleGalleryImageError(card, imageNode) {
   card.classList.add("is-error");
   imageNode.style.removeProperty("min-height");
   imageNode.dataset.loadingState = "error";
+  scheduleActiveGalleryLayout();
   galleryRevealController?.scheduleLayoutRefresh();
-}
-
-function resetGalleryImageObserver() {
-  if (galleryActivationFrame) {
-    window.cancelAnimationFrame(galleryActivationFrame);
-    galleryActivationFrame = null;
-  }
-  galleryImageLoader.reset();
-  galleryRevealController?.reset();
 }
 
 function activateGalleryImageCard(card) {
@@ -1274,10 +1428,42 @@ function activateGalleryImageCard(card) {
   galleryImageLoader.register(card);
 }
 
-function refreshGalleryViewportEffects() {
-  galleryImageLoader.refresh();
-  galleryRevealController?.refresh();
-  galleryRevealController?.scheduleLayoutRefresh();
+function deactivateGalleryImageCard(card) {
+  galleryImageLoader.unregister?.(card);
+  galleryRevealController?.unregister?.(card);
+}
+
+function isVirtualGalleryActive() {
+  return currentGalleryFilter === "all";
+}
+
+function scheduleActiveGalleryLayout() {
+  if (isVirtualGalleryActive()) {
+    galleryVirtualMasonry.scheduleRefresh();
+    return;
+  }
+  galleryMasonryLayout.scheduleRefresh(elements.galleryArea);
+}
+
+function refreshGalleryViewportEffects(options = {}) {
+  const { refreshLayout = false, refreshLoader = false } = options;
+  if (refreshLayout) {
+    scheduleActiveGalleryLayout();
+  }
+  window.requestAnimationFrame(() => {
+    if (refreshLoader) {
+      galleryImageLoader.refresh();
+    }
+    galleryRevealController?.refresh();
+    galleryRevealController?.scheduleLayoutRefresh();
+  });
+}
+
+function scheduleGalleryLayout() {
+  scheduleActiveGalleryLayout();
+  window.requestAnimationFrame(() => {
+    scheduleGalleryCardActivation();
+  });
 }
 
 function scheduleGalleryCardActivation() {
@@ -1287,42 +1473,247 @@ function scheduleGalleryCardActivation() {
   galleryActivationFrame = window.requestAnimationFrame(() => {
     galleryActivationFrame = null;
     elements.galleryGrid.querySelectorAll(".gallery-item").forEach((card) => activateGalleryImageCard(card));
+    galleryImageLoader.refresh();
     galleryRevealController?.scheduleLayoutRefresh();
   });
 }
 
-function buildImageCard(job, image) {
-  const imageUrl = normalizeImageUrl(image.url);
-  if (!imageUrl) {
-    return null;
-  }
+function getSortedJobImages(job) {
+  return [...(job.images || [])].sort((left, right) => (left.slot || 0) - (right.slot || 0));
+}
 
-  const openIndex = galleryFlatList.push({
+function createGalleryFlatItem(job, image, imageUrl, previewUrl = "") {
+  return {
     src: imageUrl,
+    previewSrc: previewUrl,
     prompt: job.prompt,
     filename: image.name || `image-${image.slot || 1}.png`,
     jobId: job.id,
     slot: image.slot || 0,
-  }) - 1;
+  };
+}
+
+function getGalleryImageKey(job, image, imageUrl) {
+  if (!imageUrl) {
+    return "";
+  }
+  return `${job.id || ""}:${image.slot || 0}:${imageUrl}`;
+}
+
+function rememberGalleryImageMetrics(card, imageNode) {
+  const key = card?.dataset.galleryImageKey || "";
+  if (!key || !imageNode?.naturalWidth || !imageNode?.naturalHeight) {
+    return;
+  }
+  galleryImageMetrics.set(key, {
+    width: imageNode.naturalWidth,
+    height: imageNode.naturalHeight,
+  });
+}
+
+function getGalleryEntryHeight(entry, columnWidth) {
+  const metrics = galleryImageMetrics.get(entry.key);
+  const dimensions = getImageDimensions(entry.image);
+  const heightRatio = metrics?.width && metrics?.height
+    ? metrics.height / metrics.width
+    : dimensions
+      ? dimensions.height / dimensions.width
+    : getSizeHeightRatio(entry.job?.size);
+  return Math.max(120, Math.round(columnWidth * heightRatio));
+}
+
+function createGalleryImageEntry(job, image) {
+  const imageUrl = normalizeImageUrl(image.url);
+  if (!imageUrl) {
+    return null;
+  }
+  const previewUrl = getGalleryPreviewUrl(image);
+  return {
+    key: getGalleryImageKey(job, image, imageUrl),
+    job,
+    image,
+    imageUrl,
+    previewUrl,
+    flatItem: createGalleryFlatItem(job, image, imageUrl, previewUrl),
+  };
+}
+
+function collectReusableGalleryCards() {
+  const cards = new Map();
+  elements.galleryGrid.querySelectorAll(".gallery-item[data-gallery-image-key]").forEach((card) => {
+    const key = card.dataset.galleryImageKey || "";
+    if (key && !cards.has(key)) {
+      cards.set(key, card);
+    }
+  });
+  return cards;
+}
+
+function applyGalleryImageDimensions(imageNode, image) {
+  const dimensions = getImageDimensions(image);
+  if (!imageNode || !dimensions) {
+    return false;
+  }
+  imageNode.width = dimensions.width;
+  imageNode.height = dimensions.height;
+  imageNode.style.aspectRatio = `${dimensions.width} / ${dimensions.height}`;
+  return true;
+}
+
+function applyGalleryPlaceholder(card, image) {
+  if (!card) {
+    return;
+  }
+  const placeholder = getImagePlaceholder(image);
+  if (!placeholder) {
+    card.style.removeProperty("--gallery-placeholder-color");
+    card.style.removeProperty("--gallery-placeholder-accent");
+    return;
+  }
+  card.style.setProperty("--gallery-placeholder-color", placeholder.color);
+  card.style.setProperty("--gallery-placeholder-accent", placeholder.accentColor);
+}
+
+function setGalleryPreviewImageSource(previewNode, previewUrl) {
+  previewNode.classList.remove("is-error");
+  previewNode.src = previewUrl;
+  previewNode.addEventListener("load", () => galleryPreviewWarmCache.markLoaded(previewUrl, previewNode), { once: true });
+  previewNode.addEventListener("error", () => previewNode.classList.add("is-error"), { once: true });
+  previewNode.dataset.previewSrc = previewUrl;
+  previewNode.fetchPriority = galleryPreviewWarmCache.isReady(previewUrl) ? "auto" : "high";
+}
+
+function createGalleryPreviewImage(previewUrl, job) {
+  const previewNode = new Image();
+  previewNode.className = "gallery-preview";
+  previewNode.decoding = "async";
+  previewNode.loading = "eager";
+  previewNode.alt = "";
+  previewNode.setAttribute("aria-hidden", "true");
+  setGalleryPreviewImageSource(previewNode, previewUrl);
+  if (job?.prompt) {
+    previewNode.title = job.prompt;
+  }
+  return previewNode;
+}
+
+function syncGalleryPreviewImage(card, entry) {
+  const previewUrl = entry.previewUrl || "";
+  let previewNode = card.querySelector(".gallery-preview");
+  card.classList.toggle("has-preview", Boolean(previewUrl));
+  if (!previewUrl) {
+    previewNode?.remove();
+    return;
+  }
+  if (!previewNode) {
+    previewNode = createGalleryPreviewImage(previewUrl, entry.job);
+    const fullImageNode = card.querySelector("img[data-src]");
+    card.insertBefore(previewNode, fullImageNode || card.firstChild);
+    return;
+  }
+  if (previewNode.dataset.previewSrc !== previewUrl) {
+    setGalleryPreviewImageSource(previewNode, previewUrl);
+  }
+}
+
+function syncImageCard(card, entry, openIndex) {
+  card.dataset.galleryImageKey = entry.key;
+  card.dataset.openLightbox = String(openIndex);
+  card.dataset.jobId = entry.job.id || "";
+  card.dataset.imageSlot = String(entry.image.slot || 0);
+  card.setAttribute("aria-label", entry.job.prompt || "生成图片");
+  applyGalleryPlaceholder(card, entry.image);
+  syncGalleryPreviewImage(card, entry);
+
+  const imageNode = card.querySelector("img[data-src]");
+  if (imageNode) {
+    imageNode.alt = entry.job.prompt || "";
+    const hasDimensions = applyGalleryImageDimensions(imageNode, entry.image);
+    if (hasDimensions) {
+      imageNode.style.removeProperty("min-height");
+    }
+    if (imageNode.dataset.loadingState === "idle" && galleryImageWarmCache.isReady(entry.imageUrl)) {
+      imageNode.dataset.loadingState = "loaded";
+      imageNode.src = entry.imageUrl;
+      imageNode.classList.add("is-loaded");
+      card.classList.remove("is-loading", "is-error");
+      card.classList.add("is-loaded");
+    }
+  }
+  const promptPreview = card.querySelector(".prompt-preview");
+  if (promptPreview) {
+    promptPreview.textContent = entry.job.prompt || "";
+  }
+  const addSourceButton = card.querySelector("[data-action='add-source-reference']");
+  if (addSourceButton) {
+    addSourceButton.dataset.jobId = entry.job.id || "";
+    addSourceButton.dataset.slot = String(entry.image.slot || 0);
+  }
+  const copyButton = card.querySelector("[data-action='copy-job-prompt']");
+  if (copyButton) {
+    copyButton.dataset.jobId = entry.job.id || "";
+  }
+  const downloadLink = card.querySelector("a[download]");
+  if (downloadLink) {
+    downloadLink.href = entry.imageUrl;
+    downloadLink.download = entry.image.name || `image-${entry.image.slot || 1}.png`;
+  }
+}
+
+function resetGalleryCardLayoutStyle(card) {
+  card.style.removeProperty("position");
+  card.style.removeProperty("left");
+  card.style.removeProperty("top");
+  card.style.removeProperty("width");
+  card.style.removeProperty("height");
+}
+
+function buildImageCard(job, image, options = {}) {
+  const imageUrl = options.imageUrl || normalizeImageUrl(image.url);
+  if (!imageUrl) {
+    return null;
+  }
+
+  const imageReady = galleryImageWarmCache.isReady(imageUrl);
+  const openIndex = Number.isInteger(options.openIndex)
+    ? options.openIndex
+    : galleryFlatList.push(createGalleryFlatItem(job, image, imageUrl, getGalleryPreviewUrl(image))) - 1;
+  const imageKey = options.key || getGalleryImageKey(job, image, imageUrl);
+  const previewUrl = getGalleryPreviewUrl(image);
 
   const card = createElement("div", "gallery-item");
   card.classList.add("is-loading");
+  card.classList.toggle("has-preview", Boolean(previewUrl));
+  card.dataset.galleryImageKey = imageKey;
   card.dataset.openLightbox = String(openIndex);
+  card.dataset.jobId = job.id || "";
+  card.dataset.imageSlot = String(image.slot || 0);
   card.tabIndex = 0;
   card.setAttribute("role", "button");
   card.setAttribute("aria-label", job.prompt || "生成图片");
+  applyGalleryPlaceholder(card, image);
 
   const imageNode = new Image();
   imageNode.decoding = "async";
   imageNode.loading = "eager";
   imageNode.fetchPriority = "auto";
   imageNode.dataset.src = imageUrl;
-  imageNode.dataset.loadingState = "idle";
+  imageNode.dataset.loadingState = imageReady ? "loaded" : "idle";
   imageNode.alt = job.prompt || "";
-  imageNode.style.minHeight = "140px";
+  const hasDimensions = applyGalleryImageDimensions(imageNode, image);
+  if (imageReady) {
+    imageNode.src = imageUrl;
+    imageNode.classList.add("is-loaded");
+    card.classList.remove("is-loading");
+    card.classList.add("is-loaded");
+  } else if (!hasDimensions) {
+    imageNode.style.minHeight = "140px";
+  }
   imageNode.addEventListener("load", () => handleGalleryImageLoaded(card, imageNode), { once: true });
   imageNode.addEventListener("error", () => handleGalleryImageError(card, imageNode), { once: true });
   card.dataset.lazyImage = "true";
+
+  const previewNode = previewUrl ? createGalleryPreviewImage(previewUrl, job) : null;
 
   const overlay = createElement("div", "gallery-overlay");
   const promptPreview = createElement("div", "prompt-preview", job.prompt);
@@ -1348,28 +1739,39 @@ function buildImageCard(job, image) {
   downloadLink.setAttribute("title", "下载图片");
   downloadLink.addEventListener("click", (event) => event.stopPropagation());
   actions.appendChild(downloadLink);
-
-  if (isActiveStatus(job.status)) {
-    const cancelButton = createActionButton("中断", "cancel-job", job.id);
-    cancelButton.setAttribute("aria-label", "中断任务");
-    cancelButton.setAttribute("title", "中断任务");
-    actions.appendChild(cancelButton);
-  } else {
-    const deleteImageButton = createActionButton("删除", "delete-image", job.id, "gallery-del-btn");
-    deleteImageButton.dataset.slot = String(image.slot || 0);
-    deleteImageButton.setAttribute("aria-label", "删除图片");
-    deleteImageButton.setAttribute("title", "删除图片");
-    actions.appendChild(deleteImageButton);
-  }
+  actions.appendChild(buildGalleryTerminalAction(job, image.slot || 0));
 
   metaRow.append(timeNode, actions);
   overlay.append(promptPreview, metaRow);
-  card.append(imageNode, overlay);
+  card.append(...[previewNode, imageNode, overlay].filter(Boolean));
   return card;
 }
 
-function buildTaskGallerySection(job) {
+function reconcileImageGrid(grid, entries, reusableCards) {
+  const nodes = [];
+  entries.forEach((entry) => {
+    const openIndex = galleryFlatList.push(entry.flatItem) - 1;
+    const existingCard = reusableCards.get(entry.key);
+    const card = existingCard || buildImageCard(entry.job, entry.image, {
+      imageUrl: entry.imageUrl,
+      key: entry.key,
+      openIndex,
+    });
+    if (!card) {
+      return;
+    }
+    resetGalleryCardLayoutStyle(card);
+    syncImageCard(card, entry, openIndex);
+    nodes.push(card);
+  });
+  grid.replaceChildren(...nodes);
+  nodes.forEach((card) => activateGalleryImageCard(card));
+  return nodes.length;
+}
+
+function buildTaskGallerySectionShell(job) {
   const section = createElement("section", "gallery-task-section");
+  section.dataset.jobId = job.id || "";
   const head = createElement("div", "gallery-task-section-head");
   const title = createElement("div", "gallery-task-section-title", job.prompt || "未提供提示词");
   const meta = createElement(
@@ -1381,19 +1783,74 @@ function buildTaskGallerySection(job) {
 
   head.append(title, meta);
   section.append(head, grid);
+  return section;
+}
 
-  const sortedImages = [...(job.images || [])].sort((left, right) => (left.slot || 0) - (right.slot || 0));
-  let renderedCards = 0;
-  sortedImages.forEach((image) => {
-    const card = buildImageCard(job, image);
-    if (!card) {
-      return;
+function syncTaskGallerySection(section, job) {
+  section.dataset.jobId = job.id || "";
+  const title = section.querySelector(".gallery-task-section-title");
+  const meta = section.querySelector(".gallery-task-section-meta");
+  if (title) {
+    title.textContent = job.prompt || "未提供提示词";
+  }
+  if (meta) {
+    meta.textContent = `${getWorkflowLabel(job.workflow)} · ${getJobProgressText(job)} · ${formatDateTime(job.updated_at || job.created_at)}`;
+  }
+}
+
+function reconcileFlatGallery(jobs, reusableCards) {
+  const entries = [];
+  jobs.forEach((job) => {
+    getSortedJobImages(job).forEach((image) => {
+      const entry = createGalleryImageEntry(job, image);
+      if (entry) {
+        entries.push(entry);
+      }
+    });
+  });
+  warmGalleryEntries(entries);
+  galleryVirtualMasonry.setItems(entries);
+  return entries.length;
+}
+
+function warmGalleryEntries(entries) {
+  galleryPreviewWarmCache.warm(entries.map((entry) => entry.previewUrl), { immediate: true });
+  galleryImageWarmCache.warm(entries.map((entry) => entry.imageUrl), { immediate: true });
+}
+
+function reconcileTaskGallery(jobs, reusableCards) {
+  if (elements.galleryGrid.classList.contains("is-virtualized")) {
+    galleryVirtualMasonry.clear();
+  }
+  const existingSections = new Map();
+  elements.galleryGrid.querySelectorAll(".gallery-task-section[data-job-id]").forEach((section) => {
+    const jobId = section.dataset.jobId || "";
+    if (jobId && !existingSections.has(jobId)) {
+      existingSections.set(jobId, section);
     }
-    grid.appendChild(card);
-    renderedCards += 1;
   });
 
-  return { section, renderedCards };
+  const sections = [];
+  const allEntries = [];
+  let renderedCards = 0;
+  jobs.forEach((job) => {
+    const entries = getSortedJobImages(job)
+      .map((image) => createGalleryImageEntry(job, image))
+      .filter(Boolean);
+    if (!entries.length) {
+      return;
+    }
+    allEntries.push(...entries);
+    const section = existingSections.get(job.id || "") || buildTaskGallerySectionShell(job);
+    const grid = section.querySelector(".gallery-task-section-grid");
+    syncTaskGallerySection(section, job);
+    renderedCards += reconcileImageGrid(grid, entries, reusableCards);
+    sections.push(section);
+  });
+
+  warmGalleryEntries(allEntries);
+  elements.galleryGrid.replaceChildren(...sections);
+  return renderedCards;
 }
 
 function buildLeftTaskCard(job) {
@@ -1409,7 +1866,7 @@ function buildLeftTaskCard(job) {
   const meta = createElement("div", "left-task-meta");
   meta.append(
     createElement("span", "", getJobProgressText(job)),
-    createElement("span", "", isActiveStatus(job.status) ? getJobDurationText(job) : `耗时 ${getJobDurationText(job)}`)
+    createJobDurationNode(job, { prefix: isActiveStatus(job.status) ? "" : "耗时 " })
   );
 
   const actions = createElement("div", "left-task-actions");
@@ -1434,10 +1891,16 @@ function buildRunningBannerCard(job) {
   const top = createElement("div", "running-job-top");
   const statusMeta = getStatusMeta(job.status);
   const progressPercent = getJobProgressPercent(job);
+  const summary = createElement("span", "running-job-summary");
+  summary.append(
+    document.createTextNode(`${getJobProgressText(job)} · `),
+    createJobDurationNode(job),
+    document.createTextNode(` · ${progressPercent}%`)
+  );
   top.append(
     createElement("span", "running-job-status", statusMeta.label),
     createElement("span", "running-job-type", getWorkflowLabel(job.workflow)),
-    createElement("span", "running-job-summary", `${getJobProgressText(job)} · ${getJobDurationText(job)} · ${progressPercent}%`)
+    summary
   );
 
   const prompt = createElement("div", "running-job-prompt", job.prompt || "未提供提示词");
@@ -1546,36 +2009,13 @@ function renderGallery() {
   lastGallerySnapshotSignature = getGallerySnapshotSignature(jobsState);
   renderLeftTaskList();
   renderRunningBanner();
-  resetGalleryImageObserver();
+  const reusableCards = collectReusableGalleryCards();
   galleryFlatList = [];
-  elements.galleryGrid.innerHTML = "";
   elements.galleryGrid.classList.toggle("grouped-by-task", currentGalleryFilter === "tasks");
 
-  let renderedCards = 0;
-  if (currentGalleryFilter === "tasks") {
-    jobs.forEach((job) => {
-      const { section, renderedCards: taskCards } = buildTaskGallerySection(job);
-      if (!taskCards) {
-        return;
-      }
-      elements.galleryGrid.appendChild(section);
-      renderedCards += taskCards;
-    });
-  } else {
-    jobs.forEach((job) => {
-      const sortedImages = [...(job.images || [])].sort((left, right) => (left.slot || 0) - (right.slot || 0));
-      if (sortedImages.length) {
-        sortedImages.forEach((image) => {
-          const card = buildImageCard(job, image);
-          if (!card) {
-            return;
-          }
-          elements.galleryGrid.appendChild(card);
-          renderedCards += 1;
-        });
-      }
-    });
-  }
+  const renderedCards = currentGalleryFilter === "tasks"
+    ? reconcileTaskGallery(jobs, reusableCards)
+    : reconcileFlatGallery(jobs, reusableCards);
 
   elements.galleryEmpty.style.display = renderedCards ? "none" : "";
   elements.galleryCount.textContent = renderedCards
@@ -1585,7 +2025,7 @@ function renderGallery() {
     : "";
   updateSyncIndicators();
   refreshRelativeTimes();
-  scheduleGalleryCardActivation();
+  scheduleGalleryLayout();
   galleryRevealController?.scheduleUpdate();
   syncLightboxSelection();
 }
@@ -1595,10 +2035,8 @@ function refreshRelativeTimes() {
     if (node.dataset.elapsedLive === "false") {
       return;
     }
-    node.textContent = formatElapsed(node.dataset.elapsedFrom);
+    node.textContent = `${node.dataset.elapsedPrefix || ""}${formatElapsed(node.dataset.elapsedFrom)}`;
   });
-  renderLeftTaskList();
-  renderRunningBanner();
 }
 
 function filterGallery(type, button) {
@@ -2135,7 +2573,9 @@ async function refreshJobs(options = {}) {
         lastGallerySnapshotSignature = nextGallerySignature;
         renderLeftTaskList();
         renderRunningBanner();
+        syncRenderedGalleryCardActions();
         updateSyncIndicators();
+        refreshGalleryViewportEffects();
         syncLightboxSelection();
       } else {
         updateSyncIndicators();
@@ -2410,7 +2850,9 @@ function bindEvents() {
 
   window.addEventListener("resize", () => {
     window.clearTimeout(resizeTimer);
-    resizeTimer = window.setTimeout(() => refreshGalleryViewportEffects(), 120);
+    resizeTimer = window.setTimeout(() => {
+      refreshGalleryViewportEffects({ refreshLayout: true, refreshLoader: true });
+    }, 120);
   });
 
   document.addEventListener("visibilitychange", () => {

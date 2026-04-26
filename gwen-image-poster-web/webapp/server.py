@@ -10,7 +10,13 @@ from urllib.parse import urlparse
 from uuid import uuid4
 
 from config import GENERATED_DIR, HOST, MAX_IMAGE_COUNT, PORT, RECENT_JOBS_LIMIT, STATIC_DIR
-from generated_assets import cleanup_empty_generated_dirs, cleanup_empty_job_output_dir, remove_job_image_file, remove_job_output_dir
+from generated_assets import (
+    cleanup_empty_generated_dirs,
+    cleanup_empty_job_output_dir,
+    remove_job_image_file,
+    remove_job_output_dir,
+    remove_job_preview_file,
+)
 from image_service import generate_images
 from job_control import JobRegistry
 from job_store import JobStore
@@ -411,6 +417,9 @@ class ImageWorkbenchHandler(BaseHTTPRequestHandler):
             return
 
         remove_job_image_file(job_id, str(removed_image.get("name", "")).strip())
+        preview = removed_image.get("preview")
+        if isinstance(preview, dict):
+            remove_job_preview_file(job_id, str(preview.get("name", "")).strip())
         if deleted_job:
             remove_job_output_dir(job_id)
         else:

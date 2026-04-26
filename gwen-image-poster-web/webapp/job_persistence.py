@@ -7,15 +7,13 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from config import GENERATED_DIR, JOB_RECORDS_PATH, LOCAL_STATE_DIR
+from image_records import build_generated_image_record, is_output_image_file
 from output_options import DEFAULT_QUALITY, DEFAULT_SIZE_OPTION, normalize_quality, normalize_size_value
 from source_images import build_source_images_from_job_dir, normalize_source_images
 from workflows import DEFAULT_WORKFLOW, IMAGE_TO_IMAGE_WORKFLOW, normalize_workflow
 
 if TYPE_CHECKING:
     from job_store import JobRecord
-
-
-IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".webp"}
 
 
 def load_job_records(path: Path = JOB_RECORDS_PATH) -> dict[str, dict]:
@@ -176,20 +174,13 @@ def build_images_from_generated_dir(directory: Path) -> list[dict]:
     images: list[dict] = []
     seen_slots: set[int] = set()
     for fallback_slot, file_path in enumerate(sorted(directory.iterdir()), start=1):
-        if not file_path.is_file() or file_path.suffix.lower() not in IMAGE_EXTENSIONS:
+        if not is_output_image_file(file_path):
             continue
         slot = _parse_slot(file_path.stem, fallback_slot)
         if slot in seen_slots:
             slot = _next_available_slot(seen_slots, slot)
         seen_slots.add(slot)
-        images.append(
-            {
-                "slot": slot,
-                "name": file_path.name,
-                "path": str(file_path),
-                "url": f"/generated/{directory.name}/{file_path.name}",
-            }
-        )
+        images.append(build_generated_image_record(directory.name, file_path, slot))
     images.sort(key=lambda item: item.get("slot", 0))
     return images
 
@@ -213,12 +204,11 @@ def _normalize_image_entry(job_id: str, raw_image: object, fallback_slot: int) -
     if existing_path is None or not file_name:
         return None
 
-    return {
-        "slot": _to_int(raw_image.get("slot"), fallback_slot),
-        "name": file_name,
-        "path": str(existing_path),
-        "url": f"/generated/{job_id}/{file_name}",
-    }
+    return build_generated_image_record(
+        job_id,
+        existing_path,
+        _to_int(raw_image.get("slot"), fallback_slot),
+    )
 
 
 def _infer_directory_timestamps(directory: Path) -> tuple[str, str]:
