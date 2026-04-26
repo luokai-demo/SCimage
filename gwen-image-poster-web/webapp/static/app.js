@@ -1963,6 +1963,7 @@ function reconcileFlatGallery(jobs) {
     });
   });
   assignGalleryLayoutProfiles(entries, { allowFeatured: true });
+  galleryFlatList = entries.map((entry) => entry.flatItem);
   warmGalleryEntries(entries);
   galleryVirtualMasonry.setItems(entries);
   return entries.length;
@@ -2268,10 +2269,22 @@ function zoomLightboxBy(delta) {
   setLightboxZoom(lightboxZoomState.scale + delta);
 }
 
+function resolveLightboxIndex(index, selection = {}) {
+  if (Number.isInteger(index) && galleryFlatList[index]) {
+    return index;
+  }
+  const jobId = selection.jobId || "";
+  const slot = Number(selection.slot || 0);
+  if (!jobId || !slot) {
+    return -1;
+  }
+  return galleryFlatList.findIndex((item) => item.jobId === jobId && Number(item.slot || 0) === slot);
+}
+
 function showLightboxItem(index) {
   const item = galleryFlatList[index];
   if (!item) {
-    return;
+    return false;
   }
 
   const job = getJobById(item.jobId);
@@ -2298,10 +2311,14 @@ function showLightboxItem(index) {
     elements.lightboxDel.textContent = "删除图片";
     elements.lightboxDel.disabled = job ? actionJobIds.has(job.id) : true;
   }
+  return true;
 }
 
-function openLightbox(index) {
-  showLightboxItem(index);
+function openLightbox(index, selection = {}) {
+  const resolvedIndex = resolveLightboxIndex(index, selection);
+  if (!showLightboxItem(resolvedIndex)) {
+    return;
+  }
   elements.lightbox.classList.add("open");
   elements.lightbox.setAttribute("role", "dialog");
   elements.lightbox.setAttribute("aria-modal", "true");
@@ -2933,7 +2950,10 @@ function bindEvents() {
     if (!card) {
       return;
     }
-    openLightbox(Number.parseInt(card.dataset.openLightbox, 10));
+    openLightbox(Number.parseInt(card.dataset.openLightbox, 10), {
+      jobId: card.dataset.jobId,
+      slot: Number(card.dataset.imageSlot || 0),
+    });
   });
 
   elements.galleryGrid.addEventListener("keydown", (event) => {
@@ -2943,7 +2963,10 @@ function bindEvents() {
     }
     if (event.key === "Enter" || event.key === " ") {
       event.preventDefault();
-      openLightbox(Number.parseInt(card.dataset.openLightbox, 10));
+      openLightbox(Number.parseInt(card.dataset.openLightbox, 10), {
+        jobId: card.dataset.jobId,
+        slot: Number(card.dataset.imageSlot || 0),
+      });
     }
   });
 
