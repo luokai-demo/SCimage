@@ -394,7 +394,7 @@ body {
 }
 .gallery-viewport-content {
   min-height: 100%;
-  padding: 6px 6px 24px;
+  padding: 8px 8px 28px;
 }
 .gallery-grid {
   display: grid;
@@ -413,26 +413,22 @@ body {
 }
 .gallery-grid.is-virtualized .gallery-item {
   margin: 0;
+  background: rgba(255,255,255,0.018);
 }
 .gallery-grid.is-virtualized .gallery-item img,
 .gallery-grid.is-virtualized .gallery-item .gallery-preview {
   height: 100%;
   object-fit: cover;
 }
-.gallery-grid.is-fast-scrolling .gallery-item {
-  opacity: 1 !important;
-  transform: translate3d(0, 0, 0) scale(1) !important;
+.gallery-grid.is-virtualized .gallery-item.is-loading {
+  background: rgba(255,255,255,0.018);
 }
-.gallery-grid.is-fast-scrolling .gallery-item.is-loading::before {
-  opacity: 1;
+.gallery-grid.is-virtualized .gallery-item.is-loading::before {
+  opacity: 0;
   animation: none;
-  background:
-    linear-gradient(135deg, rgba(255,255,255,0.34), rgba(255,255,255,0.12) 44%, rgba(255,255,255,0.22)),
-    rgba(255,255,255,0.14);
 }
-.gallery-grid.is-fast-scrolling .gallery-item.has-preview.is-loading::before {
-  opacity: 0.18;
-  background: rgba(255,255,255,0.08);
+.gallery-grid.is-virtualized .gallery-preview {
+  background: rgba(255,255,255,0.018);
 }
 .gallery-task-section {
   margin: 0 0 18px;
@@ -475,21 +471,49 @@ body {
   width: 100%;
   min-height: 0;
   margin: 0;
-  position: relative; border-radius: var(--radius);
-  overflow: hidden; border: none;
+  position: relative;
+  border-radius: 10px;
+  overflow: hidden;
+  border: none;
   cursor: pointer;
-  opacity: var(--gallery-item-opacity, 1);
-  transform: translate3d(0, var(--gallery-item-offset-y, 0), 0) scale(var(--gallery-item-scale, 1));
-  will-change: opacity, transform;
-  transition: background var(--transition);
+  transition: background var(--transition), box-shadow 180ms ease;
   background: var(--gallery-placeholder-color, rgba(255,255,255,0.02));
+  box-shadow:
+    0 1px 0 rgba(255,255,255,0.04) inset,
+    0 14px 30px rgba(0,0,0,0.18);
+}
+.gallery-item.has-masonry-profile {
+  aspect-ratio: var(--gallery-card-aspect-ratio);
+}
+.gallery-item.is-featured {
+  border-radius: 14px;
+  box-shadow:
+    0 1px 0 rgba(255,255,255,0.06) inset,
+    0 18px 40px rgba(0,0,0,0.24);
+}
+.gallery-item.is-compact {
+  border-radius: 8px;
+}
+.gallery-item.shape-panorama {
+  border-radius: 8px;
+}
+.gallery-item.shape-portrait,
+.gallery-item.shape-tallPortrait {
+  border-radius: 12px;
 }
 .gallery-item.is-loading {
   background:
     linear-gradient(135deg, var(--gallery-placeholder-accent, rgba(255,255,255,0.18)), var(--gallery-placeholder-color, rgba(255,255,255,0.06))),
     var(--gallery-placeholder-color, rgba(255,255,255,0.08));
 }
-.gallery-item:hover, .gallery-item:focus-visible { background: rgba(255,255,255,0.03); outline: none; }
+.gallery-item:hover,
+.gallery-item:focus-visible {
+  background: rgba(255,255,255,0.03);
+  box-shadow:
+    0 1px 0 rgba(255,255,255,0.08) inset,
+    0 20px 46px rgba(0,0,0,0.28);
+  outline: none;
+}
 .gallery-item::before {
   content: "";
   position: absolute;
@@ -520,7 +544,11 @@ body {
   z-index: 1;
   opacity: 0;
   background: rgba(255,255,255,0.02);
+  object-fit: cover;
   will-change: opacity;
+}
+.gallery-item.has-masonry-profile img[data-src] {
+  height: 100%;
 }
 .gallery-item.has-preview img[data-src] {
   background: transparent;
@@ -555,10 +583,12 @@ body {
 .gallery-overlay {
   position: absolute; inset: 0;
   z-index: 3;
-  background: linear-gradient(180deg, transparent 34%, rgba(0,0,0,0.34) 58%, rgba(0,0,0,0.92));
+  background:
+    linear-gradient(180deg, transparent 32%, rgba(0,0,0,0.22) 60%, rgba(0,0,0,0.88)),
+    radial-gradient(120% 80% at 50% 100%, rgba(0,0,0,0.28), transparent 64%);
   opacity: 0; transition: opacity var(--transition);
   display: flex; flex-direction: column; justify-content: flex-end;
-  padding: 10px;
+  padding: 11px;
 }
 .gallery-item:hover .gallery-overlay, .gallery-item:focus-visible .gallery-overlay { opacity: 1; }
 .gallery-overlay .prompt-preview {
@@ -643,43 +673,6 @@ body {
 @keyframes gallery-shimmer {
   0%, 100% { opacity: 0.5; }
   50% { opacity: 0.9; }
-}
-@keyframes gallery-window-visibility {
-  0% {
-    opacity: 0;
-    transform: translate3d(0, 4px, 0) scale(0.999);
-  }
-  14% {
-    opacity: 0.78;
-    transform: translate3d(0, 1px, 0) scale(0.9995);
-  }
-  22% {
-    opacity: 1;
-    transform: translate3d(0, 0, 0) scale(1);
-  }
-  78% {
-    opacity: 1;
-    transform: translate3d(0, 0, 0) scale(1);
-  }
-  86% {
-    opacity: 0.78;
-    transform: translate3d(0, -1px, 0) scale(0.9995);
-  }
-  100% {
-    opacity: 0;
-    transform: translate3d(0, -4px, 0) scale(0.999);
-  }
-}
-
-@supports (animation-timeline: view()) {
-  .gallery-window-shell.use-view-timeline .gallery-item {
-    animation-name: gallery-window-visibility;
-    animation-duration: auto;
-    animation-fill-mode: both;
-    animation-timing-function: linear;
-    animation-timeline: view(block 6% 6%);
-    animation-range: entry 0% exit 100%;
-  }
 }
 
 /* Form */

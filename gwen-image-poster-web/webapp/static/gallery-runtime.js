@@ -13,24 +13,6 @@
     return card?.getBoundingClientRect?.() || null;
   }
 
-  function setCardRevealStyle(card, state) {
-    if (!card) {
-      return;
-    }
-    card.style.setProperty("--gallery-item-opacity", `${state.opacity}`);
-    card.style.setProperty("--gallery-item-offset-y", `${state.offsetY}px`);
-    card.style.setProperty("--gallery-item-scale", `${state.scale}`);
-  }
-
-  function setHiddenCardState(card, direction, options) {
-    const hiddenOffset = direction === "up" ? -options.maxOffsetPx : options.maxOffsetPx;
-    setCardRevealStyle(card, {
-      opacity: 0,
-      offsetY: hiddenOffset,
-      scale: options.minScale,
-    });
-  }
-
   class GalleryScrollRoot {
     constructor({ root, fallbackRoot = null }) {
       this.root = root || fallbackRoot || null;
@@ -413,6 +395,7 @@
       maxCachedItems = 180,
       getKey,
       getItemHeight,
+      getItemSpan,
       renderItem,
       updateItem,
       onMount,
@@ -429,6 +412,7 @@
       this.maxCachedItems = maxCachedItems;
       this.getKey = getKey;
       this.getItemHeight = getItemHeight;
+      this.getItemSpan = getItemSpan;
       this.renderItem = renderItem;
       this.updateItem = updateItem;
       this.onMount = onMount;
@@ -438,9 +422,7 @@
       this.nodeByKey = new Map();
       this.cacheOrder = [];
       this.mountedKeys = new Set();
-      this.frameId = 0;
       this.layoutFrameId = 0;
-      this.fastScrollTimer = 0;
       this.totalHeight = 0;
       this.renderedRange = { start: 0, end: 0 };
       this.handleScroll = this.handleScroll.bind(this);
@@ -454,17 +436,9 @@
     }
 
     clear() {
-      if (this.frameId) {
-        windowObject.cancelAnimationFrame(this.frameId);
-        this.frameId = 0;
-      }
       if (this.layoutFrameId) {
         windowObject.cancelAnimationFrame(this.layoutFrameId);
         this.layoutFrameId = 0;
-      }
-      if (this.fastScrollTimer) {
-        windowObject.clearTimeout(this.fastScrollTimer);
-        this.fastScrollTimer = 0;
       }
       this.mountedKeys.forEach((key) => {
         const node = this.nodeByKey.get(key);
@@ -481,7 +455,6 @@
       this.renderedRange = { start: 0, end: 0 };
       if (this.container) {
         this.container.classList.remove("is-virtualized");
-        this.container.classList.remove("is-fast-scrolling");
         this.container.style.removeProperty("height");
         this.container.style.removeProperty("--gallery-virtual-height");
         this.container.replaceChildren();
@@ -534,40 +507,10 @@
       const guard = viewportHeight * 0.5;
       const windowMissedVisibleRange = visibleRange.start < this.renderedRange.start + guard
         || visibleRange.end > this.renderedRange.end - guard;
-      if (windowMissedVisibleRange) {
-        this.markFastScrolling();
-        if (this.frameId) {
-          windowObject.cancelAnimationFrame(this.frameId);
-          this.frameId = 0;
-        }
-        this.renderWindow();
+      if (!windowMissedVisibleRange) {
         return;
       }
-      this.scheduleRender();
-    }
-
-    markFastScrolling() {
-      if (!this.container) {
-        return;
-      }
-      this.container.classList.add("is-fast-scrolling");
-      if (this.fastScrollTimer) {
-        windowObject.clearTimeout(this.fastScrollTimer);
-      }
-      this.fastScrollTimer = windowObject.setTimeout(() => {
-        this.fastScrollTimer = 0;
-        this.container?.classList.remove("is-fast-scrolling");
-      }, 140);
-    }
-
-    scheduleRender() {
-      if (this.frameId) {
-        return;
-      }
-      this.frameId = windowObject.requestAnimationFrame(() => {
-        this.frameId = 0;
-        this.renderWindow();
-      });
+      this.renderWindow();
     }
 
     buildLayout() {
@@ -592,25 +535,84 @@
 
       this.records = this.items.map((item, index) => {
         const key = this.getKey?.(item, index) || String(index);
-        const height = Math.max(
+        let span = this.getColumnSpan(item, index, columns);
+        let itemWidth = this.getSpannedWidth(columnWidth, span);
+        let height = Math.max(
           1,
-          Math.round(this.getItemHeight?.(item, columnWidth, index) || this.estimatedHeightPx)
+          Math.round(this.getItemHeight?.(item, itemWidth, index, { columns, span }) || this.estimatedHeightPx)
         );
-        let columnIndex = 0;
-        for (let nextIndex = 1; nextIndex < columnHeights.length; nextIndex += 1) {
-          if (columnHeights[nextIndex] < columnHeights[columnIndex]) {
-            columnIndex = nextIndex;
-          }
+        let placement = this.findColumnPlacement(columnHeights, span);
+        if (this.shouldCollapseSpan(placement, height, columnWidth)) {
+          span = 1;
+          itemWidth = this.getSpannedWidth(columnWidth, span);
+          height = Math.max(
+            1,
+            Math.round(this.getItemHeight?.(item, itemWidth, index, { columns, span, collapsedSpan: true }) || this.estimatedHeightPx)
+          );
+          placement = this.findColumnPlacement(columnHeights, span);
         }
-        const x = columnIndex * (columnWidth + this.gapPx);
-        const y = columnHeights[columnIndex];
-        columnHeights[columnIndex] += height + this.gapPx;
-        return { item, index, key, x, y, width: columnWidth, height };
+        const x = placement.columnIndex * (columnWidth + this.gapPx);
+        const y = placement.y;
+        for (let offset = 0; offset < span; offset += 1) {
+          columnHeights[placement.columnIndex + offset] = y + height + this.gapPx;
+        }
+        return { item, index, key, x, y, width: itemWidth, height, span };
       });
 
       this.totalHeight = Math.max(0, Math.max(...columnHeights) - this.gapPx);
       this.container.style.setProperty("--gallery-virtual-height", `${Math.ceil(this.totalHeight)}px`);
       this.container.style.height = `${Math.ceil(this.totalHeight)}px`;
+    }
+
+    getSpannedWidth(columnWidth, span) {
+      return (columnWidth * span) + (this.gapPx * (span - 1));
+    }
+
+    getColumnSpan(item, index, columns) {
+      const rawSpan = Number(this.getItemSpan?.(item, index, columns) || 1);
+      if (!Number.isFinite(rawSpan)) {
+        return 1;
+      }
+      return clamp(Math.round(rawSpan), 1, columns);
+    }
+
+    shouldCollapseSpan(placement, height, columnWidth) {
+      if (!placement || placement.span <= 1) {
+        return false;
+      }
+      const tolerance = Math.max(this.gapPx * 2.5, Math.min(columnWidth * 0.18, height * 0.16));
+      return placement.imbalance > tolerance || placement.waste > tolerance * placement.span;
+    }
+
+    findColumnPlacement(columnHeights, span) {
+      let columnIndex = 0;
+      let y = Number.POSITIVE_INFINITY;
+      let bestScore = Number.POSITIVE_INFINITY;
+      let bestWaste = 0;
+      let bestImbalance = 0;
+      const lastStartIndex = Math.max(0, columnHeights.length - span);
+      for (let startIndex = 0; startIndex <= lastStartIndex; startIndex += 1) {
+        const heights = columnHeights.slice(startIndex, startIndex + span);
+        const candidateY = Math.max(...heights);
+        const lowestY = Math.min(...heights);
+        const waste = heights.reduce((total, value) => total + (candidateY - value), 0);
+        const imbalance = candidateY - lowestY;
+        const score = span > 1 ? candidateY + (waste * 0.9) + (imbalance * 0.45) : candidateY;
+        if (score < bestScore || (score === bestScore && candidateY < y)) {
+          columnIndex = startIndex;
+          y = candidateY;
+          bestScore = score;
+          bestWaste = waste;
+          bestImbalance = imbalance;
+        }
+      }
+      return {
+        columnIndex,
+        y: Number.isFinite(y) ? y : 0,
+        span,
+        waste: bestWaste,
+        imbalance: bestImbalance,
+      };
     }
 
     getContainerScrollTop() {
@@ -682,6 +684,7 @@
       node.style.top = `${record.y}px`;
       node.style.width = `${record.width}px`;
       node.style.height = `${record.height}px`;
+      node.dataset.columnSpan = String(record.span || 1);
     }
 
     renderWindow() {
@@ -726,235 +729,11 @@
     }
   }
 
-  class GalleryRevealController {
-    constructor({
-      scrollRoot,
-      activeScreens = 0.35,
-      activeExtraPx = 64,
-      maxOffsetPx = 12,
-      minScale = 0.995,
-      edgeFadeFraction = 0.16,
-      minEdgeFadePx = 72,
-      maxEdgeFadePx = 140,
-    }) {
-      this.scrollRoot = scrollRoot;
-      this.activeScreens = activeScreens;
-      this.activeExtraPx = activeExtraPx;
-      this.maxOffsetPx = maxOffsetPx;
-      this.minScale = minScale;
-      this.edgeFadeFraction = edgeFadeFraction;
-      this.minEdgeFadePx = minEdgeFadePx;
-      this.maxEdgeFadePx = maxEdgeFadePx;
-      this.observedCards = new Set();
-      this.cardMetrics = new Map();
-      this.frameId = 0;
-      this.layoutFrameId = 0;
-
-      this.handleRootScroll = this.handleRootScroll.bind(this);
-
-      this.scrollRoot.getNode()?.addEventListener("scroll", this.handleRootScroll, { passive: true });
-    }
-
-    destroy() {
-      this.reset();
-      this.scrollRoot.getNode()?.removeEventListener("scroll", this.handleRootScroll);
-    }
-
-    reset() {
-      if (this.frameId) {
-        windowObject.cancelAnimationFrame(this.frameId);
-        this.frameId = 0;
-      }
-      if (this.layoutFrameId) {
-        windowObject.cancelAnimationFrame(this.layoutFrameId);
-        this.layoutFrameId = 0;
-      }
-      this.observedCards.clear();
-      this.cardMetrics.clear();
-    }
-
-    refresh() {
-      if (!this.observedCards.size) {
-        if (this.frameId) {
-          windowObject.cancelAnimationFrame(this.frameId);
-          this.frameId = 0;
-        }
-        return;
-      }
-      this.refreshMetrics();
-      this.scheduleUpdate();
-    }
-
-    measureCard(card, rootBounds = this.scrollRoot.getBounds(), scrollTop = this.scrollRoot.getScrollTop()) {
-      const cardBounds = getCardBounds(card);
-      if (!rootBounds || !cardBounds) {
-        return null;
-      }
-      const metric = {
-        top: scrollTop + (cardBounds.top - rootBounds.top),
-        height: cardBounds.height,
-      };
-      this.cardMetrics.set(card, metric);
-      return metric;
-    }
-
-    refreshMetrics(cards = this.observedCards) {
-      const rootBounds = this.scrollRoot.getBounds();
-      const scrollTop = this.scrollRoot.getScrollTop();
-      Array.from(cards).forEach((card) => {
-        if (!card?.isConnected) {
-          this.cardMetrics.delete(card);
-          return;
-        }
-        this.measureCard(card, rootBounds, scrollTop);
-      });
-    }
-
-    scheduleLayoutRefresh() {
-      if (this.layoutFrameId) {
-        return;
-      }
-      this.layoutFrameId = windowObject.requestAnimationFrame(() => {
-        this.layoutFrameId = 0;
-        this.refreshMetrics();
-        this.scheduleUpdate();
-      });
-    }
-
-    handleRootScroll() {
-      this.scheduleUpdate();
-    }
-
-    getDirectionFromMetric(metric, viewportHeight) {
-      if (!metric) {
-        return "down";
-      }
-      return metric.top >= viewportHeight ? "down" : "up";
-    }
-
-    getViewportState() {
-      const viewportHeight = this.scrollRoot.getHeight();
-      return {
-        viewportHeight,
-        scrollTop: this.scrollRoot.getScrollTop(),
-        activeMargin: Math.max((viewportHeight * this.activeScreens) + this.activeExtraPx, 0),
-        edgeFadePx: clamp(
-          viewportHeight * this.edgeFadeFraction,
-          this.minEdgeFadePx,
-          this.maxEdgeFadePx
-        ),
-      };
-    }
-
-    getRevealState(metric, viewportState) {
-      const { viewportHeight, scrollTop, activeMargin, edgeFadePx } = viewportState;
-      const cardTop = metric.top - scrollTop;
-      const cardBottom = cardTop + metric.height;
-      if (cardBottom < -activeMargin || cardTop > viewportHeight + activeMargin) {
-        return {
-          isOutside: true,
-          direction: this.getDirectionFromMetric({ top: cardTop }, viewportHeight),
-        };
-      }
-      const visibleTop = Math.max(cardTop, 0);
-      const visibleBottom = Math.min(cardBottom, viewportHeight);
-      const visibleHeight = Math.max(visibleBottom - visibleTop, 0);
-      const visibleRatio = clamp(visibleHeight / Math.max(Math.min(metric.height, viewportHeight), 1), 0, 1);
-
-      const topFade = clamp((cardTop + edgeFadePx) / edgeFadePx, 0, 1);
-      const bottomFade = clamp((viewportHeight + edgeFadePx - cardBottom) / edgeFadePx, 0, 1);
-      const edgeVisibility = Math.min(topFade, bottomFade);
-      const visibility = clamp(Math.max(visibleRatio, edgeVisibility), 0, 1);
-
-      let direction = 0;
-      if (cardTop < 0) {
-        direction = -1;
-      } else if (cardBottom > viewportHeight) {
-        direction = 1;
-      }
-
-      return {
-        opacity: Number(visibility.toFixed(3)),
-        offsetY: Number(((1 - visibility) * this.maxOffsetPx * direction).toFixed(2)),
-        scale: Number((this.minScale + (visibility * (1 - this.minScale))).toFixed(3)),
-      };
-    }
-
-    applyRevealState(card, metric, viewportState = this.getViewportState()) {
-      if (!metric || !viewportState.viewportHeight) {
-        return;
-      }
-      const state = this.getRevealState(metric, viewportState);
-      if (state.isOutside) {
-        setHiddenCardState(card, state.direction, this);
-        return;
-      }
-      setCardRevealStyle(card, state);
-    }
-
-    register(card) {
-      if (!card) {
-        return;
-      }
-      const isNewCard = !this.observedCards.has(card);
-      this.observedCards.add(card);
-      const metric = this.measureCard(card);
-      if (isNewCard) {
-        this.applyRevealState(card, metric);
-      }
-      this.scheduleUpdate();
-    }
-
-    unregister(card) {
-      if (!card) {
-        return;
-      }
-      this.observedCards.delete(card);
-      this.cardMetrics.delete(card);
-    }
-
-    scheduleUpdate() {
-      if (this.frameId) {
-        return;
-      }
-      this.frameId = windowObject.requestAnimationFrame(() => {
-        this.frameId = 0;
-        this.update();
-      });
-    }
-
-    update() {
-      const viewportState = this.getViewportState();
-      if (!viewportState.viewportHeight) {
-        return;
-      }
-      const cardsToDrop = [];
-
-      this.observedCards.forEach((card) => {
-        if (!card?.isConnected) {
-          cardsToDrop.push(card);
-          return;
-        }
-        const metric = this.cardMetrics.get(card);
-        if (!metric) {
-          return;
-        }
-        this.applyRevealState(card, metric, viewportState);
-      });
-
-      cardsToDrop.forEach((card) => {
-        this.observedCards.delete(card);
-        this.cardMetrics.delete(card);
-      });
-    }
-  }
-
   windowObject.GalleryRuntime = {
     GalleryScrollRoot,
     GalleryImageLoader,
     GalleryImageWarmCache,
     GalleryMasonryLayout,
     GalleryVirtualMasonry,
-    GalleryRevealController,
   };
 })(window);

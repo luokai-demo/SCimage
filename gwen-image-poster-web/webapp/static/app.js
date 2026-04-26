@@ -14,10 +14,6 @@ const GALLERY_RUNTIME = window.GalleryRuntime;
 if (!GALLERY_RUNTIME) {
   throw new Error("GalleryRuntime must be loaded before app.js");
 }
-const SUPPORTS_VIEW_TIMELINE = Boolean(window.CSS?.supports?.("animation-timeline: view()"));
-// Native view timelines replay when the gallery viewport is resized by task status UI.
-const ENABLE_NATIVE_GALLERY_VIEW_TIMELINE = false;
-const USE_NATIVE_GALLERY_VIEW_TIMELINE = SUPPORTS_VIEW_TIMELINE && ENABLE_NATIVE_GALLERY_VIEW_TIMELINE;
 
 const LIST_TIMEOUT_MS = 10000;
 const ACTION_TIMEOUT_MS = 20000;
@@ -128,22 +124,15 @@ const formFieldIds = ["prompt", "size", "quality", "count"];
 const LIGHTBOX_ZOOM_MIN = 1;
 const LIGHTBOX_ZOOM_MAX = 5;
 const LIGHTBOX_ZOOM_STEP = 0.25;
-const GALLERY_COLUMN_TARGET_WIDTH = 190;
+const GALLERY_COLUMN_TARGET_WIDTH = 176;
 const GALLERY_COLUMN_MIN = 1;
-const GALLERY_COLUMN_MAX = 5;
+const GALLERY_COLUMN_MAX = 6;
 const GALLERY_GRID_ROW_HEIGHT_PX = 8;
-const GALLERY_GRID_GAP_PX = 10;
+const GALLERY_GRID_GAP_PX = 12;
 const GALLERY_PRELOAD_SCREENS = 3;
 const GALLERY_PRELOAD_EXTRA_PX = 160;
-const GALLERY_REVEAL_ACTIVE_SCREENS = 0.35;
-const GALLERY_REVEAL_ACTIVE_EXTRA_PX = 64;
-const GALLERY_REVEAL_MAX_OFFSET_PX = 12;
-const GALLERY_REVEAL_MIN_SCALE = 0.995;
-const GALLERY_REVEAL_EDGE_FADE_FRACTION = 0.16;
-const GALLERY_REVEAL_MIN_EDGE_FADE_PX = 72;
-const GALLERY_REVEAL_MAX_EDGE_FADE_PX = 140;
 const GALLERY_VIRTUAL_OVERSCAN_SCREENS = 3;
-const GALLERY_VIRTUAL_ESTIMATED_HEIGHT_PX = 340;
+const GALLERY_VIRTUAL_ESTIMATED_HEIGHT_PX = 310;
 const GALLERY_VIRTUAL_MAX_CACHED_ITEMS = 180;
 const GALLERY_IMAGE_WARM_CONCURRENCY = 8;
 const GALLERY_IMAGE_WARM_MAX_ENTRIES = 220;
@@ -175,20 +164,6 @@ const galleryMasonryLayout = new GALLERY_RUNTIME.GalleryMasonryLayout({
   rowHeightPx: GALLERY_GRID_ROW_HEIGHT_PX,
   gapPx: GALLERY_GRID_GAP_PX,
 });
-elements.galleryWindowShell?.classList.toggle("use-view-timeline", USE_NATIVE_GALLERY_VIEW_TIMELINE);
-
-const galleryRevealController = USE_NATIVE_GALLERY_VIEW_TIMELINE
-  ? null
-  : new GALLERY_RUNTIME.GalleryRevealController({
-      scrollRoot: galleryScrollRoot,
-      activeScreens: GALLERY_REVEAL_ACTIVE_SCREENS,
-      activeExtraPx: GALLERY_REVEAL_ACTIVE_EXTRA_PX,
-      maxOffsetPx: GALLERY_REVEAL_MAX_OFFSET_PX,
-      minScale: GALLERY_REVEAL_MIN_SCALE,
-      edgeFadeFraction: GALLERY_REVEAL_EDGE_FADE_FRACTION,
-      minEdgeFadePx: GALLERY_REVEAL_MIN_EDGE_FADE_PX,
-      maxEdgeFadePx: GALLERY_REVEAL_MAX_EDGE_FADE_PX,
-    });
 
 const galleryVirtualMasonry = new GALLERY_RUNTIME.GalleryVirtualMasonry({
   scrollRoot: galleryScrollRoot,
@@ -201,11 +176,13 @@ const galleryVirtualMasonry = new GALLERY_RUNTIME.GalleryVirtualMasonry({
   estimatedHeightPx: GALLERY_VIRTUAL_ESTIMATED_HEIGHT_PX,
   maxCachedItems: GALLERY_VIRTUAL_MAX_CACHED_ITEMS,
   getKey: (entry) => entry.key,
-  getItemHeight: (entry, columnWidth) => getGalleryEntryHeight(entry, columnWidth),
+  getItemHeight: (entry, columnWidth, index, layoutContext) => getGalleryEntryHeight(entry, columnWidth, index, layoutContext),
+  getItemSpan: (entry, index, columns) => getGalleryEntryColumnSpan(entry, columns),
   renderItem: (entry, openIndex) => buildImageCard(entry.job, entry.image, {
     imageUrl: entry.imageUrl,
     key: entry.key,
     openIndex,
+    layoutProfile: entry.layoutProfile,
   }),
   updateItem: (card, entry, openIndex) => syncImageCard(card, entry, openIndex),
   onMount: (card, record) => {
@@ -1371,6 +1348,168 @@ function getSizeHeightRatio(size) {
   return heightRatio / widthRatio;
 }
 
+function clampNumber(value, min, max) {
+  return Math.min(max, Math.max(min, value));
+}
+
+function hashString(value) {
+  let hash = 0;
+  const text = String(value || "");
+  for (let index = 0; index < text.length; index += 1) {
+    hash = ((hash << 5) - hash + text.charCodeAt(index)) | 0;
+  }
+  return Math.abs(hash);
+}
+
+function getGalleryNaturalHeightRatio(entry) {
+  const dimensions = getImageDimensions(entry.image);
+  return dimensions
+    ? dimensions.height / dimensions.width
+    : getSizeHeightRatio(entry.job?.size);
+}
+
+function getGalleryImageShape(heightRatio) {
+  if (heightRatio <= 0.64) {
+    return "panorama";
+  }
+  if (heightRatio <= 0.9) {
+    return "landscape";
+  }
+  if (heightRatio <= 1.18) {
+    return "square";
+  }
+  if (heightRatio <= 1.72) {
+    return "portrait";
+  }
+  return "tallPortrait";
+}
+
+function getGalleryFeaturedScore(entry, index, total) {
+  if (index < 2 || total < 12) {
+    return 0;
+  }
+  const heightRatio = getGalleryNaturalHeightRatio(entry);
+  const shape = getGalleryImageShape(heightRatio);
+  const seed = hashString(`${entry.key}:${index}`);
+  const rhythmBoost = 12 - Math.abs((index % 12) - 5);
+  const freshnessBoost = Math.max(0, 8 - Math.floor(index / 14));
+  const shapeScore = {
+    panorama: 98,
+    landscape: 92,
+    square: 66,
+    portrait: 54,
+    tallPortrait: 0,
+  }[shape];
+  return shapeScore + rhythmBoost + freshnessBoost + (seed % 11);
+}
+
+function selectGalleryFeaturedIndexes(entries, options = {}) {
+  if (options.allowFeatured === false || entries.length < 12) {
+    return new Set();
+  }
+  const maxFeatured = clampNumber(Math.floor(entries.length / 11), 1, 7);
+  const minGap = entries.length >= 36 ? 6 : 7;
+  const candidates = entries
+    .map((entry, index) => ({ entry, index, score: getGalleryFeaturedScore(entry, index, entries.length) }))
+    .filter((candidate) => candidate.score >= 72)
+    .sort((left, right) => right.score - left.score || left.index - right.index);
+
+  const selected = [];
+  const selectedJobIds = new Set();
+  [true, false].forEach((preferNewJob) => {
+    candidates.forEach((candidate) => {
+      if (selected.length >= maxFeatured || selected.includes(candidate.index)) {
+        return;
+      }
+      const jobId = candidate.entry.job?.id || "";
+      if (preferNewJob && jobId && selectedJobIds.has(jobId)) {
+        return;
+      }
+      if (selected.some((index) => Math.abs(index - candidate.index) < minGap)) {
+        return;
+      }
+      selected.push(candidate.index);
+      if (jobId) {
+        selectedJobIds.add(jobId);
+      }
+    });
+  });
+  return new Set(selected);
+}
+
+function createGalleryLayoutProfile(entry, index, options = {}) {
+  const baseHeightRatio = getGalleryNaturalHeightRatio(entry);
+  const shape = getGalleryImageShape(baseHeightRatio);
+  const seed = hashString(`${entry.key}:${index}`);
+  const isFeatured = options.featuredIndexes?.has(index) || false;
+  let variant = "balanced";
+  const span = isFeatured ? 2 : 1;
+  let heightRatio = baseHeightRatio;
+
+  if (isFeatured) {
+    variant = "featured";
+    if (shape === "panorama") {
+      heightRatio = clampNumber(baseHeightRatio * 1.12, 0.48, 0.72);
+    } else if (shape === "landscape") {
+      heightRatio = clampNumber(baseHeightRatio * 1.02, 0.62, 0.92);
+    } else {
+      heightRatio = clampNumber(baseHeightRatio * 0.86, 0.76, 1.02);
+    }
+  } else if (shape === "tallPortrait") {
+    if (seed % 6 === 0) {
+      variant = "lifted";
+      heightRatio = clampNumber(baseHeightRatio * 0.76, 1.16, 1.48);
+    } else {
+      variant = "tall";
+      heightRatio = clampNumber(baseHeightRatio * 0.88, 1.32, 1.82);
+    }
+  } else if (shape === "portrait") {
+    if (seed % 7 === 0) {
+      variant = "compact";
+      heightRatio = clampNumber(baseHeightRatio * 0.72, 0.96, 1.22);
+    } else if (seed % 4 === 0) {
+      variant = "lifted";
+      heightRatio = clampNumber(baseHeightRatio * 0.88, 1.04, 1.38);
+    } else {
+      variant = "tall";
+      heightRatio = clampNumber(baseHeightRatio * 1.0, 1.12, 1.58);
+    }
+  } else if (shape === "panorama") {
+    variant = "compact";
+    heightRatio = clampNumber(baseHeightRatio * 1.16, 0.5, 0.78);
+  } else if (shape === "landscape") {
+    variant = seed % 3 === 0 ? "lifted" : "compact";
+    heightRatio = clampNumber(baseHeightRatio * (seed % 3 === 0 ? 1.08 : 0.96), 0.62, 1.02);
+  } else if (seed % 5 === 0) {
+    variant = "compact";
+    heightRatio = clampNumber(baseHeightRatio * 0.92, 0.82, 1.12);
+  } else if (seed % 3 === 0) {
+    variant = "lifted";
+    heightRatio = clampNumber(baseHeightRatio * 1.06, 0.9, 1.28);
+  } else {
+    heightRatio = clampNumber(baseHeightRatio, 0.86, 1.24);
+  }
+
+  return {
+    span,
+    variant,
+    shape,
+    heightRatio,
+    aspectRatio: `1 / ${heightRatio.toFixed(4)}`,
+  };
+}
+
+function assignGalleryLayoutProfiles(entries, options = {}) {
+  const featuredIndexes = selectGalleryFeaturedIndexes(entries, options);
+  entries.forEach((entry, index) => {
+    entry.layoutProfile = createGalleryLayoutProfile(entry, index, {
+      ...options,
+      featuredIndexes,
+    });
+  });
+  return entries;
+}
+
 function createActionButton(label, action, jobId, extraClassName = "") {
   const button = createElement("button", extraClassName, label);
   button.type = "button";
@@ -1408,7 +1547,6 @@ function handleGalleryImageLoaded(card, imageNode) {
   imageNode.dataset.loadingState = "loaded";
   imageNode.classList.add("is-loaded");
   scheduleActiveGalleryLayout();
-  galleryRevealController?.scheduleLayoutRefresh();
 }
 
 function handleGalleryImageError(card, imageNode) {
@@ -1417,20 +1555,17 @@ function handleGalleryImageError(card, imageNode) {
   imageNode.style.removeProperty("min-height");
   imageNode.dataset.loadingState = "error";
   scheduleActiveGalleryLayout();
-  galleryRevealController?.scheduleLayoutRefresh();
 }
 
 function activateGalleryImageCard(card) {
   if (!card) {
     return;
   }
-  galleryRevealController?.register(card);
   galleryImageLoader.register(card);
 }
 
 function deactivateGalleryImageCard(card) {
   galleryImageLoader.unregister?.(card);
-  galleryRevealController?.unregister?.(card);
 }
 
 function isVirtualGalleryActive() {
@@ -1454,8 +1589,6 @@ function refreshGalleryViewportEffects(options = {}) {
     if (refreshLoader) {
       galleryImageLoader.refresh();
     }
-    galleryRevealController?.refresh();
-    galleryRevealController?.scheduleLayoutRefresh();
   });
 }
 
@@ -1474,7 +1607,6 @@ function scheduleGalleryCardActivation() {
     galleryActivationFrame = null;
     elements.galleryGrid.querySelectorAll(".gallery-item").forEach((card) => activateGalleryImageCard(card));
     galleryImageLoader.refresh();
-    galleryRevealController?.scheduleLayoutRefresh();
   });
 }
 
@@ -1511,15 +1643,24 @@ function rememberGalleryImageMetrics(card, imageNode) {
   });
 }
 
-function getGalleryEntryHeight(entry, columnWidth) {
+function getGalleryEntryHeight(entry, columnWidth, index, layoutContext = {}) {
   const metrics = galleryImageMetrics.get(entry.key);
   const dimensions = getImageDimensions(entry.image);
-  const heightRatio = metrics?.width && metrics?.height
+  const naturalHeightRatio = metrics?.width && metrics?.height
     ? metrics.height / metrics.width
     : dimensions
       ? dimensions.height / dimensions.width
-    : getSizeHeightRatio(entry.job?.size);
-  return Math.max(120, Math.round(columnWidth * heightRatio));
+      : getSizeHeightRatio(entry.job?.size);
+  const heightRatio = entry.layoutProfile?.heightRatio || naturalHeightRatio;
+  const span = Number(layoutContext.span || entry.layoutProfile?.span || 1);
+  const minHeight = span > 1 ? Math.max(176, columnWidth * 0.42) : 124;
+  const maxHeight = span > 1 ? Math.min(460, columnWidth * 1.04) : 390;
+  return Math.round(clampNumber(columnWidth * heightRatio, minHeight, maxHeight));
+}
+
+function getGalleryEntryColumnSpan(entry, columns) {
+  const span = Number(entry.layoutProfile?.span || 1);
+  return columns >= 4 ? span : 1;
 }
 
 function createGalleryImageEntry(job, image) {
@@ -1556,8 +1697,18 @@ function applyGalleryImageDimensions(imageNode, image) {
   }
   imageNode.width = dimensions.width;
   imageNode.height = dimensions.height;
-  imageNode.style.aspectRatio = `${dimensions.width} / ${dimensions.height}`;
   return true;
+}
+
+function applyGalleryCardProfile(card, profile) {
+  if (!card || !profile) {
+    return;
+  }
+  card.classList.remove("is-featured", "is-tall", "is-compact", "is-lifted", "is-balanced");
+  card.classList.remove("shape-panorama", "shape-landscape", "shape-square", "shape-portrait", "shape-tallPortrait");
+  card.classList.add("has-masonry-profile", `is-${profile.variant}`);
+  card.classList.add(`shape-${profile.shape}`);
+  card.style.setProperty("--gallery-card-aspect-ratio", profile.aspectRatio);
 }
 
 function applyGalleryPlaceholder(card, image) {
@@ -1622,6 +1773,7 @@ function syncImageCard(card, entry, openIndex) {
   card.dataset.jobId = entry.job.id || "";
   card.dataset.imageSlot = String(entry.image.slot || 0);
   card.setAttribute("aria-label", entry.job.prompt || "生成图片");
+  applyGalleryCardProfile(card, entry.layoutProfile);
   applyGalleryPlaceholder(card, entry.image);
   syncGalleryPreviewImage(card, entry);
 
@@ -1691,6 +1843,7 @@ function buildImageCard(job, image, options = {}) {
   card.tabIndex = 0;
   card.setAttribute("role", "button");
   card.setAttribute("aria-label", job.prompt || "生成图片");
+  applyGalleryCardProfile(card, options.layoutProfile);
   applyGalleryPlaceholder(card, image);
 
   const imageNode = new Image();
@@ -1756,6 +1909,7 @@ function reconcileImageGrid(grid, entries, reusableCards) {
       imageUrl: entry.imageUrl,
       key: entry.key,
       openIndex,
+      layoutProfile: entry.layoutProfile,
     });
     if (!card) {
       return;
@@ -1798,7 +1952,7 @@ function syncTaskGallerySection(section, job) {
   }
 }
 
-function reconcileFlatGallery(jobs, reusableCards) {
+function reconcileFlatGallery(jobs) {
   const entries = [];
   jobs.forEach((job) => {
     getSortedJobImages(job).forEach((image) => {
@@ -1808,6 +1962,7 @@ function reconcileFlatGallery(jobs, reusableCards) {
       }
     });
   });
+  assignGalleryLayoutProfiles(entries, { allowFeatured: true });
   warmGalleryEntries(entries);
   galleryVirtualMasonry.setItems(entries);
   return entries.length;
@@ -1840,6 +1995,7 @@ function reconcileTaskGallery(jobs, reusableCards) {
     if (!entries.length) {
       return;
     }
+    assignGalleryLayoutProfiles(entries, { allowFeatured: false });
     allEntries.push(...entries);
     const section = existingSections.get(job.id || "") || buildTaskGallerySectionShell(job);
     const grid = section.querySelector(".gallery-task-section-grid");
@@ -2015,7 +2171,7 @@ function renderGallery() {
 
   const renderedCards = currentGalleryFilter === "tasks"
     ? reconcileTaskGallery(jobs, reusableCards)
-    : reconcileFlatGallery(jobs, reusableCards);
+    : reconcileFlatGallery(jobs);
 
   elements.galleryEmpty.style.display = renderedCards ? "none" : "";
   elements.galleryCount.textContent = renderedCards
@@ -2026,7 +2182,6 @@ function renderGallery() {
   updateSyncIndicators();
   refreshRelativeTimes();
   scheduleGalleryLayout();
-  galleryRevealController?.scheduleUpdate();
   syncLightboxSelection();
 }
 
@@ -2051,10 +2206,6 @@ function toggleSort() {
   gallerySortAsc = !gallerySortAsc;
   elements.sortBtn.textContent = gallerySortAsc ? "旧→新 ↑" : "新→旧 ↓";
   renderGallery();
-}
-
-function clampNumber(value, min, max) {
-  return Math.min(max, Math.max(min, value));
 }
 
 function applyLightboxZoom() {
