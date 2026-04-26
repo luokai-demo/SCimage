@@ -2040,48 +2040,57 @@ function buildLeftTaskCard(job) {
   return card;
 }
 
+function createRunningJobStat(label, value) {
+  const item = createElement("div", "running-job-stat");
+  const labelNode = createElement("div", "running-job-stat-label", label);
+  const valueNode = createElement("div", "running-job-stat-value");
+  if (value instanceof Node) {
+    valueNode.appendChild(value);
+  } else {
+    valueNode.textContent = value;
+  }
+  item.append(labelNode, valueNode);
+  return item;
+}
+
 function buildRunningBannerCard(job) {
-  const card = createElement("article", "running-job-card");
+  const statusMeta = getStatusMeta(job.status);
+  const statusClass = statusMeta.className || job.status || "unknown";
+  const card = createElement("article", `running-job-card is-${statusClass}`);
   const header = createElement("div", "running-job-header");
   const main = createElement("div", "running-job-main");
   const top = createElement("div", "running-job-top");
-  const statusMeta = getStatusMeta(job.status);
   const progressPercent = getJobProgressPercent(job);
-  const summary = createElement("span", "running-job-summary");
-  summary.append(
-    document.createTextNode(`${getJobProgressText(job)} · `),
-    createJobDurationNode(job),
-    document.createTextNode(` · ${progressPercent}%`)
-  );
+  const completedCount = Array.isArray(job.images) ? job.images.length : 0;
+  const totalCount = Number(job.count || 0);
+  const remainingCount = Math.max(0, totalCount - completedCount);
   top.append(
     createElement("span", "running-job-status", statusMeta.label),
-    createElement("span", "running-job-type", getWorkflowLabel(job.workflow)),
-    summary
+    createElement("span", "running-job-type", getWorkflowLabel(job.workflow))
   );
 
   const prompt = createElement("div", "running-job-prompt", job.prompt || "未提供提示词");
+  const actions = createElement("div", "running-job-actions");
+  actions.appendChild(createActionButton("复制", "copy-job-prompt", job.id));
+  actions.appendChild(createActionButton("中断", "cancel-job", job.id));
+
   const progressBlock = createElement("div", "running-job-progress-block");
-  const progressHead = createElement("div", "running-job-progress-head");
-  progressHead.append(
-    createElement("span", "", "进度"),
-    createElement("span", "", `剩余 ${Math.max(0, Number(job.count || 0) - (Array.isArray(job.images) ? job.images.length : 0))} 张`)
+  const stats = createElement("div", "running-job-stats");
+  stats.append(
+    createRunningJobStat("进度", `${getJobProgressText(job)} · ${progressPercent}%`),
+    createRunningJobStat("耗时", createJobDurationNode(job)),
+    createRunningJobStat("剩余", `${remainingCount} 张`)
   );
   const progressTrack = createElement("div", "running-job-progress-track");
   const progressFill = createElement("div", "running-job-progress-fill");
   progressFill.style.width = progressPercent > 0 ? `${Math.max(progressPercent, 6)}%` : "0%";
   progressTrack.appendChild(progressFill);
   const progressNote = createElement("div", "running-job-progress-note", getJobMessage(job));
-  progressBlock.append(progressHead, progressTrack, progressNote);
-
-  const footer = createElement("div", "running-job-footer");
-  const actions = createElement("div", "running-job-actions");
-  actions.appendChild(createActionButton("复制", "copy-job-prompt", job.id));
-  actions.appendChild(createActionButton("中断", "cancel-job", job.id));
-  footer.append(actions);
+  progressBlock.append(stats, progressTrack, progressNote);
 
   main.append(top, prompt);
-  header.append(main);
-  card.append(header, progressBlock, footer);
+  header.append(main, actions);
+  card.append(header, progressBlock);
   return card;
 }
 
@@ -2094,7 +2103,9 @@ function renderRunningBanner() {
   elements.runningBanner.classList.toggle("is-empty", !hasRunningJobs);
   elements.runningBannerCount.textContent = `${runningJobs.length} 个`;
   elements.runningBannerSubtitle.textContent = hasRunningJobs
-    ? `${runningJobs[0].prompt || "任务"}${runningJobs.length > 1 ? ` 等 ${runningJobs.length} 个任务` : ""}`
+    ? runningJobs.length > 1
+      ? `${runningJobs.length} 个任务进行中 · ${truncateText(runningJobs[0].prompt || "任务", 18)}`
+      : runningJobs[0].prompt || "任务"
     : "暂无运行中任务";
   elements.runningBannerBody.innerHTML = "";
   runningJobs.forEach((job) => {
