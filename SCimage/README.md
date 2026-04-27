@@ -67,7 +67,7 @@ generated/
 
 版本号统一来自项目根目录的 `VERSION` 文件。
 
-如果只是想手动试跑打包流程，也可以在 GitHub Actions 页面手动触发 `SCimage Desktop Release`。
+如果只是想手动试跑打包流程，也可以在 GitHub Actions 页面手动触发 `SCimage 桌面版发布`。
 
 ## 打包态数据目录
 

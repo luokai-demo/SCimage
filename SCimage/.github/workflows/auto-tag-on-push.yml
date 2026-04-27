@@ -1,4 +1,4 @@
-name: SCimage Auto Tag
+name: SCimage 自动打标签
 
 on:
   push:
@@ -17,21 +17,21 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout
+      - name: 拉取代码
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      - name: Setup Python
+      - name: 安装 Python
         uses: actions/setup-python@v5
         with:
           python-version: "3.9"
 
-      - name: Run tests before tagging
+      - name: 打标签前运行测试
         shell: bash
         run: python -m unittest discover -s tests
 
-      - name: Read app version
+      - name: 读取版本号
         id: version
         shell: bash
         run: |
@@ -40,7 +40,7 @@ jobs:
           echo "app_version=${APP_VERSION}" >> "${GITHUB_OUTPUT}"
           echo "tag_name=${TAG_NAME}" >> "${GITHUB_OUTPUT}"
 
-      - name: Create and push tag
+      - name: 创建并推送标签
         shell: bash
         run: |
           git config user.name "github-actions[bot]"
