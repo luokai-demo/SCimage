@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import base64
+import binascii
 import json
 import re
 import shutil
@@ -8,6 +10,7 @@ import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable, Optional
+from urllib.parse import urljoin, urlparse
 
 
 StatusCallback = Optional[Callable[[str], None]]
@@ -55,6 +58,9 @@ class GatewayFatalError(RuntimeError):
     pass
 
 
+IMAGE_PAYLOAD_FIELDS = ("url", "b64_json", "data_url")
+
+
 @dataclass(frozen=True)
 class GatewayConfig:
     connect_timeout: int = 20
@@ -98,6 +104,10 @@ def _report_status(callback: StatusCallback, message: str) -> None:
 
 def _normalize_message(message: str) -> str:
     return " ".join(message.replace("\r", " ").replace("\n", " ").split()).strip()
+
+
+def _non_empty_string(value: object) -> str:
+    return value.strip() if isinstance(value, str) else ""
 
 
 def _is_retryable_message(message: str) -> bool:
@@ -482,7 +492,6 @@ def request_edit(
         status_callback=status_callback,
     )
 
-
 def request_chat_completion_images(
     *,
     base_url: str,
@@ -501,6 +510,86 @@ def request_chat_completion_images(
         request_once=lambda: _post_json_once(url=url, headers=headers, payload=payload, config=config),
         status_callback=status_callback,
     )
+
+
+def _collect_image_payloads(item: dict) -> list[tuple[str, str]]:
+    return [
+        (field, value)
+        for field in IMAGE_PAYLOAD_FIELDS
+        if (value := _non_empty_string(item.get(field)))
+    ]
+
+
+def _write_base64_image(target: Path, payload: str) -> None:
+    try:
+        data = base64.b64decode(payload)
+    except (binascii.Error, ValueError) as exc:
+        raise GatewayFatalError(f"Gateway response base64 image payload is invalid: {exc}") from exc
+    if not data:
+        raise GatewayFatalError("Gateway response base64 image payload is empty.")
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_bytes(data)
+
+
+def _write_data_url_image(target: Path, payload: str) -> None:
+    if "," not in payload:
+        raise GatewayFatalError("Gateway response data_url image payload is invalid.")
+    _, encoded = payload.split(",", 1)
+    _write_base64_image(target, encoded.strip())
+
+
+def save_image_item(
+    *,
+    item: dict,
+    target: Path,
+    base_url: str,
+    config: GatewayConfig,
+    status_callback: StatusCallback = None,
+    image_index: int = 1,
+    image_total: int = 1,
+) -> str:
+    payloads = _collect_image_payloads(item)
+    if not payloads:
+        raise GatewayFatalError(
+            f"Gateway response item is missing supported image payload ({', '.join(IMAGE_PAYLOAD_FIELDS)})."
+        )
+
+    errors: list[str] = []
+    origin = f"{urlparse(base_url).scheme}://{urlparse(base_url).netloc}"
+
+    for attempt_index, (payload_type, payload) in enumerate(payloads, start=1):
+        try:
+            if payload_type == "url":
+                file_url = payload if payload.startswith("http") else urljoin(origin, payload)
+                download_file(
+                    url=file_url,
+                    target=target,
+                    config=config,
+                    status_callback=status_callback,
+                    image_index=image_index,
+                    image_total=image_total,
+                )
+                return payload_type
+
+            _report_status(status_callback, f"正在保存第 {image_index}/{image_total} 张图片。")
+            if payload_type == "b64_json":
+                _write_base64_image(target, payload)
+                return payload_type
+            if payload_type == "data_url":
+                _write_data_url_image(target, payload)
+                return payload_type
+            raise GatewayFatalError(f"Unsupported image payload type: {payload_type}.")
+        except (GatewayFatalError, GatewayRetryableError) as exc:
+            errors.append(f"{payload_type}: {exc}")
+            if attempt_index < len(payloads):
+                _report_status(
+                    status_callback,
+                    f"第 {image_index}/{image_total} 张图片使用 {payload_type} 保存失败，尝试下一个返回载荷。",
+                )
+                continue
+            break
+
+    raise GatewayFatalError(f"Gateway response image payloads all failed: {'; '.join(errors)}")
 
 
 def download_file(
