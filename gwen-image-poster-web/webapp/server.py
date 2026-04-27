@@ -2,11 +2,12 @@ from __future__ import annotations
 
 import json
 import mimetypes
+import multiprocessing
 import threading
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from urllib.parse import urlparse
+from urllib.parse import urlparse, urlunsplit
 from uuid import uuid4
 
 from config import GENERATED_DIR, HOST, MAX_IMAGE_COUNT, PORT, RECENT_JOBS_LIMIT, STATIC_DIR
@@ -39,6 +40,7 @@ from provider_model_catalog import (
 )
 from provider_profiles import ProviderProfileStore
 from request_parsing import CreateJobRequest, parse_create_job_request
+from runtime_paths import ensure_runtime_data_dirs
 from source_images import SourceImageFile, save_source_images
 from workflows import requires_source_images, validate_workflow
 
@@ -205,7 +207,7 @@ def _start_job_thread(
 
 
 class ImageWorkbenchHandler(BaseHTTPRequestHandler):
-    server_version = "ImageWorkbench/1.0"
+    server_version = "SCimage/1.0"
 
     def do_GET(self) -> None:
         self._route_request(send_body=True)
@@ -706,14 +708,37 @@ class ImageWorkbenchHandler(BaseHTTPRequestHandler):
         self.wfile.write(body)
 
 
-def main() -> None:
-    GENERATED_DIR.mkdir(parents=True, exist_ok=True)
+def prepare_runtime_environment() -> list[Path]:
+    ensure_runtime_data_dirs()
     removed_dirs = cleanup_empty_generated_dirs()
-    server = ThreadingHTTPServer((HOST, PORT), ImageWorkbenchHandler)
-    print(f"Image workbench running at http://{HOST}:{PORT}")
+    return removed_dirs
+
+
+def create_server(*, host: str = HOST, port: int = PORT) -> ThreadingHTTPServer:
+    return ThreadingHTTPServer((host, port), ImageWorkbenchHandler)
+
+
+def serve_server(server: ThreadingHTTPServer) -> None:
+    server.serve_forever()
+
+
+def shutdown_server(server: ThreadingHTTPServer) -> None:
+    server.shutdown()
+    server.server_close()
+
+
+def main() -> None:
+    multiprocessing.freeze_support()
+    removed_dirs = prepare_runtime_environment()
+    server = create_server(host=HOST, port=PORT)
+    server_url = urlunsplit(("http", f"{HOST}:{PORT}", "", "", ""))
+    print(f"SCimage running at {server_url}")
     if removed_dirs:
         print(f"Cleaned {len(removed_dirs)} empty generated directories on startup.")
-    server.serve_forever()
+    try:
+        serve_server(server)
+    finally:
+        server.server_close()
 
 
 if __name__ == "__main__":

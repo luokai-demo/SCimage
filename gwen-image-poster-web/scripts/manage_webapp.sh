@@ -160,7 +160,7 @@ run_server_foreground() {
   stop_project_servers
   ensure_port_available
 
-  echo "启动图像工作台：${URL}"
+  echo "启动 SCimage：${URL}"
   echo "按 Ctrl+C 可停止服务。"
 
   python3 "${SERVER_SCRIPT}" &

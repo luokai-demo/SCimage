@@ -1,5 +1,6 @@
 import os
-from pathlib import Path
+
+from runtime_paths import RUNTIME_PATHS
 
 HOST = "127.0.0.1"
 PORT = 8765
@@ -8,11 +9,10 @@ MAX_SOURCE_IMAGE_COUNT = 16
 MAX_SOURCE_IMAGE_BYTES = 50 * 1024 * 1024
 RECENT_JOBS_LIMIT = 60
 
-APP_ROOT = Path(__file__).resolve().parents[1]
-SCRIPT_PATH = APP_ROOT / "scripts" / "generate_image.py"
-STATIC_DIR = APP_ROOT / "webapp" / "static"
-GENERATED_DIR = APP_ROOT / "generated"
-LOCAL_STATE_DIR = APP_ROOT / ".local"
-PROVIDER_PROFILES_PATH = LOCAL_STATE_DIR / "provider-profiles.json"
-JOB_RECORDS_PATH = LOCAL_STATE_DIR / "job-records.json"
+APP_ROOT = RUNTIME_PATHS.resource_root
+STATIC_DIR = RUNTIME_PATHS.static_dir
+GENERATED_DIR = RUNTIME_PATHS.generated_dir
+LOCAL_STATE_DIR = RUNTIME_PATHS.local_state_dir
+PROVIDER_PROFILES_PATH = RUNTIME_PATHS.provider_profiles_path
+JOB_RECORDS_PATH = RUNTIME_PATHS.job_records_path
 DEFAULT_PROVIDER_MODEL = os.getenv("IMAGE_API_MODEL", "gpt-image-2")

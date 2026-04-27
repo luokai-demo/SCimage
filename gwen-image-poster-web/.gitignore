@@ -3,3 +3,6 @@ __pycache__/
 .local/
 generated/
 test-results/
+build/
+dist/
+.build-venv-*/

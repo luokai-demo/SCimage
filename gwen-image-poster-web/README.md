@@ -1,16 +1,8 @@
-# 图像工作台
+# SCimage
 
-一个本地运行的通用图像生成工作台。
+一个本地运行的通用图像生成工作台，同时支持网页开发态和桌面便携包。
 
-它提供这些能力：
-
-- 通过本地任务服务提交图片生成任务
-- 持久化保存多套提供方配置
-- 在页面里快速切换当前生效的 Base URL / API Key / 模型
-- 追踪运行中任务、查看图库、复用提示词
-- 自动清理生成失败后留下的空目录，也支持手动清理空文件夹
-
-## 启动
+## 开发态启动
 
 在项目根目录运行：
 
@@ -28,34 +20,86 @@
 ./启动网页.command restart
 ```
 
-`start` 会先清理当前项目残留的旧进程，再以前台方式运行，方便直接在终端里 `Ctrl+C` 关闭。
-
-## 提供方配置
-
-页面左侧的“提供方配置”支持：
-
-- 保存当前配置
-- 另存为新配置
-- 下拉快速切换已保存配置
-
-配置会保存到本地文件：
-
-```text
-.local/provider-profiles.json
-```
-
-这个文件属于本地私有状态，不应该提交到版本库。
-
-## 生成目录
-
-生成结果默认保存在：
+开发态仍然使用项目内本地数据目录：
 
 ```text
 generated/
+.local/provider-profiles.json
+.local/job-records.json
 ```
 
-工作台会在这些时机清理空目录：
+## 桌面打包
 
-- 服务启动时自动扫描并清理
-- 任务失败或取消且没有产出图片时自动回收
-- 点击设置面板里的“清理空文件夹”时手动清理
+项目根目录提供双击式一键打包入口：
+
+- macOS：`一键打包.command`
+- Windows：`一键打包.bat`
+
+平台限制固定如下：
+
+- Windows 包只能在 Windows 上构建
+- macOS 包只能在 macOS 上构建
+
+打包成功后的产物目录：
+
+- Windows：`dist/windows/SCimage/SCimage.exe`
+- macOS：`dist/macos/SCimage.app`
+
+打包脚本会自动：
+
+- 创建独立构建虚拟环境
+- 安装 `pyinstaller`、`pywebview`、`openai`、`Pillow`
+- 收集 `webapp/static` 资源
+- 生成桌面图标与版本信息
+- 清理旧的 `build/`、`dist/`
+
+## GitHub 自动发布
+
+仓库内已经加入 GitHub Actions 自动打包与发布：
+
+- 推送到 `main` 后，会自动创建一个新 tag
+- 自动 tag 格式为 `v<版本号>-build.<run_number>`
+- 新 tag 会自动触发桌面打包工作流
+- 打包工作流会分别在 `Windows` 和 `macOS` runner 上构建
+- 构建完成后会自动创建 GitHub Release，并上传：
+  - `SCimage-windows.zip`
+  - `SCimage-macos.zip`
+
+版本号统一来自项目根目录的 `VERSION` 文件。
+
+如果只是想手动试跑打包流程，也可以在 GitHub Actions 页面手动触发 `SCimage Desktop Release`。
+
+## 打包态数据目录
+
+桌面包运行时，资源目录和用户数据目录已经拆开：
+
+- Windows
+  - 优先使用 `D:\SCimage`
+  - 如果没有 `D:`，回退到 `SCimage.exe` 同级目录下的 `SCimage/`
+- macOS
+  - 固定使用 `~/Documents/SCimage`
+
+打包态沿用同一份业务目录结构：
+
+```text
+generated/
+.local/provider-profiles.json
+.local/job-records.json
+```
+
+## 提供方配置
+
+页面左侧“提供方配置”支持：
+
+- 保存当前配置
+- 另存为新配置
+- 下拉切换已保存配置
+- 拉取模型并严格校验模型是否属于当前 API 支持列表
+
+这些配置属于本地私有状态，不应该提交到版本库。
+
+## 说明
+
+- 桌面版会直接打开独立窗口，不再依赖手动打开浏览器
+- Windows 桌面版依赖系统 WebView2 Runtime；如果缺失，启动时会直接提示
+- 图像生成链路已改成服务内直接调用 Python 业务函数，不再依赖源码脚本路径

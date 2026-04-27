@@ -4,7 +4,57 @@ from dataclasses import dataclass, field
 from threading import Event, Lock
 import os
 import signal
+import subprocess
 from typing import Dict, Optional, Set
+
+
+def build_subprocess_spawn_kwargs() -> dict[str, object]:
+    if os.name == "nt":
+        return {
+            "creationflags": getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0),
+        }
+    return {
+        "start_new_session": True,
+    }
+
+
+def resolve_process_group_id(process_id: int) -> int | None:
+    if os.name == "nt":
+        return None
+    try:
+        return os.getpgid(process_id)
+    except OSError:
+        return None
+
+
+def terminate_process_tree(process_id: int, process_group_id: int | None = None) -> None:
+    if process_id <= 0:
+        return
+
+    if os.name == "nt":
+        subprocess.run(
+            ["taskkill", "/T", "/F", "/PID", str(process_id)],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            check=False,
+        )
+        return
+
+    if process_group_id:
+        try:
+            os.killpg(process_group_id, signal.SIGTERM)
+            return
+        except ProcessLookupError:
+            return
+        except OSError:
+            pass
+
+    try:
+        os.kill(process_id, signal.SIGTERM)
+    except ProcessLookupError:
+        return
+    except OSError:
+        pass
 
 
 @dataclass
@@ -45,12 +95,7 @@ class JobRunner:
                 continue
 
         for process_id in process_ids:
-            try:
-                os.kill(process_id, signal.SIGTERM)
-            except ProcessLookupError:
-                continue
-            except OSError:
-                continue
+            terminate_process_tree(process_id, resolve_process_group_id(process_id))
 
 
 class JobRegistry:
