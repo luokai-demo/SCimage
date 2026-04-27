@@ -8,6 +8,12 @@ from urllib.parse import urlparse
 from uuid import uuid4
 
 from config import DEFAULT_PROVIDER_MODEL, LOCAL_STATE_DIR, PROVIDER_PROFILES_PATH
+from provider_compat import (
+    COMPAT_PROFILES,
+    DEFAULT_COMPAT_PROFILE_ID,
+    get_compat_profile,
+    normalize_compat_profile_id,
+)
 
 
 @dataclass(frozen=True)
@@ -17,9 +23,13 @@ class ProviderProfile:
     base_url: str
     api_key: str
     model: str
+    compat_profile_id: str = DEFAULT_COMPAT_PROFILE_ID
 
     def is_ready(self) -> bool:
         return bool(self.base_url and self.api_key and self.model)
+
+    def compat_profile(self):
+        return get_compat_profile(self.compat_profile_id)
 
     def to_client_dict(self, *, include_api_key: bool = False) -> dict:
         payload = {
@@ -27,6 +37,7 @@ class ProviderProfile:
             "name": self.name,
             "base_url": self.base_url,
             "model": self.model,
+            "compat_profile_id": self.compat_profile_id,
             "has_api_key": bool(self.api_key),
             "api_key_hint": _mask_secret(self.api_key),
         }
@@ -55,14 +66,23 @@ class ProviderProfileStore:
             _, profiles = self._load_unlocked()
             return _find_profile(profile_id, profiles)
 
-    def create_profile(self, *, name: str, base_url: str, model: str, api_key: str) -> dict:
+    def create_profile(
+        self,
+        *,
+        name: str,
+        base_url: str,
+        model: str,
+        api_key: str,
+        compat_profile_id: str = DEFAULT_COMPAT_PROFILE_ID,
+    ) -> dict:
         normalized_name = _normalize_name(name)
         normalized_base_url = _normalize_base_url(base_url)
         normalized_model = _normalize_model(model)
         normalized_api_key = _normalize_api_key(api_key)
+        normalized_compat_profile_id = normalize_compat_profile_id(compat_profile_id)
 
         with self._lock:
-            active_profile_id, profiles = self._load_unlocked()
+            _, profiles = self._load_unlocked()
             _assert_unique_name(normalized_name, profiles)
 
             next_profile = ProviderProfile(
@@ -71,6 +91,7 @@ class ProviderProfileStore:
                 base_url=normalized_base_url,
                 api_key=normalized_api_key,
                 model=normalized_model,
+                compat_profile_id=normalized_compat_profile_id,
             )
             next_profiles = sorted([*profiles, next_profile], key=lambda profile: profile.name.lower())
             self._write_unlocked(next_profile.id, next_profiles)
@@ -83,11 +104,13 @@ class ProviderProfileStore:
         name: str,
         base_url: str,
         model: str,
+        compat_profile_id: str,
         api_key: str | None = None,
     ) -> dict:
         normalized_name = _normalize_name(name)
         normalized_base_url = _normalize_base_url(base_url)
         normalized_model = _normalize_model(model)
+        normalized_compat_profile_id = normalize_compat_profile_id(compat_profile_id)
 
         with self._lock:
             active_profile_id, profiles = self._load_unlocked()
@@ -103,6 +126,7 @@ class ProviderProfileStore:
                 base_url=normalized_base_url,
                 api_key=next_api_key,
                 model=normalized_model,
+                compat_profile_id=normalized_compat_profile_id,
             )
             next_profiles = sorted(
                 [updated if profile.id == current.id else profile for profile in profiles],
@@ -145,6 +169,8 @@ class ProviderProfileStore:
                 continue
             seen_ids.add(profile.id)
             profiles.append(profile)
+            if normalize_compat_profile_id(raw_profile.get("compat_profile_id")) != profile.compat_profile_id:
+                mutated = True
 
         profiles.sort(key=lambda profile: profile.name.lower())
         active_profile_id = str(payload.get("active_profile_id", "")).strip() or None
@@ -172,6 +198,7 @@ def _build_state_payload(active_profile_id: str | None, profiles: list[ProviderP
     active_profile = _find_profile(active_profile_id, profiles)
     return {
         "active_profile_id": active_profile_id,
+        "compat_profiles": [profile.to_client_dict() for profile in COMPAT_PROFILES],
         "profiles": [profile.to_client_dict() for profile in profiles],
         "active_profile": active_profile.to_client_dict(include_api_key=True) if active_profile else None,
         "has_profiles": bool(profiles),
@@ -185,6 +212,7 @@ def _deserialize_profile(payload: dict) -> ProviderProfile | None:
     base_url = str(payload.get("base_url", "")).strip()
     model = str(payload.get("model", "")).strip() or DEFAULT_PROVIDER_MODEL
     api_key = str(payload.get("api_key", "")).strip()
+    compat_profile_id = normalize_compat_profile_id(payload.get("compat_profile_id"))
     if not profile_id or not name or not base_url or not model:
         return None
     return ProviderProfile(
@@ -193,6 +221,7 @@ def _deserialize_profile(payload: dict) -> ProviderProfile | None:
         base_url=base_url,
         api_key=api_key,
         model=model,
+        compat_profile_id=compat_profile_id,
     )
 
 

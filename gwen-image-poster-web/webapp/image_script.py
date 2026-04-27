@@ -32,6 +32,8 @@ class ImageScriptRequest:
     output_dir: Path
     base_url: str
     model: str
+    compat_profile_id: str
+    output_profile_id: str
     source_image_paths: list[Path]
 
 
@@ -40,7 +42,10 @@ class JobCanceled(RuntimeError):
 
 
 def build_image_script_command(request: ImageScriptRequest) -> list[str]:
-    normalized_quality = normalize_quality(request.quality)
+    normalized_quality = normalize_quality(
+        request.quality,
+        output_profile_id=request.output_profile_id,
+    )
     command = [
         sys.executable,
         str(SCRIPT_PATH),
@@ -54,12 +59,20 @@ def build_image_script_command(request: ImageScriptRequest) -> list[str]:
         request.base_url,
         "--model",
         request.model,
+        "--compat-profile",
+        request.compat_profile_id,
+        "--output-profile",
+        request.output_profile_id,
         "--n",
         str(request.count),
         "--quality",
         normalized_quality,
         "--size",
-        normalize_size_value(request.size, quality=normalized_quality),
+        normalize_size_value(
+            request.size,
+            quality=normalized_quality,
+            output_profile_id=request.output_profile_id,
+        ),
     ]
     for source_image_path in request.source_image_paths:
         command.extend(["--source-image", str(source_image_path)])

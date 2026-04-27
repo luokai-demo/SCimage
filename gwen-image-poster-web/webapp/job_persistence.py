@@ -8,7 +8,20 @@ from typing import TYPE_CHECKING
 
 from config import GENERATED_DIR, JOB_RECORDS_PATH, LOCAL_STATE_DIR
 from image_records import build_generated_image_record, is_output_image_file
-from output_options import DEFAULT_QUALITY, DEFAULT_SIZE_OPTION, normalize_quality, normalize_size_value
+from output_options import (
+    DEFAULT_OUTPUT_PROFILE_ID,
+    DEFAULT_QUALITY,
+    DEFAULT_SIZE_OPTION,
+    infer_output_profile_id,
+    normalize_output_profile_id,
+    normalize_quality,
+    normalize_size_value,
+)
+from provider_compat import (
+    DEFAULT_COMPAT_PROFILE_ID,
+    infer_compat_profile_id,
+    normalize_compat_profile_id,
+)
 from source_images import build_source_images_from_job_dir, normalize_source_images
 from workflows import DEFAULT_WORKFLOW, IMAGE_TO_IMAGE_WORKFLOW, normalize_workflow
 
@@ -62,17 +75,35 @@ def normalize_job_record(job_id: str, raw_job: dict) -> dict | None:
     raw_error = str(job.get("error", "")).strip()
     normalized_error = raw_error if raw_error and raw_error.lower() not in {"none", "null"} else None
 
-    normalized_quality = normalize_quality(job.get("quality"))
+    output_profile_id = normalize_output_profile_id(
+        job.get("output_profile_id"),
+        fallback=infer_output_profile_id(job.get("quality"), job.get("size")),
+    )
+    normalized_quality = normalize_quality(job.get("quality"), output_profile_id=output_profile_id)
+    normalized_workflow = normalize_workflow(
+        job.get("workflow"),
+        fallback=IMAGE_TO_IMAGE_WORKFLOW if source_images else DEFAULT_WORKFLOW,
+    )
+    compat_profile_id = normalize_compat_profile_id(
+        job.get("compat_profile_id"),
+        fallback=infer_compat_profile_id(
+            workflow=normalized_workflow,
+            output_profile_id=output_profile_id,
+        ),
+    )
     normalized = {
         "id": job_id,
         "prompt": str(job.get("prompt", "")).strip(),
         "count": _to_int(job.get("count"), default=len(images) or 1),
+        "compat_profile_id": compat_profile_id,
+        "output_profile_id": output_profile_id,
         "quality": normalized_quality,
-        "size": normalize_size_value(job.get("size"), quality=normalized_quality),
-        "workflow": normalize_workflow(
-            job.get("workflow"),
-            fallback=IMAGE_TO_IMAGE_WORKFLOW if source_images else DEFAULT_WORKFLOW,
+        "size": normalize_size_value(
+            job.get("size"),
+            quality=normalized_quality,
+            output_profile_id=output_profile_id,
         ),
+        "workflow": normalized_workflow,
         "status": str(job.get("status", "completed") or "completed"),
         "message": str(job.get("message", "") or "").strip(),
         "created_at": created_at,
@@ -154,6 +185,8 @@ def recover_jobs_from_generated_dir(existing_jobs: dict[str, dict]) -> dict[str,
             "id": job_id,
             "prompt": f"历史图片 {job_id}",
             "count": len(images),
+            "compat_profile_id": DEFAULT_COMPAT_PROFILE_ID,
+            "output_profile_id": DEFAULT_OUTPUT_PROFILE_ID,
             "quality": DEFAULT_QUALITY,
             "size": DEFAULT_SIZE_OPTION,
             "workflow": IMAGE_TO_IMAGE_WORKFLOW if source_images else DEFAULT_WORKFLOW,

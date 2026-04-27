@@ -7,7 +7,8 @@ from typing import Dict, List, Optional
 from uuid import uuid4
 
 from job_persistence import load_job_records, save_job_records
-from output_options import DEFAULT_SIZE_OPTION
+from output_options import DEFAULT_OUTPUT_PROFILE_ID, DEFAULT_SIZE_OPTION
+from provider_compat import DEFAULT_COMPAT_PROFILE_ID
 from workflows import DEFAULT_WORKFLOW, normalize_workflow
 
 
@@ -22,6 +23,8 @@ class JobRecord:
     count: int
     quality: str
     size: str = DEFAULT_SIZE_OPTION
+    compat_profile_id: str = DEFAULT_COMPAT_PROFILE_ID
+    output_profile_id: str = DEFAULT_OUTPUT_PROFILE_ID
     workflow: str = DEFAULT_WORKFLOW
     status: str = "queued"
     message: str = "任务已创建，等待生成。"
@@ -52,6 +55,8 @@ class JobStore:
         quality: str,
         size: str = DEFAULT_SIZE_OPTION,
         *,
+        compat_profile_id: str = DEFAULT_COMPAT_PROFILE_ID,
+        output_profile_id: str = DEFAULT_OUTPUT_PROFILE_ID,
         workflow: str = DEFAULT_WORKFLOW,
         source_images: Optional[List[Dict[str, str]]] = None,
         job_id: Optional[str] = None,
@@ -64,6 +69,8 @@ class JobStore:
             count=count,
             quality=quality,
             size=size,
+            compat_profile_id=compat_profile_id,
+            output_profile_id=output_profile_id,
             created_at=created_time,
             run_started_at=created_time,
             updated_at=created_time,

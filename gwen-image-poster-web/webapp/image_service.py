@@ -40,6 +40,8 @@ def _build_script_env(provider_profile: ProviderProfile) -> dict[str, str]:
     script_env["IMAGE_API_BASE_URL"] = provider_profile.base_url
     script_env["IMAGE_API_KEY"] = provider_profile.api_key
     script_env["IMAGE_API_MODEL"] = provider_profile.model
+    script_env["IMAGE_API_COMPAT_PROFILE"] = provider_profile.compat_profile_id
+    script_env["IMAGE_API_OUTPUT_PROFILE"] = provider_profile.compat_profile().output_profile_id
     return script_env
 
 
@@ -54,6 +56,7 @@ def _build_script_request(
     provider_profile: ProviderProfile,
     source_image_paths: list[Path],
 ) -> ImageScriptRequest:
+    compat_profile = provider_profile.compat_profile()
     return ImageScriptRequest(
         workflow=workflow,
         prompt=prompt,
@@ -63,6 +66,8 @@ def _build_script_request(
         output_dir=output_dir,
         base_url=provider_profile.base_url,
         model=provider_profile.model,
+        compat_profile_id=compat_profile.id,
+        output_profile_id=compat_profile.output_profile_id,
         source_image_paths=source_image_paths,
     )
 

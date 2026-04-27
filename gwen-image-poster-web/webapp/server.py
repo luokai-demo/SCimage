@@ -21,17 +21,18 @@ from image_service import generate_images
 from job_control import JobRegistry
 from job_store import JobStore
 from output_options import (
-    DEFAULT_QUALITY,
-    DEFAULT_SIZE_OPTION,
-    QUALITY_LABELS,
-    QUALITY_OPTIONS,
+    OUTPUT_PROFILE_ASPECT_V1,
+    infer_output_profile_id,
     infer_quality_from_size,
+    quality_label,
+    available_quality_options,
     is_supported_quality,
     is_supported_size_value,
     normalize_quality,
     normalize_size_value,
 )
 from prompt_guard import validate_prompt
+from provider_compat import get_compat_profile
 from provider_profiles import ProviderProfileStore
 from request_parsing import CreateJobRequest, parse_create_job_request
 from source_images import SourceImageFile, save_source_images
@@ -53,12 +54,17 @@ def _safe_path(root: Path, requested: str) -> Path | None:
     return candidate
 
 
-def _quality_options_text() -> str:
-    return "、".join(f"{QUALITY_LABELS[value]}（{value}）" for value in QUALITY_OPTIONS)
+def _quality_options_text(output_profile_id: str) -> str:
+    return "、".join(
+        f"{quality_label(value, output_profile_id=output_profile_id)}（{value}）"
+        for value in available_quality_options(output_profile_id=output_profile_id)
+    )
 
 
-def _size_options_text() -> str:
-    return "需为 WxH 像素，例如 720x1280、1440x2560、2160x3840。"
+def _size_options_text(output_profile_id: str) -> str:
+    if output_profile_id == OUTPUT_PROFILE_ASPECT_V1:
+        return "需为自动或比例值，例如 auto、9:16、16:9、1:1。"
+    return "需为自动、比例值或 WxH 像素，例如 auto、9:16、720x1280、1440x2560。"
 
 
 def _run_job(
@@ -257,6 +263,17 @@ class ImageWorkbenchHandler(BaseHTTPRequestHandler):
         if request is None:
             return
 
+        provider_profile = PROVIDER_PROFILES.get_active_profile()
+        if provider_profile is None:
+            self._send_json({"error": "请先在连接设置里保存至少一个提供方配置。"}, HTTPStatus.CONFLICT)
+            return
+        if not provider_profile.is_ready():
+            self._send_json({"error": "当前提供方配置不完整，请补全 Base URL、API Key 和模型后再试。"}, HTTPStatus.CONFLICT)
+            return
+
+        compat_profile = provider_profile.compat_profile()
+        output_profile_id = compat_profile.output_profile_id
+
         try:
             workflow = validate_workflow(request.workflow)
         except ValueError as exc:
@@ -264,7 +281,7 @@ class ImageWorkbenchHandler(BaseHTTPRequestHandler):
             return
 
         prompt = request.prompt
-        quality = normalize_quality(request.quality, fallback="")
+        quality = normalize_quality(request.quality, fallback="", output_profile_id=output_profile_id)
         size = str(request.size or "").strip().lower()
         count = request.count
 
@@ -275,27 +292,28 @@ class ImageWorkbenchHandler(BaseHTTPRequestHandler):
         if guard_message:
             self._send_json({"error": guard_message}, HTTPStatus.BAD_REQUEST)
             return
-        if not is_supported_quality(quality):
-            self._send_json({"error": f"质量参数无效，可选值：{_quality_options_text()}。"}, HTTPStatus.BAD_REQUEST)
+        if not is_supported_quality(quality, output_profile_id=output_profile_id):
+            self._send_json(
+                {"error": f"质量参数无效，可选值：{_quality_options_text(output_profile_id)}。"},
+                HTTPStatus.BAD_REQUEST,
+            )
             return
-        if not is_supported_size_value(size):
-            self._send_json({"error": f"尺寸参数无效，可选值：{_size_options_text()}。"}, HTTPStatus.BAD_REQUEST)
+        if not is_supported_size_value(size, output_profile_id=output_profile_id):
+            self._send_json(
+                {"error": f"尺寸参数无效，可选值：{_size_options_text(output_profile_id)}。"},
+                HTTPStatus.BAD_REQUEST,
+            )
             return
-        size = normalize_size_value(size, quality=quality)
-        quality = infer_quality_from_size(size, fallback=quality)
+        size = normalize_size_value(size, quality=quality, output_profile_id=output_profile_id)
+        quality = infer_quality_from_size(size, fallback=quality, output_profile_id=output_profile_id)
         if not isinstance(count, int) or not 1 <= count <= MAX_IMAGE_COUNT:
             self._send_json({"error": f"生成数量必须在 1 到 {MAX_IMAGE_COUNT} 之间。"}, HTTPStatus.BAD_REQUEST)
             return
+        if workflow == "image-to-image" and not compat_profile.supports_image_to_image:
+            self._send_json({"error": "当前提供方配置不支持图生图，请切换兼容模式后再试。"}, HTTPStatus.CONFLICT)
+            return
         if requires_source_images(workflow) and not request.source_images:
             self._send_json({"error": "图生图至少需要上传 1 张参考图。"}, HTTPStatus.BAD_REQUEST)
-            return
-
-        provider_profile = PROVIDER_PROFILES.get_active_profile()
-        if provider_profile is None:
-            self._send_json({"error": "请先在连接设置里保存至少一个提供方配置。"}, HTTPStatus.CONFLICT)
-            return
-        if not provider_profile.is_ready():
-            self._send_json({"error": "当前提供方配置不完整，请补全 Base URL、API Key 和模型后再试。"}, HTTPStatus.CONFLICT)
             return
 
         job_id = uuid4().hex[:12]
@@ -325,6 +343,8 @@ class ImageWorkbenchHandler(BaseHTTPRequestHandler):
             count=count,
             quality=quality,
             size=size,
+            compat_profile_id=compat_profile.id,
+            output_profile_id=output_profile_id,
             workflow=workflow,
             source_images=source_images,
             job_id=job_id,
@@ -373,10 +393,36 @@ class ImageWorkbenchHandler(BaseHTTPRequestHandler):
             self._send_json({"error": "当前提供方配置不完整，请补全 Base URL、API Key 和模型后再试。"}, HTTPStatus.CONFLICT)
             return
 
+        job_output_profile_id = str(
+            snapshot.get("output_profile_id")
+            or infer_output_profile_id(snapshot.get("quality"), snapshot.get("size"))
+        ).strip()
+        job_compat_profile = get_compat_profile(snapshot.get("compat_profile_id"))
+        active_compat_profile = provider_profile.compat_profile()
+        if job_compat_profile.id != active_compat_profile.id:
+            self._send_json(
+                {
+                    "error": f"原任务使用“{job_compat_profile.label}”，当前生效配置是“{active_compat_profile.label}”，请切换到一致的兼容模式后再重试。"
+                },
+                HTTPStatus.CONFLICT,
+            )
+            return
+
         STORE.retry(job_id)
-        retry_quality = normalize_quality(snapshot.get("quality"), fallback=DEFAULT_QUALITY)
-        retry_size = normalize_size_value(snapshot.get("size"), fallback=DEFAULT_SIZE_OPTION, quality=retry_quality)
-        retry_quality = infer_quality_from_size(retry_size, fallback=retry_quality)
+        retry_quality = normalize_quality(
+            snapshot.get("quality"),
+            output_profile_id=job_output_profile_id,
+        )
+        retry_size = normalize_size_value(
+            snapshot.get("size"),
+            quality=retry_quality,
+            output_profile_id=job_output_profile_id,
+        )
+        retry_quality = infer_quality_from_size(
+            retry_size,
+            fallback=retry_quality,
+            output_profile_id=job_output_profile_id,
+        )
         _start_job_thread(
             job_id,
             str(snapshot.get("workflow", "generate")).strip().lower(),
@@ -440,6 +486,7 @@ class ImageWorkbenchHandler(BaseHTTPRequestHandler):
             return
 
         api_key = str(payload.get("api_key", "")).strip()
+        compat_profile_id = str(payload.get("compat_profile_id", "")).strip()
         if not api_key:
             source_profile_id = str(payload.get("source_profile_id", "")).strip()
             source_profile = PROVIDER_PROFILES.get_profile(source_profile_id) if source_profile_id else PROVIDER_PROFILES.get_active_profile()
@@ -448,6 +495,8 @@ class ImageWorkbenchHandler(BaseHTTPRequestHandler):
                 return
             if source_profile is not None:
                 api_key = source_profile.api_key
+                if not compat_profile_id:
+                    compat_profile_id = source_profile.compat_profile_id
 
         try:
             state = PROVIDER_PROFILES.create_profile(
@@ -455,6 +504,7 @@ class ImageWorkbenchHandler(BaseHTTPRequestHandler):
                 base_url=str(payload.get("base_url", "")).strip(),
                 model=str(payload.get("model", "")).strip(),
                 api_key=api_key,
+                compat_profile_id=compat_profile_id,
             )
         except ValueError as exc:
             self._send_json({"error": str(exc)}, HTTPStatus.BAD_REQUEST)
@@ -476,6 +526,7 @@ class ImageWorkbenchHandler(BaseHTTPRequestHandler):
                 name=str(payload.get("name", "")).strip(),
                 base_url=str(payload.get("base_url", "")).strip(),
                 model=str(payload.get("model", "")).strip(),
+                compat_profile_id=str(payload.get("compat_profile_id", "")).strip(),
                 api_key=api_key if api_key else None,
             )
         except ValueError as exc:

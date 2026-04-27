@@ -61,9 +61,24 @@
   let sourceFiles = [];
   let sourceFilesTouchedBeforeHydration = false;
   let isPanelCollapsed = false;
+  let workflowAvailability = {
+    generate: true,
+    "image-to-image": true,
+  };
 
   function getWorkflowConfig(name) {
-    return WORKFLOWS[name] || null;
+    const base = WORKFLOWS[name];
+    if (!base) {
+      return null;
+    }
+    const isAvailable = workflowAvailability[name] !== false;
+    return {
+      ...base,
+      isAvailable,
+      chipLabel: isAvailable ? base.chipLabel : "未启用",
+      chipState: isAvailable ? base.chipState : "planned",
+      submitEnabled: isAvailable && base.submitEnabled,
+    };
   }
 
   function syncPromptBankToggleState() {
@@ -227,7 +242,7 @@
 
   function applyWorkflowUi(name) {
     const config = getWorkflowConfig(name);
-    if (!config) {
+    if (!config || !config.isAvailable) {
       return false;
     }
 
@@ -313,6 +328,34 @@
       return;
     }
     elements.providerConfigCard.open = !hasProfiles;
+  }
+
+  function syncWorkflowAvailabilityUi() {
+    elements.workflowTabs.forEach((button) => {
+      const workflowName = button.dataset.workflow;
+      const config = getWorkflowConfig(workflowName);
+      const isAvailable = Boolean(config?.isAvailable);
+      button.disabled = !isAvailable;
+      button.classList.toggle("is-disabled", !isAvailable);
+      if (workflowName === "image-to-image" && !isAvailable) {
+        button.setAttribute("title", "当前提供方配置不支持图生图");
+      } else {
+        button.removeAttribute("title");
+      }
+    });
+  }
+
+  function setWorkflowAvailability(nextAvailability = {}) {
+    workflowAvailability = {
+      generate: nextAvailability.generate !== false,
+      "image-to-image": nextAvailability["image-to-image"] !== false,
+    };
+    syncWorkflowAvailabilityUi();
+    if (workflowAvailability[activeWorkflow] === false) {
+      setActiveWorkflow("generate");
+      return;
+    }
+    applyWorkflowUi(activeWorkflow);
   }
 
   function bindEvents() {
@@ -401,6 +444,7 @@
     }
 
     const nextWorkflow = getWorkflowConfig(options.initialWorkflow) ? options.initialWorkflow : "generate";
+    syncWorkflowAvailabilityUi();
     setActiveWorkflow(nextWorkflow, { emit: false });
     syncPromptBankToggleState();
     syncPanelToggleState();
@@ -418,6 +462,7 @@
     clearSourceFiles,
     openPromptBank,
     setActiveWorkflow,
+    setWorkflowAvailability,
     setPromptBankMeta,
     syncProviderConfig,
   };

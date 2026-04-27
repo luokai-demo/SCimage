@@ -28,6 +28,7 @@ const elements = {
   model: document.getElementById("model"),
   providerProfileSelect: document.getElementById("providerProfileSelect"),
   providerProfileName: document.getElementById("providerProfileName"),
+  providerCompatProfile: document.getElementById("providerCompatProfile"),
   saveProviderBtn: document.getElementById("saveProviderBtn"),
   saveAsProviderBtn: document.getElementById("saveAsProviderBtn"),
   prompt: document.getElementById("prompt"),
@@ -83,7 +84,13 @@ const elements = {
 };
 
 let jobsState = [];
-let providerProfilesState = { active_profile_id: null, profiles: [], active_profile: null, is_ready: false };
+let providerProfilesState = {
+  active_profile_id: null,
+  compat_profiles: [],
+  profiles: [],
+  active_profile: null,
+  is_ready: false,
+};
 let galleryFlatList = [];
 let currentGalleryFilter = "all";
 let gallerySortAsc = false;
@@ -274,12 +281,26 @@ function normalizeErrorText(value) {
   return text.replace(/\s*\n+\s*/g, " ").trim();
 }
 
-function formatQuality(value) {
-  return OUTPUT_OPTIONS.formatQuality(value);
+function getCompatProfileById(compatProfileId) {
+  return providerProfilesState.compat_profiles.find((profile) => profile.id === compatProfileId) || null;
 }
 
-function formatSize(value, quality = OUTPUT_OPTIONS.DEFAULT_QUALITY) {
-  return OUTPUT_OPTIONS.formatSize(value, quality);
+function getOutputProfileIdForItem(item) {
+  if (item?.output_profile_id) {
+    return item.output_profile_id;
+  }
+  if (item?.outputProfileId) {
+    return item.outputProfileId;
+  }
+  return OUTPUT_OPTIONS.inferOutputProfileId(item?.quality, item?.size, OUTPUT_OPTIONS.getActiveOutputProfileId());
+}
+
+function formatQuality(value, outputProfileId = OUTPUT_OPTIONS.getActiveOutputProfileId()) {
+  return OUTPUT_OPTIONS.formatQuality(value, outputProfileId);
+}
+
+function formatSize(value, quality = OUTPUT_OPTIONS.getDefaultQuality(), outputProfileId = OUTPUT_OPTIONS.getActiveOutputProfileId()) {
+  return OUTPUT_OPTIONS.formatSize(value, quality, outputProfileId);
 }
 
 function getWorkflowLabel(workflow) {
@@ -343,12 +364,13 @@ function isRetryableJob(job) {
 }
 
 function getJobOptionSummary(job) {
+  const outputProfileId = getOutputProfileIdForItem(job);
   const parts = [getWorkflowLabel(job?.workflow)];
   if (job?.workflow === "image-to-image") {
     parts.push(`参考图 ${getWorkflowSourceCount(job)} 张`);
   }
-  parts.push(`尺寸 ${formatSize(job.size, job.quality)}`);
-  parts.push(`质量 ${formatQuality(job.quality)}`);
+  parts.push(`尺寸 ${formatSize(job.size, job.quality, outputProfileId)}`);
+  parts.push(`质量 ${formatQuality(job.quality, outputProfileId)}`);
   parts.push(`数量 ${job.count || 1}`);
   return parts.join(" · ");
 }
@@ -783,16 +805,16 @@ function handleSourceFilesChange() {
 function populateOutputOptionSelects() {
   if (elements.quality) {
     elements.quality.innerHTML = "";
-    OUTPUT_OPTIONS.QUALITY_OPTIONS.forEach((option) => {
+    OUTPUT_OPTIONS.getQualityOptions().forEach((option) => {
       const node = createElement("option", "", option.label);
       node.value = option.value;
-      node.selected = option.value === OUTPUT_OPTIONS.DEFAULT_QUALITY;
+      node.selected = option.value === OUTPUT_OPTIONS.getDefaultQuality();
       elements.quality.appendChild(node);
     });
   }
   syncSizeOptionsForQuality(
-    elements.quality?.value || OUTPUT_OPTIONS.DEFAULT_QUALITY,
-    elements.size?.value || OUTPUT_OPTIONS.DEFAULT_SIZE_OPTION
+    elements.quality?.value || OUTPUT_OPTIONS.getDefaultQuality(),
+    elements.size?.value || OUTPUT_OPTIONS.getDefaultSizeOption()
   );
 }
 
@@ -801,7 +823,7 @@ function syncSizeOptionsForQuality(quality, preferredSize) {
     return;
   }
 
-  const normalizedQuality = OUTPUT_OPTIONS.normalizeQuality(quality, OUTPUT_OPTIONS.DEFAULT_QUALITY);
+  const normalizedQuality = OUTPUT_OPTIONS.normalizeQuality(quality, OUTPUT_OPTIONS.getDefaultQuality());
   const nextSize = OUTPUT_OPTIONS.mapSizeToQuality(
     preferredSize,
     normalizedQuality,
@@ -882,7 +904,7 @@ function readOutputParamsFromUi() {
       OUTPUT_OPTIONS.defaultSizeForQuality(quality),
       quality
     ),
-    quality: OUTPUT_OPTIONS.normalizeQuality(quality, OUTPUT_OPTIONS.DEFAULT_QUALITY),
+    quality: OUTPUT_OPTIONS.normalizeQuality(quality, OUTPUT_OPTIONS.getDefaultQuality()),
   };
 }
 
@@ -975,6 +997,7 @@ function saveCurrentPrompt() {
   const nextEntry = WORKFLOW_STATE.savePrompt(workflow, {
     workflow,
     prompt,
+    outputProfileId: OUTPUT_OPTIONS.getActiveOutputProfileId(),
     size: outputParams.size,
     quality: outputParams.quality,
     count: Number.parseInt(form.count, 10) || 1,
@@ -1029,6 +1052,19 @@ function getSelectedProviderProfile() {
   return providerProfilesState.profiles.find((profile) => profile.id === activeProfileId) || null;
 }
 
+function applyProviderCompatibilityUi(compatProfileId) {
+  const compatProfile = getCompatProfileById(compatProfileId);
+  OUTPUT_OPTIONS.setActiveOutputProfile(compatProfile?.output_profile_id || OUTPUT_OPTIONS.DEFAULT_OUTPUT_PROFILE_ID);
+  window.WorkspacePanel?.setWorkflowAvailability?.({
+    generate: true,
+    "image-to-image": compatProfile ? compatProfile.supports_image_to_image : true,
+  });
+  populateOutputOptionSelects();
+  loadActiveWorkflowForm(getActiveWorkflow());
+  renderSavedPrompts();
+  syncPrimaryActionState();
+}
+
 function renderProviderProfiles() {
   if (!elements.providerProfileSelect) {
     return;
@@ -1050,23 +1086,40 @@ function renderProviderProfiles() {
     });
   }
 
+  if (elements.providerCompatProfile) {
+    elements.providerCompatProfile.innerHTML = "";
+    providerProfilesState.compat_profiles.forEach((compatProfile) => {
+      const option = createElement("option", "", compatProfile.label);
+      option.value = compatProfile.id;
+      elements.providerCompatProfile.appendChild(option);
+    });
+  }
+
   const activeProfile = providerProfilesState.active_profile;
   if (!activeProfile) {
     elements.providerProfileName.value = "";
     elements.baseUrl.value = "";
     elements.model.value = "gpt-image-2";
+    if (elements.providerCompatProfile) {
+      elements.providerCompatProfile.value = "";
+    }
     elements.apiKey.value = "";
     elements.apiKey.placeholder = "输入 API Key";
+    applyProviderCompatibilityUi(null);
     return;
   }
 
   elements.providerProfileName.value = activeProfile.name || "";
   elements.baseUrl.value = activeProfile.base_url || "";
   elements.model.value = activeProfile.model || "gpt-image-2";
+  if (elements.providerCompatProfile) {
+    elements.providerCompatProfile.value = activeProfile.compat_profile_id || "";
+  }
   elements.apiKey.value = activeProfile.api_key || "";
   elements.apiKey.placeholder = activeProfile.has_api_key && activeProfile.api_key_hint
     ? `已保存：${activeProfile.api_key_hint}`
     : "输入 API Key";
+  applyProviderCompatibilityUi(activeProfile.compat_profile_id);
 }
 
 async function loadProviderProfiles(options = {}) {
@@ -1077,6 +1130,7 @@ async function loadProviderProfiles(options = {}) {
     });
     providerProfilesState = {
       active_profile_id: payload.active_profile_id || null,
+      compat_profiles: Array.isArray(payload.compat_profiles) ? payload.compat_profiles : [],
       profiles: Array.isArray(payload.profiles) ? payload.profiles : [],
       active_profile: payload.active_profile || null,
       is_ready: Boolean(payload.is_ready),
@@ -1105,6 +1159,7 @@ async function activateProviderProfile(profileId) {
     });
     providerProfilesState = {
       active_profile_id: payload.active_profile_id || null,
+      compat_profiles: Array.isArray(payload.compat_profiles) ? payload.compat_profiles : [],
       profiles: Array.isArray(payload.profiles) ? payload.profiles : [],
       active_profile: payload.active_profile || null,
       is_ready: Boolean(payload.is_ready),
@@ -1124,6 +1179,7 @@ function collectProviderProfileForm() {
     name: elements.providerProfileName.value.trim(),
     base_url: elements.baseUrl.value.trim(),
     model: elements.model.value.trim(),
+    compat_profile_id: elements.providerCompatProfile?.value || "",
     api_key: elements.apiKey.value.trim(),
   };
 }
@@ -1158,6 +1214,7 @@ async function saveProviderProfile() {
       });
       providerProfilesState = {
         active_profile_id: nextState.active_profile_id || null,
+        compat_profiles: Array.isArray(nextState.compat_profiles) ? nextState.compat_profiles : [],
         profiles: Array.isArray(nextState.profiles) ? nextState.profiles : [],
         active_profile: nextState.active_profile || null,
         is_ready: Boolean(nextState.is_ready),
@@ -1197,6 +1254,7 @@ async function saveAsProviderProfile() {
       });
       providerProfilesState = {
         active_profile_id: nextState.active_profile_id || null,
+        compat_profiles: Array.isArray(nextState.compat_profiles) ? nextState.compat_profiles : [],
         profiles: Array.isArray(nextState.profiles) ? nextState.profiles : [],
         active_profile: nextState.active_profile || null,
         is_ready: Boolean(nextState.is_ready),
@@ -2632,7 +2690,10 @@ function switchTab(name) {
     return;
   }
 
-  window.WorkspacePanel?.setActiveWorkflow(name);
+  const changed = window.WorkspacePanel?.setActiveWorkflow(name);
+  if (changed === false && name === "image-to-image") {
+    setStatus("error", "当前提供方配置不支持图生图。", { timeoutMs: 2400 });
+  }
 }
 
 function buildCreateJobRequestBody(workflow, prompt, outputParams) {

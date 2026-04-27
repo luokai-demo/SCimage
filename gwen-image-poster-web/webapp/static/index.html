@@ -190,6 +190,11 @@ body {
     rgba(255,255,255,0.04);
   color: var(--text-primary);
 }
+.workflow-tab.is-disabled,
+.workflow-tab:disabled {
+  opacity: .48;
+  cursor: not-allowed;
+}
 .workspace-card {
   flex: 1;
   min-height: 0;
@@ -1500,6 +1505,10 @@ input[type="file"]::file-selector-button:hover { border-color: var(--border-hove
             <div class="form-group">
               <label for="model">模型</label>
               <input type="text" id="model" placeholder="gpt-image-2">
+            </div>
+            <div class="form-group">
+              <label for="providerCompatProfile">兼容模式</label>
+              <select id="providerCompatProfile"></select>
             </div>
             <div class="button-row">
               <button type="button" onclick="saveProviderProfile()" id="saveProviderBtn" class="btn-secondary">保存当前配置</button>

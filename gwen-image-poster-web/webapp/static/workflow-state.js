@@ -12,20 +12,6 @@
 
   const WORKFLOW_IDS = ["generate", "image-to-image"];
   const DEFAULT_WORKFLOW = "generate";
-  const DEFAULT_FORM_BY_WORKFLOW = {
-    generate: {
-      prompt: "",
-      size: OUTPUT_OPTIONS.DEFAULT_SIZE_OPTION,
-      quality: OUTPUT_OPTIONS.DEFAULT_QUALITY,
-      count: "1",
-    },
-    "image-to-image": {
-      prompt: "",
-      size: OUTPUT_OPTIONS.DEFAULT_SIZE_OPTION,
-      quality: OUTPUT_OPTIONS.DEFAULT_QUALITY,
-      count: "1",
-    },
-  };
 
   function isSupportedWorkflow(value) {
     return WORKFLOW_IDS.includes(String(value || "").trim().toLowerCase());
@@ -61,7 +47,12 @@
   }
 
   function cloneDefaultForm(workflow) {
-    return { ...DEFAULT_FORM_BY_WORKFLOW[normalizeWorkflow(workflow)] };
+    return {
+      prompt: "",
+      size: OUTPUT_OPTIONS.getDefaultSizeOption(),
+      quality: OUTPUT_OPTIONS.getDefaultQuality(),
+      count: "1",
+    };
   }
 
   function normalizeForm(rawForm, workflow) {
@@ -148,16 +139,22 @@
       return null;
     }
     const workflow = normalizeWorkflow(entry.workflow, fallbackWorkflow);
+    const outputProfileId = OUTPUT_OPTIONS.normalizeOutputProfileId(
+      entry.outputProfileId,
+      OUTPUT_OPTIONS.getActiveOutputProfileId()
+    );
     const rawSize = entry.size;
     const nextQuality = OUTPUT_OPTIONS.normalizeQuality(
-      entry.quality ?? OUTPUT_OPTIONS.inferQualityFromSize(rawSize, OUTPUT_OPTIONS.DEFAULT_QUALITY),
-      OUTPUT_OPTIONS.DEFAULT_QUALITY
+      entry.quality ?? OUTPUT_OPTIONS.inferQualityFromSize(rawSize, OUTPUT_OPTIONS.getDefaultQuality(outputProfileId), outputProfileId),
+      OUTPUT_OPTIONS.getDefaultQuality(outputProfileId),
+      outputProfileId
     );
     return {
       id: String(entry.id || createId()),
       workflow,
       prompt,
-      size: OUTPUT_OPTIONS.normalizeSizeOption(rawSize, OUTPUT_OPTIONS.DEFAULT_SIZE_OPTION, nextQuality),
+      outputProfileId,
+      size: OUTPUT_OPTIONS.normalizeSizeOption(rawSize, OUTPUT_OPTIONS.getDefaultSizeOption(outputProfileId), nextQuality, outputProfileId),
       quality: nextQuality,
       count: Number.parseInt(entry.count, 10) || 1,
       createdAt: entry.createdAt || entry.updatedAt || new Date().toISOString(),
