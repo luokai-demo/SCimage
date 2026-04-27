@@ -17,7 +17,7 @@ for candidate in (WEBAPP_DIR, SCRIPTS_DIR):
     if candidate_text not in sys.path:
         sys.path.insert(0, candidate_text)
 
-from gateway_client import GatewayConfig, GatewayFatalError, save_image_item
+from gateway_client import GatewayConfig, GatewayFatalError, _is_retryable_message, save_image_item
 from output_options import (
     OUTPUT_PROFILE_ASPECT_V1,
     OUTPUT_PROFILE_PIXEL_V1,
@@ -73,6 +73,9 @@ class ProviderProfileStoreTests(unittest.TestCase):
 
 
 class GatewayPayloadFallbackTests(unittest.TestCase):
+    def test_upstream_error_is_retryable(self) -> None:
+        self.assertTrue(_is_retryable_message('{"message":"Upstream request failed","type":"upstream_error"}'))
+
     def test_save_image_item_falls_back_to_base64_payload(self) -> None:
         payload = base64.b64encode(b"fallback-image-bytes").decode("ascii")
         with TemporaryDirectory() as temp_dir:

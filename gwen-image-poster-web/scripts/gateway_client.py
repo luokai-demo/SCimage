@@ -35,6 +35,8 @@ RETRYABLE_GATEWAY_MARKERS = (
     "temporarily unavailable",
     "service unavailable",
     "bad gateway",
+    "upstream request failed",
+    "upstream_error",
     "too many requests",
     "server internal error",
     '"code":"429"',
