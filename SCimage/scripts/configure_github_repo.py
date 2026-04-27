@@ -11,6 +11,7 @@ import tempfile
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 API_VERSION = "2026-03-10"
+SKIPPED_HINTS: list[str] = []
 
 
 def parse_args() -> argparse.Namespace:
@@ -45,6 +46,7 @@ def main() -> int:
     if args.visibility == "public":
         enable_private_vulnerability_reporting(repo)
     protect_default_branch(repo=repo, branch=default_branch)
+    print_skipped_hints()
 
     print(f"GitHub 仓库配置完成：{repo}")
     return 0
@@ -63,7 +65,6 @@ def set_repository_basics(*, repo: str, visibility: str) -> None:
         "visibility": visibility,
         "private": visibility == "private",
         "delete_branch_on_merge": True,
-        "allow_forking": False,
         "has_wiki": False,
         "web_commit_signoff_required": True,
     }
@@ -153,7 +154,28 @@ def gh_api(method: str, path: str, payload: dict | None = None, *, strict: bool)
     message = (result.stderr or result.stdout or "").strip()
     if strict:
         raise SystemExit(f"GitHub API 调用失败：{path}\n{message}")
+    hint = format_nonfatal_hint(path=path, message=message)
+    if hint:
+        SKIPPED_HINTS.append(hint)
     print(f"[跳过] {path}\n{message}\n", file=sys.stderr)
+
+
+def format_nonfatal_hint(*, path: str, message: str) -> str | None:
+    if "Advanced Security is enabled" in message:
+        return "当前 GitHub 套餐不支持私有仓库直接启用 Code Security 或 Secret Scanning；仓库公开后或升级套餐后，可重新执行该脚本。"
+    if "Upgrade to GitHub Pro or make this repository public to enable this feature." in message:
+        if "/branches/" in path:
+            return "当前私有仓库在现有 GitHub 套餐下无法启用分支保护；仓库公开后或升级套餐后，可重新执行该脚本。"
+        return "当前 GitHub 套餐对该安全能力有限制；仓库公开后或升级套餐后，可重新执行该脚本。"
+    return None
+
+
+def print_skipped_hints() -> None:
+    if not SKIPPED_HINTS:
+        return
+    print("\n附加说明：")
+    for hint in dict.fromkeys(SKIPPED_HINTS):
+        print(f"- {hint}")
 
 
 def run_command(command: list[str], *, check: bool, capture_output: bool):

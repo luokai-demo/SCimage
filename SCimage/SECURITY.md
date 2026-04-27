@@ -19,6 +19,20 @@
 - 仓库安全配置脚本：
   - `scripts/configure_github_repo.py`
 
+## GitHub 套餐限制说明
+
+如果仓库当前是 GitHub 免费私有仓库，需要提前知道两点：
+
+- `Branch protection` 可能因为套餐限制无法启用
+- `Code Security`、`Secret scanning` 等能力，可能需要公开仓库或更高套餐才能开启
+
+这不是脚本失效，而是 GitHub 平台本身的能力边界。
+
+当前脚本已经做了两层处理：
+
+- 能直接启用的设置会自动启用
+- 受套餐限制的设置会输出中文提示，方便后续在仓库公开后再次补跑
+
 ## 建议启用的 GitHub 仓库设置
 
 如果仓库需要托管到 GitHub，建议至少启用这些设置：
@@ -57,6 +71,8 @@ python3 scripts/configure_github_repo.py owner/repo --visibility private
 ```bash
 python3 scripts/configure_github_repo.py owner/repo --visibility public
 ```
+
+脚本运行后如果看到 `[跳过]`，优先看后面的中文附加说明即可。
 
 ## 密钥与本地数据
 
