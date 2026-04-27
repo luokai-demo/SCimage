@@ -266,6 +266,14 @@ class ImageWorkbenchHandler(BaseHTTPRequestHandler):
 
     def do_DELETE(self) -> None:
         parsed = urlparse(self.path)
+        if parsed.path.startswith("/api/provider-profiles/"):
+            profile_id = parsed.path.removeprefix("/api/provider-profiles/").strip("/")
+            if not profile_id or "/" in profile_id:
+                self.send_error(HTTPStatus.NOT_FOUND, "Unknown API path.")
+                return
+            self._handle_delete_provider_profile(profile_id)
+            return
+
         if not parsed.path.startswith("/api/jobs/"):
             self.send_error(HTTPStatus.NOT_FOUND, "Unknown API path.")
             return
@@ -648,6 +656,14 @@ class ImageWorkbenchHandler(BaseHTTPRequestHandler):
     def _handle_activate_provider_profile(self, profile_id: str) -> None:
         try:
             state = PROVIDER_PROFILES.activate_profile(profile_id)
+        except ValueError as exc:
+            self._send_json({"error": str(exc)}, HTTPStatus.NOT_FOUND)
+            return
+        self._send_json(state, HTTPStatus.OK)
+
+    def _handle_delete_provider_profile(self, profile_id: str) -> None:
+        try:
+            state = PROVIDER_PROFILES.delete_profile(profile_id)
         except ValueError as exc:
             self._send_json({"error": str(exc)}, HTTPStatus.NOT_FOUND)
             return

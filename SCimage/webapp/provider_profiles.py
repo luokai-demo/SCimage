@@ -143,6 +143,23 @@ class ProviderProfileStore:
             self._write_unlocked(profile_id, profiles)
             return _build_state_payload(profile_id, profiles)
 
+    def delete_profile(self, profile_id: str) -> dict:
+        with self._lock:
+            active_profile_id, profiles = self._load_unlocked()
+            current = _find_profile(profile_id, profiles)
+            if current is None:
+                raise ValueError("配置不存在。")
+
+            next_profiles = [profile for profile in profiles if profile.id != current.id]
+            next_active_profile_id = active_profile_id
+            if active_profile_id == current.id:
+                next_active_profile_id = next_profiles[0].id if next_profiles else None
+            elif next_active_profile_id and _find_profile(next_active_profile_id, next_profiles) is None:
+                next_active_profile_id = next_profiles[0].id if next_profiles else None
+
+            self._write_unlocked(next_active_profile_id, next_profiles)
+            return _build_state_payload(next_active_profile_id, next_profiles)
+
     def _load_unlocked(self) -> tuple[str | None, list[ProviderProfile]]:
         if not self._path.exists():
             return None, []

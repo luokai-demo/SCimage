@@ -1051,6 +1051,10 @@ function getProviderModelPicker() {
   return window.ProviderModelPicker || null;
 }
 
+function getProviderProfilePicker() {
+  return window.ProviderProfilePicker || null;
+}
+
 function getSelectedProviderProfile() {
   const activeProfileId = elements.providerProfileSelect?.value || providerProfilesState.active_profile_id;
   return providerProfilesState.profiles.find((profile) => profile.id === activeProfileId) || null;
@@ -1063,10 +1067,13 @@ function getProviderModelSourceProfileId() {
 
 function syncProviderProfileActionState() {
   const picker = getProviderModelPicker();
+  const profilePicker = getProviderProfilePicker();
   const pickerReady = picker ? picker.canSave() : Boolean(elements.model?.value.trim());
   const pickerBlockReason = picker ? picker.getSaveBlockMessage() : "";
   const selectedProfile = getSelectedProviderProfile();
   const isBusy = Boolean(providerProfilesInFlight);
+
+  profilePicker?.setDisabled(isBusy || !providerProfilesState.profiles.length);
 
   if (elements.saveProviderBtn) {
     const shouldDisable = isBusy || !selectedProfile || !pickerReady;
@@ -1102,19 +1109,16 @@ function renderProviderProfiles() {
   }
 
   window.WorkspacePanel?.syncProviderConfig(providerProfilesState.profiles.length > 0);
-
-  elements.providerProfileSelect.innerHTML = "";
-  if (!providerProfilesState.profiles.length) {
-    const emptyOption = createElement("option", "", "未保存任何配置");
-    emptyOption.value = "";
-    elements.providerProfileSelect.appendChild(emptyOption);
-  } else {
-    providerProfilesState.profiles.forEach((profile) => {
-      const option = createElement("option", "", profile.name);
-      option.value = profile.id;
-      option.selected = profile.id === providerProfilesState.active_profile_id;
-      elements.providerProfileSelect.appendChild(option);
+  const profilePicker = getProviderProfilePicker();
+  if (profilePicker) {
+    profilePicker.render({
+      profiles: providerProfilesState.profiles,
+      activeProfileId: providerProfilesState.active_profile_id,
+      disabled: Boolean(providerProfilesInFlight) || !providerProfilesState.profiles.length,
     });
+  } else {
+    elements.providerProfileSelect.value = providerProfilesState.active_profile_id || "";
+    elements.providerProfileSelect.textContent = providerProfilesState.active_profile?.name || "未保存任何配置";
   }
 
   if (elements.providerCompatProfile) {
@@ -1307,6 +1311,59 @@ async function saveAsProviderProfile() {
       setStatus("success", "新配置已保存，并已切换为当前配置。", { timeoutMs: 2400 });
     } catch (error) {
       console.error("Create provider profile failed:", error);
+      setStatus("error", error.message);
+    } finally {
+      providerProfilesInFlight = null;
+      syncProviderProfileActionState();
+    }
+  })();
+  syncProviderProfileActionState();
+
+  return providerProfilesInFlight;
+}
+
+async function deleteProviderProfile(profileId) {
+  if (providerProfilesInFlight) {
+    return providerProfilesInFlight;
+  }
+
+  const targetProfile = providerProfilesState.profiles.find((profile) => profile.id === profileId) || null;
+  if (!targetProfile) {
+    setStatus("error", "要删除的配置不存在。", { timeoutMs: 2200 });
+    return null;
+  }
+
+  const isLastProfile = providerProfilesState.profiles.length === 1;
+  const isActiveProfile = targetProfile.id === providerProfilesState.active_profile_id;
+  let message = `确定删除配置「${targetProfile.name}」吗？`;
+  if (isLastProfile) {
+    message = `确定删除配置「${targetProfile.name}」吗？删除后需要重新创建提供方配置。`;
+  } else if (isActiveProfile) {
+    message = `确定删除当前配置「${targetProfile.name}」吗？删除后会自动切换到其他已保存配置。`;
+  }
+
+  if (!window.confirm(message)) {
+    return null;
+  }
+
+  providerProfilesInFlight = (async () => {
+    try {
+      const nextState = await apiRequest(`/api/provider-profiles/${targetProfile.id}`, {
+        method: "DELETE",
+        timeoutMs: ACTION_TIMEOUT_MS,
+      });
+      providerProfilesState = {
+        active_profile_id: nextState.active_profile_id || null,
+        compat_profiles: Array.isArray(nextState.compat_profiles) ? nextState.compat_profiles : [],
+        profiles: Array.isArray(nextState.profiles) ? nextState.profiles : [],
+        active_profile: nextState.active_profile || null,
+        is_ready: Boolean(nextState.is_ready),
+      };
+      renderProviderProfiles();
+      updateSyncIndicators();
+      setStatus("success", "配置已删除。", { timeoutMs: 2200 });
+    } catch (error) {
+      console.error("Delete provider profile failed:", error);
       setStatus("error", error.message);
     } finally {
       providerProfilesInFlight = null;
@@ -3164,6 +3221,9 @@ function hydrateStaticUi() {
     onMessage: (type, message) => {
       setStatus(type === "error" ? "error" : "success", message, { timeoutMs: 2200 });
     },
+  });
+  window.ProviderProfilePicker?.init({
+    onDelete: deleteProviderProfile,
   });
   const initialWorkflow = normalizeWorkflow(WORKFLOW_STATE.readActiveWorkflow());
   window.WorkspacePanel?.init({

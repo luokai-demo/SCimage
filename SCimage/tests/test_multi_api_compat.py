@@ -98,6 +98,44 @@ class ProviderProfileStoreTests(unittest.TestCase):
                 any(profile["id"] == OPENAI_CHAT_EDITS_COMPAT_PROFILE_ID for profile in state["compat_profiles"])
             )
 
+    def test_delete_active_profile_switches_to_remaining_profile(self) -> None:
+        with TemporaryDirectory() as temp_dir:
+            store = ProviderProfileStore(Path(temp_dir) / "provider-profiles.json")
+            alpha_state = store.create_profile(
+                name="alpha",
+                base_url="https://example.com/v1",
+                model="gpt-image-1",
+                api_key="alpha-key",
+            )
+            beta_state = store.create_profile(
+                name="beta",
+                base_url="https://example.com/v1",
+                model="gpt-image-1",
+                api_key="beta-key",
+            )
+
+            next_state = store.delete_profile(beta_state["active_profile_id"])
+
+            self.assertEqual(next_state["active_profile_id"], alpha_state["active_profile_id"])
+            self.assertEqual(next_state["active_profile"]["name"], "alpha")
+            self.assertEqual(len(next_state["profiles"]), 1)
+
+    def test_delete_last_profile_clears_active_profile(self) -> None:
+        with TemporaryDirectory() as temp_dir:
+            store = ProviderProfileStore(Path(temp_dir) / "provider-profiles.json")
+            state = store.create_profile(
+                name="solo",
+                base_url="https://example.com/v1",
+                model="gpt-image-1",
+                api_key="solo-key",
+            )
+
+            next_state = store.delete_profile(state["active_profile_id"])
+
+            self.assertIsNone(next_state["active_profile_id"])
+            self.assertIsNone(next_state["active_profile"])
+            self.assertEqual(next_state["profiles"], [])
+
 
 class ProviderCompatProfileTests(unittest.TestCase):
     def test_openai_legacy_profile_routes_to_openai_sdk_protocol(self) -> None:
