@@ -1,0 +1,99 @@
+name: SCimage 桌面版发布
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: scimage-desktop-release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: 构建 ${{ matrix.label }}
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - label: Windows
+            runner: windows-latest
+            target: windows
+            artifact_name: SCimage-windows
+            release_asset: SCimage-windows.zip
+          - label: macOS
+            runner: macos-13
+            target: macos
+            artifact_name: SCimage-macos
+            release_asset: SCimage-macos.zip
+
+    steps:
+      - name: 拉取代码
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: 安装 Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.9"
+
+      - name: 运行测试
+        shell: bash
+        run: python -m unittest discover -s tests
+
+      - name: 构建桌面包
+        shell: bash
+        run: python scripts/build_desktop.py --target "${{ matrix.target }}"
+
+      - name: 打包 Windows 制品
+        if: matrix.target == 'windows'
+        shell: pwsh
+        run: |
+          Compress-Archive -Path "dist/windows/SCimage" -DestinationPath "dist/windows/${{ matrix.release_asset }}" -Force
+
+      - name: 打包 macOS 制品
+        if: matrix.target == 'macos'
+        shell: bash
+        run: |
+          ditto -c -k --sequesterRsrc --keepParent "dist/macos/SCimage.app" "dist/macos/${{ matrix.release_asset }}"
+
+      - name: 上传发布制品
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact_name }}
+          path: dist/${{ matrix.target }}/${{ matrix.release_asset }}
+          if-no-files-found: error
+
+  release:
+    name: 发布 GitHub Release
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: build
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: 下载构建产物
+        uses: actions/download-artifact@v4
+        with:
+          path: release-assets
+
+      - name: 创建 GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: ${{ github.ref_name }}
+          body: |
+            自动发布完成。
+
+            本次 Release 包含：
+            - Windows 桌面包：`SCimage-windows.zip`
+            - macOS 桌面包：`SCimage-macos.zip`
+          generate_release_notes: true
+          files: |
+            release-assets/SCimage-windows/SCimage-windows.zip
+            release-assets/SCimage-macos/SCimage-macos.zip

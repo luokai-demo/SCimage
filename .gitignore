@@ -1,0 +1,8 @@
+.DS_Store
+__pycache__/
+.local/
+generated/
+test-results/
+build/
+dist/
+.build-venv-*/
