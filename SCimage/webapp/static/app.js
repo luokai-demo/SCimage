@@ -193,7 +193,6 @@ const galleryVirtualMasonry = new GALLERY_RUNTIME.GalleryVirtualMasonry({
   }),
   updateItem: (card, entry, openIndex) => syncImageCard(card, entry, openIndex),
   onMount: (card, record) => {
-    galleryImageWarmCache.warm(record?.item?.imageUrl, { priority: "high" });
     galleryPreviewWarmCache.warm(record?.item?.previewUrl, { priority: "high" });
     activateGalleryImageCard(card);
   },
@@ -2129,7 +2128,6 @@ function reconcileFlatGallery(jobs) {
 
 function warmGalleryEntries(entries) {
   galleryPreviewWarmCache.warm(entries.map((entry) => entry.previewUrl), { immediate: true });
-  galleryImageWarmCache.warm(entries.map((entry) => entry.imageUrl), { immediate: true });
 }
 
 function reconcileTaskGallery(jobs, reusableCards) {
