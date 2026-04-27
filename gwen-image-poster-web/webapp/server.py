@@ -33,6 +33,10 @@ from output_options import (
 )
 from prompt_guard import validate_prompt
 from provider_compat import get_compat_profile
+from provider_model_catalog import (
+    discover_provider_models,
+    validate_provider_model_selection,
+)
 from provider_profiles import ProviderProfileStore
 from request_parsing import CreateJobRequest, parse_create_job_request
 from source_images import SourceImageFile, save_source_images
@@ -65,6 +69,57 @@ def _size_options_text(output_profile_id: str) -> str:
     if output_profile_id == OUTPUT_PROFILE_ASPECT_V1:
         return "需为自动或比例值，例如 auto、9:16、16:9、1:1。"
     return "需为自动、比例值或 WxH 像素，例如 auto、9:16、720x1280、1440x2560。"
+
+
+def _resolve_provider_api_key(
+    *,
+    api_key: object,
+    source_profile_id: object = "",
+    fallback_profile=None,
+) -> str:
+    normalized_api_key = str(api_key or "").strip()
+    if normalized_api_key:
+        return normalized_api_key
+
+    normalized_source_profile_id = str(source_profile_id or "").strip()
+    source_profile = fallback_profile
+    if normalized_source_profile_id:
+        source_profile = PROVIDER_PROFILES.get_profile(normalized_source_profile_id)
+        if source_profile is None:
+            raise ValueError("源配置不存在，无法继承密钥。")
+    elif source_profile is None:
+        source_profile = PROVIDER_PROFILES.get_active_profile()
+
+    if source_profile and source_profile.api_key:
+        return source_profile.api_key
+    raise ValueError("API Key 不能为空。")
+
+
+def _discover_models_from_payload(payload: dict, *, fallback_profile=None) -> tuple[str, list[dict]]:
+    api_key = _resolve_provider_api_key(
+        api_key=payload.get("api_key", ""),
+        source_profile_id=payload.get("source_profile_id", ""),
+        fallback_profile=fallback_profile,
+    )
+    normalized_base_url, models = discover_provider_models(
+        base_url=str(payload.get("base_url", "")).strip(),
+        api_key=api_key,
+    )
+    return normalized_base_url, [model.to_client_dict() for model in models]
+
+
+def _validate_model_selection_from_payload(payload: dict, *, fallback_profile=None) -> str:
+    api_key = _resolve_provider_api_key(
+        api_key=payload.get("api_key", ""),
+        source_profile_id=payload.get("source_profile_id", ""),
+        fallback_profile=fallback_profile,
+    )
+    normalized_base_url, _ = validate_provider_model_selection(
+        base_url=str(payload.get("base_url", "")).strip(),
+        api_key=api_key,
+        model=str(payload.get("model", "")).strip(),
+    )
+    return normalized_base_url
 
 
 def _run_job(
@@ -179,6 +234,9 @@ class ImageWorkbenchHandler(BaseHTTPRequestHandler):
             return
         if parsed.path == "/api/provider-profiles":
             self._handle_create_provider_profile()
+            return
+        if parsed.path == "/api/provider-profiles/models":
+            self._handle_list_provider_models()
             return
         if parsed.path.startswith("/api/provider-profiles/") and parsed.path.endswith("/activate"):
             profile_id = parsed.path.removeprefix("/api/provider-profiles/").removesuffix("/activate").strip("/")
@@ -485,23 +543,35 @@ class ImageWorkbenchHandler(BaseHTTPRequestHandler):
         if payload is None:
             return
 
-        api_key = str(payload.get("api_key", "")).strip()
         compat_profile_id = str(payload.get("compat_profile_id", "")).strip()
-        if not api_key:
-            source_profile_id = str(payload.get("source_profile_id", "")).strip()
-            source_profile = PROVIDER_PROFILES.get_profile(source_profile_id) if source_profile_id else PROVIDER_PROFILES.get_active_profile()
-            if source_profile_id and source_profile is None:
-                self._send_json({"error": "源配置不存在，无法继承密钥。"}, HTTPStatus.BAD_REQUEST)
-                return
-            if source_profile is not None:
-                api_key = source_profile.api_key
-                if not compat_profile_id:
-                    compat_profile_id = source_profile.compat_profile_id
+        source_profile_id = str(payload.get("source_profile_id", "")).strip()
+        source_profile = PROVIDER_PROFILES.get_profile(source_profile_id) if source_profile_id else PROVIDER_PROFILES.get_active_profile()
+        if source_profile_id and source_profile is None:
+            self._send_json({"error": "源配置不存在，无法继承密钥。"}, HTTPStatus.BAD_REQUEST)
+            return
+        if source_profile is not None and not compat_profile_id:
+            compat_profile_id = source_profile.compat_profile_id
+
+        try:
+            api_key = _resolve_provider_api_key(
+                api_key=payload.get("api_key", ""),
+                source_profile_id=source_profile_id,
+            )
+            normalized_base_url = _validate_model_selection_from_payload(
+                payload,
+                fallback_profile=source_profile,
+            )
+        except ValueError as exc:
+            self._send_json({"error": str(exc)}, HTTPStatus.BAD_REQUEST)
+            return
+        except Exception as exc:
+            self._send_json({"error": str(exc)}, HTTPStatus.BAD_GATEWAY)
+            return
 
         try:
             state = PROVIDER_PROFILES.create_profile(
                 name=str(payload.get("name", "")).strip(),
-                base_url=str(payload.get("base_url", "")).strip(),
+                base_url=normalized_base_url,
                 model=str(payload.get("model", "")).strip(),
                 api_key=api_key,
                 compat_profile_id=compat_profile_id,
@@ -516,6 +586,23 @@ class ImageWorkbenchHandler(BaseHTTPRequestHandler):
         if payload is None:
             return
 
+        current_profile = PROVIDER_PROFILES.get_profile(profile_id)
+        if current_profile is None:
+            self._send_json({"error": "配置不存在。"}, HTTPStatus.NOT_FOUND)
+            return
+
+        try:
+            normalized_base_url = _validate_model_selection_from_payload(
+                payload,
+                fallback_profile=current_profile,
+            )
+        except ValueError as exc:
+            self._send_json({"error": str(exc)}, HTTPStatus.BAD_REQUEST)
+            return
+        except Exception as exc:
+            self._send_json({"error": str(exc)}, HTTPStatus.BAD_GATEWAY)
+            return
+
         api_key = payload.get("api_key")
         if api_key is not None:
             api_key = str(api_key).strip()
@@ -524,7 +611,7 @@ class ImageWorkbenchHandler(BaseHTTPRequestHandler):
             state = PROVIDER_PROFILES.update_profile(
                 profile_id,
                 name=str(payload.get("name", "")).strip(),
-                base_url=str(payload.get("base_url", "")).strip(),
+                base_url=normalized_base_url,
                 model=str(payload.get("model", "")).strip(),
                 compat_profile_id=str(payload.get("compat_profile_id", "")).strip(),
                 api_key=api_key if api_key else None,
@@ -533,6 +620,28 @@ class ImageWorkbenchHandler(BaseHTTPRequestHandler):
             self._send_json({"error": str(exc)}, HTTPStatus.BAD_REQUEST)
             return
         self._send_json(state, HTTPStatus.OK)
+
+    def _handle_list_provider_models(self) -> None:
+        payload = self._read_json_body()
+        if payload is None:
+            return
+
+        try:
+            normalized_base_url, models = _discover_models_from_payload(payload)
+        except ValueError as exc:
+            self._send_json({"error": str(exc)}, HTTPStatus.BAD_REQUEST)
+            return
+        except Exception as exc:
+            self._send_json({"error": str(exc)}, HTTPStatus.BAD_GATEWAY)
+            return
+
+        self._send_json(
+            {
+                "models": models,
+                "normalized_base_url": normalized_base_url,
+            },
+            HTTPStatus.OK,
+        )
 
     def _handle_activate_provider_profile(self, profile_id: str) -> None:
         try:

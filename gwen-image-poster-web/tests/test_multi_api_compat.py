@@ -18,14 +18,23 @@ for candidate in (WEBAPP_DIR, SCRIPTS_DIR):
         sys.path.insert(0, candidate_text)
 
 from gateway_client import GatewayConfig, GatewayFatalError, _is_retryable_message, save_image_item
+from openai_sdk_gateway import normalize_openai_sdk_base_url
 from output_options import (
     OUTPUT_PROFILE_ASPECT_V1,
     OUTPUT_PROFILE_PIXEL_V1,
     normalize_quality,
     normalize_size_value,
     resolve_api_size_value,
+    resolve_openai_sdk_quality,
+    resolve_openai_sdk_size_value,
 )
 from provider_compat import OPENAI_CHAT_EDITS_COMPAT_PROFILE_ID
+from provider_compat import (
+    IMAGE_TO_IMAGE_TRANSPORT_OPENAI_SDK,
+    OPENAI_LEGACY_COMPAT_PROFILE_ID,
+    TEXT_TO_IMAGE_TRANSPORT_OPENAI_SDK,
+    get_compat_profile,
+)
 from provider_profiles import ProviderProfileStore
 
 
@@ -50,6 +59,24 @@ class OutputOptionsTests(unittest.TestCase):
             "1152x2048",
         )
 
+    def test_openai_sdk_resolvers_map_portrait_and_pixel_tiers(self) -> None:
+        self.assertEqual(
+            resolve_openai_sdk_quality("medium", output_profile_id=OUTPUT_PROFILE_ASPECT_V1),
+            "medium",
+        )
+        self.assertEqual(
+            resolve_openai_sdk_size_value("9:16", "medium", output_profile_id=OUTPUT_PROFILE_ASPECT_V1),
+            "1024x1536",
+        )
+        self.assertEqual(
+            resolve_openai_sdk_quality("4k", output_profile_id=OUTPUT_PROFILE_PIXEL_V1),
+            "high",
+        )
+        self.assertEqual(
+            resolve_openai_sdk_size_value("2560x1440", "hd", output_profile_id=OUTPUT_PROFILE_PIXEL_V1),
+            "1536x1024",
+        )
+
 
 class ProviderProfileStoreTests(unittest.TestCase):
     def test_store_persists_compat_profile_and_returns_registry(self) -> None:
@@ -70,6 +97,26 @@ class ProviderProfileStoreTests(unittest.TestCase):
             self.assertTrue(
                 any(profile["id"] == OPENAI_CHAT_EDITS_COMPAT_PROFILE_ID for profile in state["compat_profiles"])
             )
+
+
+class ProviderCompatProfileTests(unittest.TestCase):
+    def test_openai_legacy_profile_routes_to_openai_sdk_protocol(self) -> None:
+        profile = get_compat_profile(OPENAI_LEGACY_COMPAT_PROFILE_ID)
+
+        self.assertEqual(profile.text_to_image_transport, TEXT_TO_IMAGE_TRANSPORT_OPENAI_SDK)
+        self.assertEqual(profile.image_to_image_transport, IMAGE_TO_IMAGE_TRANSPORT_OPENAI_SDK)
+
+
+class OpenAISDKGatewayTests(unittest.TestCase):
+    def test_base_url_without_version_suffix_is_normalized(self) -> None:
+        self.assertEqual(
+            normalize_openai_sdk_base_url("https://example.com"),
+            "https://example.com/v1",
+        )
+        self.assertEqual(
+            normalize_openai_sdk_base_url("https://example.com/v1"),
+            "https://example.com/v1",
+        )
 
 
 class GatewayPayloadFallbackTests(unittest.TestCase):
@@ -97,7 +144,6 @@ class GatewayPayloadFallbackTests(unittest.TestCase):
             self.assertEqual(payload_type, "b64_json")
             self.assertEqual(target.read_bytes(), b"fallback-image-bytes")
             mocked_download.assert_called_once()
-
 
 if __name__ == "__main__":
     unittest.main()

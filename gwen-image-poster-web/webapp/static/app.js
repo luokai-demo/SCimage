@@ -1047,9 +1047,40 @@ function deleteSavedPrompt(promptId) {
   renderSavedPrompts();
 }
 
+function getProviderModelPicker() {
+  return window.ProviderModelPicker || null;
+}
+
 function getSelectedProviderProfile() {
   const activeProfileId = elements.providerProfileSelect?.value || providerProfilesState.active_profile_id;
   return providerProfilesState.profiles.find((profile) => profile.id === activeProfileId) || null;
+}
+
+function getProviderModelSourceProfileId() {
+  const selectedProfile = getSelectedProviderProfile();
+  return selectedProfile?.id || providerProfilesState.active_profile_id || "";
+}
+
+function syncProviderProfileActionState() {
+  const picker = getProviderModelPicker();
+  const pickerReady = picker ? picker.canSave() : Boolean(elements.model?.value.trim());
+  const pickerBlockReason = picker ? picker.getSaveBlockMessage() : "";
+  const selectedProfile = getSelectedProviderProfile();
+  const isBusy = Boolean(providerProfilesInFlight);
+
+  if (elements.saveProviderBtn) {
+    const shouldDisable = isBusy || !selectedProfile || !pickerReady;
+    elements.saveProviderBtn.disabled = shouldDisable;
+    elements.saveProviderBtn.title = shouldDisable
+      ? (!selectedProfile ? "请先使用“另存为新配置”创建第一套配置。" : pickerBlockReason)
+      : "";
+  }
+
+  if (elements.saveAsProviderBtn) {
+    const shouldDisable = isBusy || !pickerReady;
+    elements.saveAsProviderBtn.disabled = shouldDisable;
+    elements.saveAsProviderBtn.title = shouldDisable ? pickerBlockReason : "";
+  }
 }
 
 function applyProviderCompatibilityUi(compatProfileId) {
@@ -1099,19 +1130,19 @@ function renderProviderProfiles() {
   if (!activeProfile) {
     elements.providerProfileName.value = "";
     elements.baseUrl.value = "";
-    elements.model.value = "gpt-image-2";
     if (elements.providerCompatProfile) {
       elements.providerCompatProfile.value = "";
     }
     elements.apiKey.value = "";
     elements.apiKey.placeholder = "输入 API Key";
+    getProviderModelPicker()?.reset();
     applyProviderCompatibilityUi(null);
+    syncProviderProfileActionState();
     return;
   }
 
   elements.providerProfileName.value = activeProfile.name || "";
   elements.baseUrl.value = activeProfile.base_url || "";
-  elements.model.value = activeProfile.model || "gpt-image-2";
   if (elements.providerCompatProfile) {
     elements.providerCompatProfile.value = activeProfile.compat_profile_id || "";
   }
@@ -1119,7 +1150,9 @@ function renderProviderProfiles() {
   elements.apiKey.placeholder = activeProfile.has_api_key && activeProfile.api_key_hint
     ? `已保存：${activeProfile.api_key_hint}`
     : "输入 API Key";
+  getProviderModelPicker()?.applyProfile(activeProfile);
   applyProviderCompatibilityUi(activeProfile.compat_profile_id);
+  syncProviderProfileActionState();
 }
 
 async function loadProviderProfiles(options = {}) {
@@ -1175,10 +1208,11 @@ async function activateProviderProfile(profileId) {
 }
 
 function collectProviderProfileForm() {
+  const modelValue = getProviderModelPicker()?.getSelectedModel() || elements.model.value.trim();
   return {
     name: elements.providerProfileName.value.trim(),
     base_url: elements.baseUrl.value.trim(),
-    model: elements.model.value.trim(),
+    model: modelValue,
     compat_profile_id: elements.providerCompatProfile?.value || "",
     api_key: elements.apiKey.value.trim(),
   };
@@ -1191,8 +1225,13 @@ async function saveProviderProfile() {
 
   const selectedProfile = getSelectedProviderProfile();
   const payload = collectProviderProfileForm();
+  const providerModelPicker = getProviderModelPicker();
   if (!selectedProfile) {
     setStatus("error", "请先使用“另存为新配置”创建第一套配置。");
+    return;
+  }
+  if (providerModelPicker && !providerModelPicker.canSave()) {
+    setStatus("error", providerModelPicker.getSaveBlockMessage());
     return;
   }
 
@@ -1204,7 +1243,6 @@ async function saveProviderProfile() {
     delete payload.api_key;
   }
 
-  elements.saveProviderBtn.disabled = true;
   providerProfilesInFlight = (async () => {
     try {
       const nextState = await apiRequest(`/api/provider-profiles/${selectedProfile.id}`, {
@@ -1226,10 +1264,11 @@ async function saveProviderProfile() {
       console.error("Save provider profile failed:", error);
       setStatus("error", error.message);
     } finally {
-      elements.saveProviderBtn.disabled = false;
       providerProfilesInFlight = null;
+      syncProviderProfileActionState();
     }
   })();
+  syncProviderProfileActionState();
 
   return providerProfilesInFlight;
 }
@@ -1240,11 +1279,15 @@ async function saveAsProviderProfile() {
   }
 
   const payload = collectProviderProfileForm();
+  const providerModelPicker = getProviderModelPicker();
+  if (providerModelPicker && !providerModelPicker.canSave()) {
+    setStatus("error", providerModelPicker.getSaveBlockMessage());
+    return;
+  }
   const selectedProfile = getSelectedProviderProfile();
   if (!payload.api_key && selectedProfile) {
     payload.source_profile_id = selectedProfile.id;
   }
-  elements.saveAsProviderBtn.disabled = true;
   providerProfilesInFlight = (async () => {
     try {
       const nextState = await apiRequest("/api/provider-profiles", {
@@ -1266,10 +1309,11 @@ async function saveAsProviderProfile() {
       console.error("Create provider profile failed:", error);
       setStatus("error", error.message);
     } finally {
-      elements.saveAsProviderBtn.disabled = false;
       providerProfilesInFlight = null;
+      syncProviderProfileActionState();
     }
   })();
+  syncProviderProfileActionState();
 
   return providerProfilesInFlight;
 }
@@ -3113,6 +3157,14 @@ function bindEvents() {
 
 function hydrateStaticUi() {
   syncApiKeyVisibilityUi();
+  window.ProviderModelPicker?.init({
+    apiRequest,
+    resolveSourceProfileId: getProviderModelSourceProfileId,
+    onAvailabilityChange: syncProviderProfileActionState,
+    onMessage: (type, message) => {
+      setStatus(type === "error" ? "error" : "success", message, { timeoutMs: 2200 });
+    },
+  });
   const initialWorkflow = normalizeWorkflow(WORKFLOW_STATE.readActiveWorkflow());
   window.WorkspacePanel?.init({
     initialWorkflow,
@@ -3122,6 +3174,7 @@ function hydrateStaticUi() {
   loadActiveWorkflowForm(initialWorkflow);
   renderSavedPrompts();
   syncPrimaryActionState();
+  syncProviderProfileActionState();
 }
 
 function startTimers() {

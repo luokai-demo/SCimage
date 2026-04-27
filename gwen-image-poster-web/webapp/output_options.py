@@ -93,6 +93,16 @@ QUALITY_TARGET_LONG_EDGES = {
     QUALITY_HIGH: API_MAX_EDGE,
 }
 
+OPENAI_SDK_IMAGE_QUALITY_MAP = {
+    AUTO_OPTION: AUTO_OPTION,
+    QUALITY_LOW: QUALITY_LOW,
+    QUALITY_MEDIUM: QUALITY_MEDIUM,
+    QUALITY_HIGH: QUALITY_HIGH,
+    QUALITY_STANDARD: QUALITY_LOW,
+    QUALITY_HD: QUALITY_MEDIUM,
+    QUALITY_4K: QUALITY_HIGH,
+}
+
 PIXEL_TIER_LONG_EDGE_MAX = {
     QUALITY_STANDARD: 1600,
     QUALITY_HD: 2800,
@@ -451,6 +461,38 @@ def resolve_api_size_value(
         quality=effective_quality,
         output_profile_id=normalized_profile_id,
     )
+
+
+def resolve_openai_sdk_quality(
+    quality: object,
+    *,
+    output_profile_id: str = DEFAULT_OUTPUT_PROFILE_ID,
+) -> str:
+    normalized_profile_id = normalize_output_profile_id(output_profile_id)
+    normalized_quality = normalize_quality(quality, output_profile_id=normalized_profile_id)
+    return OPENAI_SDK_IMAGE_QUALITY_MAP.get(normalized_quality, QUALITY_LOW)
+
+
+def resolve_openai_sdk_size_value(
+    size: object,
+    quality: object,
+    *,
+    output_profile_id: str = DEFAULT_OUTPUT_PROFILE_ID,
+) -> str:
+    normalized_profile_id = normalize_output_profile_id(output_profile_id)
+    normalized_quality = normalize_quality(quality, output_profile_id=normalized_profile_id)
+    normalized_size = normalize_size_value(size, quality=normalized_quality, output_profile_id=normalized_profile_id)
+    if normalized_size == AUTO_OPTION:
+        return AUTO_OPTION
+
+    aspect = _infer_aspect_from_size(normalized_size)
+    if not aspect:
+        return AUTO_OPTION
+    if aspect == "1:1":
+        return "1024x1024"
+
+    width_text, height_text = aspect.split(":", 1)
+    return "1536x1024" if int(width_text) > int(height_text) else "1024x1536"
 
 
 def size_label(

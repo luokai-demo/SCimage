@@ -246,7 +246,7 @@ def _extract_image_data(response: dict) -> list[dict]:
     if not isinstance(choices, list):
         return []
 
-    items: list[dict] = []
+    items = []
     for choice in choices:
         if not isinstance(choice, dict):
             continue

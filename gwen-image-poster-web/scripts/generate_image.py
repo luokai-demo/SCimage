@@ -19,6 +19,7 @@ from gateway_client import (
     request_generation,
     save_image_item,
 )
+from openai_sdk_gateway import OpenAISDKConfig, request_openai_sdk_edit, request_openai_sdk_generation
 
 WEBAPP_DIR = Path(__file__).resolve().parents[1] / "webapp"
 if str(WEBAPP_DIR) not in sys.path:
@@ -32,12 +33,17 @@ from output_options import (  # noqa: E402
     normalize_quality,
     normalize_size_value,
     resolve_api_size_value,
+    resolve_openai_sdk_quality,
+    resolve_openai_sdk_size_value,
 )
 from provider_compat import (  # noqa: E402
     DEFAULT_COMPAT_PROFILE_ID,
     IMAGE_TO_IMAGE_TRANSPORT_CHAT_COMPLETIONS,
     IMAGE_TO_IMAGE_TRANSPORT_IMAGES_EDITS,
+    IMAGE_TO_IMAGE_TRANSPORT_OPENAI_SDK,
     IMAGE_TO_IMAGE_TRANSPORT_UNSUPPORTED,
+    TEXT_TO_IMAGE_TRANSPORT_IMAGES_GENERATIONS,
+    TEXT_TO_IMAGE_TRANSPORT_OPENAI_SDK,
     get_compat_profile,
     normalize_compat_profile_id,
 )
@@ -218,6 +224,12 @@ def main() -> int:
         normalized_quality,
         output_profile_id=output_profile_id,
     )
+    sdk_quality = resolve_openai_sdk_quality(normalized_quality, output_profile_id=output_profile_id)
+    sdk_size = resolve_openai_sdk_size_value(
+        normalized_size,
+        normalized_quality,
+        output_profile_id=output_profile_id,
+    )
 
     headers = {
         "Authorization": f"Bearer {api_key}",
@@ -234,7 +246,20 @@ def main() -> int:
             if compat_profile.image_to_image_transport == IMAGE_TO_IMAGE_TRANSPORT_UNSUPPORTED:
                 _die("当前兼容模式不支持图生图，请切换到支持图生图的提供方配置。")
 
-            if compat_profile.image_to_image_transport == IMAGE_TO_IMAGE_TRANSPORT_IMAGES_EDITS:
+            if compat_profile.image_to_image_transport == IMAGE_TO_IMAGE_TRANSPORT_OPENAI_SDK:
+                response = request_openai_sdk_edit(
+                    base_url=base_url,
+                    api_key=api_key,
+                    model=args.model,
+                    prompt=prompt,
+                    count=args.n,
+                    quality=sdk_quality,
+                    size=sdk_size,
+                    image_paths=source_images,
+                    config=OpenAISDKConfig(),
+                    status_callback=_print_status,
+                )
+            elif compat_profile.image_to_image_transport == IMAGE_TO_IMAGE_TRANSPORT_IMAGES_EDITS:
                 response = request_edit(
                     base_url=base_url,
                     headers=headers,
@@ -266,19 +291,34 @@ def main() -> int:
             else:
                 _die(f"Unsupported image-to-image transport: {compat_profile.image_to_image_transport}")
         else:
-            response = request_generation(
-                base_url=base_url,
-                headers=headers,
-                payload=_build_generation_payload(
+            if compat_profile.text_to_image_transport == TEXT_TO_IMAGE_TRANSPORT_OPENAI_SDK:
+                response = request_openai_sdk_generation(
+                    base_url=base_url,
+                    api_key=api_key,
                     model=args.model,
                     prompt=prompt,
                     count=args.n,
-                    quality=normalized_quality,
-                    size=api_size,
-                ),
-                config=config,
-                status_callback=_print_status,
-            )
+                    quality=sdk_quality,
+                    size=sdk_size,
+                    config=OpenAISDKConfig(),
+                    status_callback=_print_status,
+                )
+            elif compat_profile.text_to_image_transport == TEXT_TO_IMAGE_TRANSPORT_IMAGES_GENERATIONS:
+                response = request_generation(
+                    base_url=base_url,
+                    headers=headers,
+                    payload=_build_generation_payload(
+                        model=args.model,
+                        prompt=prompt,
+                        count=args.n,
+                        quality=normalized_quality,
+                        size=api_size,
+                    ),
+                    config=config,
+                    status_callback=_print_status,
+                )
+            else:
+                _die(f"Unsupported text-to-image transport: {compat_profile.text_to_image_transport}")
     except Exception as exc:
         _die(str(exc))
 

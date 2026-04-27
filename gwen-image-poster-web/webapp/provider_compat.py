@@ -6,9 +6,11 @@ from output_options import OUTPUT_PROFILE_ASPECT_V1, OUTPUT_PROFILE_PIXEL_V1
 
 
 TEXT_TO_IMAGE_TRANSPORT_IMAGES_GENERATIONS = "images_generations"
+TEXT_TO_IMAGE_TRANSPORT_OPENAI_SDK = "openai_sdk"
 IMAGE_TO_IMAGE_TRANSPORT_UNSUPPORTED = "unsupported"
 IMAGE_TO_IMAGE_TRANSPORT_IMAGES_EDITS = "images_edits"
 IMAGE_TO_IMAGE_TRANSPORT_CHAT_COMPLETIONS = "chat_completions"
+IMAGE_TO_IMAGE_TRANSPORT_OPENAI_SDK = "openai_sdk"
 
 OPENAI_LEGACY_COMPAT_PROFILE_ID = "openai_legacy"
 OPENAI_CHAT_EDITS_COMPAT_PROFILE_ID = "openai_chat_edits"
@@ -43,8 +45,8 @@ COMPAT_PROFILES = (
     ProviderCompatProfile(
         id=OPENAI_LEGACY_COMPAT_PROFILE_ID,
         label="OpenAI 图片接口",
-        text_to_image_transport=TEXT_TO_IMAGE_TRANSPORT_IMAGES_GENERATIONS,
-        image_to_image_transport=IMAGE_TO_IMAGE_TRANSPORT_IMAGES_EDITS,
+        text_to_image_transport=TEXT_TO_IMAGE_TRANSPORT_OPENAI_SDK,
+        image_to_image_transport=IMAGE_TO_IMAGE_TRANSPORT_OPENAI_SDK,
         output_profile_id=OUTPUT_PROFILE_ASPECT_V1,
     ),
     ProviderCompatProfile(
