@@ -12,6 +12,8 @@ from workflows import DEFAULT_WORKFLOW, IMAGE_TO_IMAGE_WORKFLOW, normalize_workf
 
 WORKFLOW_IDS = (DEFAULT_WORKFLOW, IMAGE_TO_IMAGE_WORKFLOW)
 PROMPT_BANK_LIMIT = 120
+GALLERY_FILTER_IDS = ("all", "tasks", "prompts")
+DEFAULT_GALLERY_FILTER = "all"
 
 
 class WorkspaceStateStore:
@@ -63,6 +65,11 @@ def _default_state() -> dict:
         "active_workflow": DEFAULT_WORKFLOW,
         "forms": {workflow: _default_form() for workflow in WORKFLOW_IDS},
         "prompt_bank": {workflow: [] for workflow in WORKFLOW_IDS},
+        "ui": {
+            "gallery": {
+                "filter": DEFAULT_GALLERY_FILTER,
+            }
+        },
     }
 
 
@@ -83,7 +90,26 @@ def _normalize_state_payload(payload: object) -> dict:
         for workflow in WORKFLOW_IDS:
             state["prompt_bank"][workflow] = _normalize_prompt_bank(raw_prompt_bank.get(workflow), workflow)
 
+    state["ui"] = _normalize_ui_state(payload.get("ui"))
+
     return state
+
+
+def _normalize_ui_state(payload: object) -> dict:
+    raw_ui = payload if isinstance(payload, dict) else {}
+    raw_gallery = raw_ui.get("gallery") if isinstance(raw_ui.get("gallery"), dict) else {}
+    return {
+        "gallery": {
+            "filter": _normalize_gallery_filter(raw_gallery.get("filter")),
+        }
+    }
+
+
+def _normalize_gallery_filter(value: object) -> str:
+    normalized = str(value or "").strip().lower()
+    if normalized in GALLERY_FILTER_IDS:
+        return normalized
+    return DEFAULT_GALLERY_FILTER
 
 
 def _normalize_form(payload: object) -> dict:

@@ -15,6 +15,11 @@ if (!GALLERY_RUNTIME) {
   throw new Error("GalleryRuntime must be loaded before app.js");
 }
 
+const GALLERY_GROUPING = window.GalleryGrouping;
+if (!GALLERY_GROUPING) {
+  throw new Error("GalleryGrouping must be loaded before app.js");
+}
+
 const LIST_TIMEOUT_MS = 10000;
 const ACTION_TIMEOUT_MS = 20000;
 const POLL_INTERVAL_MS = 3000;
@@ -145,6 +150,14 @@ const GALLERY_IMAGE_WARM_CONCURRENCY = 8;
 const GALLERY_IMAGE_WARM_MAX_ENTRIES = 220;
 const GALLERY_PREVIEW_WARM_CONCURRENCY = 48;
 const GALLERY_PREVIEW_WARM_MAX_ENTRIES = 420;
+
+function normalizeGalleryFilter(value) {
+  if (typeof WORKFLOW_STATE.normalizeGalleryFilter === "function") {
+    return WORKFLOW_STATE.normalizeGalleryFilter(value);
+  }
+  const normalized = String(value || "").trim().toLowerCase();
+  return normalized === "tasks" || normalized === "prompts" ? normalized : "all";
+}
 
 const galleryScrollRoot = new GALLERY_RUNTIME.GalleryScrollRoot({
   root: elements.galleryWindow || elements.galleryArea,
@@ -2080,16 +2093,13 @@ function reconcileImageGrid(grid, entries, reusableCards) {
   return nodes.length;
 }
 
-function buildTaskGallerySectionShell(job) {
+function buildGallerySectionShell(options = {}) {
   const section = createElement("section", "gallery-task-section");
-  section.dataset.jobId = job.id || "";
+  section.dataset.groupType = String(options.groupType || "");
+  section.dataset.groupKey = String(options.groupKey || "");
   const head = createElement("div", "gallery-task-section-head");
-  const title = createElement("div", "gallery-task-section-title", job.prompt || "未提供提示词");
-  const meta = createElement(
-    "div",
-    "gallery-task-section-meta",
-    `${getWorkflowLabel(job.workflow)} · ${getJobProgressText(job)} · ${formatDateTime(job.updated_at || job.created_at)}`
-  );
+  const title = createElement("div", "gallery-task-section-title", options.titleText || "");
+  const meta = createElement("div", "gallery-task-section-meta", options.metaText || "");
   const grid = createElement("div", "gallery-task-section-grid");
 
   head.append(title, meta);
@@ -2097,16 +2107,67 @@ function buildTaskGallerySectionShell(job) {
   return section;
 }
 
-function syncTaskGallerySection(section, job) {
-  section.dataset.jobId = job.id || "";
+function syncGallerySectionShell(section, options = {}) {
+  section.dataset.groupType = String(options.groupType || "");
+  section.dataset.groupKey = String(options.groupKey || "");
   const title = section.querySelector(".gallery-task-section-title");
   const meta = section.querySelector(".gallery-task-section-meta");
   if (title) {
-    title.textContent = job.prompt || "未提供提示词";
+    title.textContent = options.titleText || "";
   }
   if (meta) {
-    meta.textContent = `${getWorkflowLabel(job.workflow)} · ${getJobProgressText(job)} · ${formatDateTime(job.updated_at || job.created_at)}`;
+    meta.textContent = options.metaText || "";
   }
+}
+
+function buildTaskGallerySectionShell(job) {
+  return buildGallerySectionShell({
+    groupType: "task",
+    groupKey: job.id || "",
+    titleText: GALLERY_GROUPING.normalizePromptText(job.prompt),
+    metaText: `${getWorkflowLabel(job.workflow)} · ${getJobProgressText(job)} · ${formatDateTime(job.updated_at || job.created_at)}`,
+  });
+}
+
+function syncTaskGallerySection(section, job) {
+  syncGallerySectionShell(section, {
+    groupType: "task",
+    groupKey: job.id || "",
+    titleText: GALLERY_GROUPING.normalizePromptText(job.prompt),
+    metaText: `${getWorkflowLabel(job.workflow)} · ${getJobProgressText(job)} · ${formatDateTime(job.updated_at || job.created_at)}`,
+  });
+}
+
+function buildPromptGallerySectionShell(group) {
+  return buildGallerySectionShell({
+    groupType: "prompt",
+    groupKey: group.key,
+    titleText: group.prompt,
+    metaText: `${group.jobCount} 个任务 · ${group.imageCount} 张图片 · 最近更新 ${formatDateTime(group.latestUpdatedAt)}`,
+  });
+}
+
+function syncPromptGallerySection(section, group) {
+  syncGallerySectionShell(section, {
+    groupType: "prompt",
+    groupKey: group.key,
+    titleText: group.prompt,
+    metaText: `${group.jobCount} 个任务 · ${group.imageCount} 张图片 · 最近更新 ${formatDateTime(group.latestUpdatedAt)}`,
+  });
+}
+
+function collectExistingGallerySections(groupType) {
+  if (elements.galleryGrid.classList.contains("is-virtualized")) {
+    galleryVirtualMasonry.clear();
+  }
+  const existingSections = new Map();
+  elements.galleryGrid.querySelectorAll(`.gallery-task-section[data-group-type="${groupType}"]`).forEach((section) => {
+    const groupKey = section.dataset.groupKey || "";
+    if (groupKey && !existingSections.has(groupKey)) {
+      existingSections.set(groupKey, section);
+    }
+  });
+  return existingSections;
 }
 
 function reconcileFlatGallery(jobs) {
@@ -2130,17 +2191,15 @@ function warmGalleryEntries(entries) {
   galleryPreviewWarmCache.warm(entries.map((entry) => entry.previewUrl), { immediate: true });
 }
 
-function reconcileTaskGallery(jobs, reusableCards) {
-  if (elements.galleryGrid.classList.contains("is-virtualized")) {
-    galleryVirtualMasonry.clear();
-  }
-  const existingSections = new Map();
-  elements.galleryGrid.querySelectorAll(".gallery-task-section[data-job-id]").forEach((section) => {
-    const jobId = section.dataset.jobId || "";
-    if (jobId && !existingSections.has(jobId)) {
-      existingSections.set(jobId, section);
-    }
+function syncGalleryFilterButtons(activeFilter) {
+  const normalizedFilter = normalizeGalleryFilter(activeFilter);
+  document.querySelectorAll(".gallery-filter button[data-gallery-filter]").forEach((node) => {
+    node.classList.toggle("active", node.dataset.galleryFilter === normalizedFilter);
   });
+}
+
+function reconcileTaskGallery(jobs, reusableCards) {
+  const existingSections = collectExistingGallerySections("task");
 
   const sections = [];
   const allEntries = [];
@@ -2164,6 +2223,51 @@ function reconcileTaskGallery(jobs, reusableCards) {
   warmGalleryEntries(allEntries);
   elements.galleryGrid.replaceChildren(...sections);
   return renderedCards;
+}
+
+function reconcilePromptGallery(jobs, reusableCards) {
+  const promptGroups = GALLERY_GROUPING.groupJobsByPrompt(jobs);
+  const existingSections = collectExistingGallerySections("prompt");
+
+  const sections = [];
+  const allEntries = [];
+  let renderedCards = 0;
+
+  promptGroups.forEach((promptGroup) => {
+    const entries = [];
+    promptGroup.jobs.forEach((job) => {
+      getSortedJobImages(job).forEach((image) => {
+        const entry = createGalleryImageEntry(job, image);
+        if (entry) {
+          entries.push(entry);
+        }
+      });
+    });
+    if (!entries.length) {
+      return;
+    }
+
+    assignGalleryLayoutProfiles(entries, { allowFeatured: false });
+    allEntries.push(...entries);
+
+    const group = {
+      ...promptGroup,
+      jobCount: promptGroup.jobs.length,
+      imageCount: entries.length,
+    };
+    const section = existingSections.get(group.key) || buildPromptGallerySectionShell(group);
+    const grid = section.querySelector(".gallery-task-section-grid");
+    syncPromptGallerySection(section, group);
+    renderedCards += reconcileImageGrid(grid, entries, reusableCards);
+    sections.push(section);
+  });
+
+  warmGalleryEntries(allEntries);
+  elements.galleryGrid.replaceChildren(...sections);
+  return {
+    renderedCards,
+    groupCount: sections.length,
+  };
 }
 
 function buildLeftTaskCard(job) {
@@ -2335,17 +2439,28 @@ function renderGallery() {
   renderRunningBanner();
   const reusableCards = collectReusableGalleryCards();
   galleryFlatList = [];
-  elements.galleryGrid.classList.toggle("grouped-by-task", currentGalleryFilter === "tasks");
+  const isGroupedGallery = currentGalleryFilter === "tasks" || currentGalleryFilter === "prompts";
+  elements.galleryGrid.classList.toggle("grouped-by-task", isGroupedGallery);
 
-  const renderedCards = currentGalleryFilter === "tasks"
-    ? reconcileTaskGallery(jobs, reusableCards)
-    : reconcileFlatGallery(jobs);
+  let renderedCards = 0;
+  let promptGroupCount = 0;
+  if (currentGalleryFilter === "tasks") {
+    renderedCards = reconcileTaskGallery(jobs, reusableCards);
+  } else if (currentGalleryFilter === "prompts") {
+    const promptResult = reconcilePromptGallery(jobs, reusableCards);
+    renderedCards = promptResult.renderedCards;
+    promptGroupCount = promptResult.groupCount;
+  } else {
+    renderedCards = reconcileFlatGallery(jobs);
+  }
 
   elements.galleryEmpty.style.display = renderedCards ? "none" : "";
   elements.galleryCount.textContent = renderedCards
     ? currentGalleryFilter === "tasks"
       ? `${jobs.length} 个任务 · ${renderedCards} 张`
-      : `${renderedCards} 张`
+      : currentGalleryFilter === "prompts"
+        ? `${promptGroupCount} 组提示词 · ${renderedCards} 张`
+        : `${renderedCards} 张`
     : "";
   updateSyncIndicators();
   refreshRelativeTimes();
@@ -2362,11 +2477,14 @@ function refreshRelativeTimes() {
   });
 }
 
-function filterGallery(type, button) {
-  currentGalleryFilter = type;
-  document.querySelectorAll(".gallery-filter button").forEach((node) => {
-    node.classList.toggle("active", node === button);
-  });
+function filterGallery(type) {
+  const nextFilter = normalizeGalleryFilter(type);
+  const changed = currentGalleryFilter !== nextFilter;
+  currentGalleryFilter = nextFilter;
+  syncGalleryFilterButtons(currentGalleryFilter);
+  if (changed) {
+    WORKFLOW_STATE.writeGalleryFilter?.(currentGalleryFilter);
+  }
   renderGallery();
 }
 
@@ -3232,6 +3350,8 @@ function hydrateStaticUi() {
     onDelete: deleteProviderProfile,
   });
   const initialWorkflow = normalizeWorkflow(WORKFLOW_STATE.readActiveWorkflow());
+  currentGalleryFilter = normalizeGalleryFilter(WORKFLOW_STATE.readGalleryFilter?.());
+  syncGalleryFilterButtons(currentGalleryFilter);
   window.WorkspacePanel?.init({
     initialWorkflow,
     onWorkflowChange: handleWorkflowChange,

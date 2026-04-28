@@ -1901,8 +1901,9 @@ input[type="file"]::file-selector-button:hover { border-color: var(--border-hove
       </div>
       <div class="gallery-actions-right">
         <div class="gallery-filter">
-          <button class="active" onclick="filterGallery('all', this)">全部</button>
-          <button onclick="filterGallery('tasks', this)">任务</button>
+          <button class="active" data-gallery-filter="all" onclick="filterGallery('all')">全部</button>
+          <button data-gallery-filter="tasks" onclick="filterGallery('tasks')">任务</button>
+          <button data-gallery-filter="prompts" onclick="filterGallery('prompts')">提示词</button>
         </div>
         <button class="gallery-sort-btn" id="sortBtn" onclick="toggleSort()" title="排序">新→旧 ↓</button>
         <div class="settings-wrap">
@@ -1990,6 +1991,7 @@ input[type="file"]::file-selector-button:hover { border-color: var(--border-hove
 <script src="/workflow-state.js"></script>
 <script src="/workspace-panel.js"></script>
 <script src="/gallery-runtime.js"></script>
+<script src="/gallery-grouping.js"></script>
 <script src="/provider-model-picker.js"></script>
 <script src="/provider-profile-picker.js"></script>
 <script src="/app.js"></script>

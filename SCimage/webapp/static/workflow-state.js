@@ -12,11 +12,14 @@
 
   const WORKFLOW_IDS = ["generate", "image-to-image"];
   const DEFAULT_WORKFLOW = "generate";
+  const GALLERY_FILTER_IDS = ["all", "tasks", "prompts"];
+  const DEFAULT_GALLERY_FILTER = "all";
 
   let apiRequestFn = null;
   let formStoreCache = createEmptyFormStore();
   let promptBankStoreCache = createEmptyPromptBankStore();
   let activeWorkflowCache = DEFAULT_WORKFLOW;
+  let galleryUiStateCache = createDefaultGalleryUiState();
   let persistTimer = null;
   let persistInFlight = null;
   let persistDirty = false;
@@ -31,6 +34,18 @@
       return normalized;
     }
     return isSupportedWorkflow(fallback) ? fallback : "";
+  }
+
+  function isSupportedGalleryFilter(value) {
+    return GALLERY_FILTER_IDS.includes(String(value || "").trim().toLowerCase());
+  }
+
+  function normalizeGalleryFilter(value, fallback = DEFAULT_GALLERY_FILTER) {
+    const normalized = String(value || "").trim().toLowerCase();
+    if (isSupportedGalleryFilter(normalized)) {
+      return normalized;
+    }
+    return isSupportedGalleryFilter(fallback) ? fallback : DEFAULT_GALLERY_FILTER;
   }
 
   function createId() {
@@ -132,6 +147,19 @@
     return { workflows };
   }
 
+  function createDefaultGalleryUiState() {
+    return {
+      filter: DEFAULT_GALLERY_FILTER,
+    };
+  }
+
+  function normalizeGalleryUiState(rawState) {
+    const state = rawState && typeof rawState === "object" ? rawState : {};
+    return {
+      filter: normalizeGalleryFilter(state.filter, DEFAULT_GALLERY_FILTER),
+    };
+  }
+
   function normalizePromptBankStore(rawStore) {
     const store = createEmptyPromptBankStore();
     if (rawStore?.workflows && typeof rawStore.workflows === "object") {
@@ -153,6 +181,9 @@
       active_workflow: DEFAULT_WORKFLOW,
       forms: createEmptyFormStore().workflows,
       prompt_bank: createEmptyPromptBankStore().workflows,
+      ui: {
+        gallery: createDefaultGalleryUiState(),
+      },
     };
   }
 
@@ -179,6 +210,10 @@
       });
     }
 
+    if (payload.ui && typeof payload.ui === "object") {
+      state.ui.gallery = normalizeGalleryUiState(payload.ui.gallery);
+    }
+
     return state;
   }
 
@@ -189,6 +224,9 @@
       active_workflow: normalizeWorkflow(activeWorkflowCache, DEFAULT_WORKFLOW),
       forms: normalizedForms.workflows,
       prompt_bank: normalizedPromptBank.workflows,
+      ui: {
+        gallery: normalizeGalleryUiState(galleryUiStateCache),
+      },
     };
   }
 
@@ -197,6 +235,7 @@
     formStoreCache = { workflows: normalized.forms };
     promptBankStoreCache = { workflows: normalized.prompt_bank };
     activeWorkflowCache = normalized.active_workflow;
+    galleryUiStateCache = normalizeGalleryUiState(normalized.ui.gallery);
     return snapshotState();
   }
 
@@ -256,6 +295,7 @@
     formStoreCache = createEmptyFormStore();
     promptBankStoreCache = createEmptyPromptBankStore();
     activeWorkflowCache = DEFAULT_WORKFLOW;
+    galleryUiStateCache = createDefaultGalleryUiState();
 
     if (!apiRequestFn) {
       return snapshotState();
@@ -307,6 +347,26 @@
   function writeActiveWorkflow(workflow) {
     activeWorkflowCache = normalizeWorkflow(workflow);
     markDirty();
+  }
+
+  function readGalleryState() {
+    return normalizeGalleryUiState(galleryUiStateCache);
+  }
+
+  function readGalleryFilter() {
+    return readGalleryState().filter;
+  }
+
+  function writeGalleryState(state) {
+    galleryUiStateCache = normalizeGalleryUiState(state);
+    markDirty();
+  }
+
+  function writeGalleryFilter(filter) {
+    writeGalleryState({
+      ...readGalleryState(),
+      filter,
+    });
   }
 
   function readPromptBankStore() {
@@ -376,6 +436,8 @@
     DEFAULT_WORKFLOW,
     isSupportedWorkflow,
     normalizeWorkflow,
+    isSupportedGalleryFilter,
+    normalizeGalleryFilter,
     normalizeForm,
     init,
     flush,
@@ -389,5 +451,9 @@
     findPrompt,
     deletePrompt,
     clearPromptBank,
+    readGalleryState,
+    readGalleryFilter,
+    writeGalleryState,
+    writeGalleryFilter,
   };
 })();

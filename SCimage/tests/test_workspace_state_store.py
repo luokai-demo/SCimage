@@ -25,6 +25,7 @@ class WorkspaceStateStoreTests(unittest.TestCase):
             self.assertEqual(state["forms"]["generate"]["quality"], "auto")
             self.assertEqual(state["forms"]["generate"]["size"], "auto")
             self.assertEqual(state["prompt_bank"]["generate"], [])
+            self.assertEqual(state["ui"]["gallery"]["filter"], "all")
 
     def test_replace_state_normalizes_and_persists(self) -> None:
         with TemporaryDirectory() as temp_dir:
@@ -64,6 +65,11 @@ class WorkspaceStateStoreTests(unittest.TestCase):
                             },
                         ]
                     },
+                    "ui": {
+                        "gallery": {
+                            "filter": "PROMPTS",
+                        }
+                    }
                 }
             )
 
@@ -75,6 +81,7 @@ class WorkspaceStateStoreTests(unittest.TestCase):
             self.assertEqual(state["forms"]["image-to-image"]["count"], "1")
             self.assertEqual(len(state["prompt_bank"]["generate"]), 1)
             self.assertEqual(state["prompt_bank"]["generate"][0]["id"], "first")
+            self.assertEqual(state["ui"]["gallery"]["filter"], "prompts")
             self.assertTrue(path.exists())
 
             reloaded = WorkspaceStateStore(path).get_state()
