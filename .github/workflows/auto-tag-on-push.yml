@@ -40,7 +40,13 @@ jobs:
         shell: bash
         run: |
           APP_VERSION="$(tr -d '[:space:]' < VERSION)"
-          TAG_NAME="v${APP_VERSION}-build.${GITHUB_RUN_NUMBER}"
+          TAG_BASE="v${APP_VERSION}-build.${GITHUB_RUN_NUMBER}"
+          TAG_NAME="${TAG_BASE}"
+          TAG_SUFFIX=0
+          while git ls-remote --exit-code --tags origin "refs/tags/${TAG_NAME}" >/dev/null 2>&1; do
+            TAG_SUFFIX=$((TAG_SUFFIX + 1))
+            TAG_NAME="${TAG_BASE}.${TAG_SUFFIX}"
+          done
           echo "app_version=${APP_VERSION}" >> "${GITHUB_OUTPUT}"
           echo "tag_name=${TAG_NAME}" >> "${GITHUB_OUTPUT}"
 
