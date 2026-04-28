@@ -16,6 +16,10 @@ jobs:
   tag:
     runs-on: ubuntu-latest
 
+    defaults:
+      run:
+        working-directory: SCimage
+
     steps:
       - name: 拉取代码
         uses: actions/checkout@v4

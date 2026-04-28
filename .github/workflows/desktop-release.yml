@@ -32,6 +32,10 @@ jobs:
             artifact_name: SCimage-macos
             release_asset: SCimage-macos.zip
 
+    defaults:
+      run:
+        working-directory: SCimage
+
     steps:
       - name: 拉取代码
         uses: actions/checkout@v4
@@ -67,7 +71,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.artifact_name }}
-          path: dist/${{ matrix.target }}/${{ matrix.release_asset }}
+          path: SCimage/dist/${{ matrix.target }}/${{ matrix.release_asset }}
           if-no-files-found: error
 
   release:
