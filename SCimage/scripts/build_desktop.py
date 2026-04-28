@@ -13,9 +13,16 @@ import textwrap
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
+WEBAPP_ROOT = PROJECT_ROOT / "webapp"
+if str(WEBAPP_ROOT) not in sys.path:
+    sys.path.insert(0, str(WEBAPP_ROOT))
+
+from brand_assets import load_logo_canvas, logo_source_path, resize_rgba_canvas, save_windows_icon
+
+
 APP_NAME = "SCimage"
 APP_VERSION = (PROJECT_ROOT / "VERSION").read_text(encoding="utf-8").strip()
-LOGO_SOURCE_PATH = PROJECT_ROOT / "webapp" / "static" / "logo.png"
+LOGO_SOURCE_PATH = logo_source_path()
 WINDOWS_TARGET = "windows"
 MACOS_TARGET = "macos"
 TARGET_TO_SYSTEM = {
@@ -195,44 +202,18 @@ def generate_packaging_assets(*, target: str, assets_dir: Path) -> None:
     from PIL import Image
 
     assets_dir.mkdir(parents=True, exist_ok=True)
-    canvas = load_packaging_logo(Image)
+    try:
+        canvas = load_logo_canvas(Image, source_path=LOGO_SOURCE_PATH)
+    except FileNotFoundError as exc:
+        raise SystemExit(str(exc)) from exc
 
     if target == WINDOWS_TARGET:
-        canvas.save(
-            assets_dir / "SCimage.ico",
-            sizes=[(256, 256), (128, 128), (64, 64), (48, 48), (32, 32), (16, 16)],
-        )
+        save_windows_icon(Image, canvas, assets_dir / "SCimage.ico")
         (assets_dir / "windows-version-info.txt").write_text(build_windows_version_info(), encoding="utf-8")
         return
 
     if target == MACOS_TARGET:
         build_macos_icns(canvas, assets_dir / "SCimage.icns")
-
-
-def load_packaging_logo(ImageModule):
-    if not LOGO_SOURCE_PATH.exists():
-        raise SystemExit(f"缺少打包 logo 文件：{LOGO_SOURCE_PATH}")
-
-    with ImageModule.open(LOGO_SOURCE_PATH) as source_image:
-        canvas = source_image.convert("RGBA")
-
-    side = max(canvas.width, canvas.height)
-    if canvas.width != canvas.height:
-        square_canvas = ImageModule.new("RGBA", (side, side), (0, 0, 0, 0))
-        offset = ((side - canvas.width) // 2, (side - canvas.height) // 2)
-        square_canvas.paste(canvas, offset, canvas)
-        canvas = square_canvas
-
-    if side != 1024:
-        canvas = canvas.resize((1024, 1024), _resample_filter(ImageModule))
-    return canvas
-
-
-def _resample_filter(ImageModule):
-    resampling = getattr(ImageModule, "Resampling", None)
-    if resampling is not None:
-        return resampling.LANCZOS
-    return ImageModule.LANCZOS
 
 
 def build_macos_icns(canvas, target: Path) -> None:
@@ -254,7 +235,7 @@ def build_macos_icns(canvas, target: Path) -> None:
         "icon_512x512@2x.png": 1024,
     }
     for filename, size in icon_specs.items():
-        resized = canvas.resize((size, size), _resample_filter(Image))
+        resized = resize_rgba_canvas(Image, canvas, size)
         resized.save(iconset_dir / filename)
     run(["iconutil", "-c", "icns", str(iconset_dir), "-o", str(target)])
 
