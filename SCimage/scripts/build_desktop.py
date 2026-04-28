@@ -6,6 +6,7 @@ import os
 import platform
 import plistlib
 from pathlib import Path
+import re
 import shutil
 import subprocess
 import sys
@@ -241,12 +242,14 @@ def build_macos_icns(canvas, target: Path) -> None:
 
 
 def build_windows_version_info() -> str:
+    file_version_tuple, display_version = resolve_windows_build_version()
+    file_version_parts = ", ".join(str(part) for part in file_version_tuple)
     return textwrap.dedent(
         f"""
         VSVersionInfo(
           ffi=FixedFileInfo(
-            filevers=(1, 0, 0, 0),
-            prodvers=(1, 0, 0, 0),
+            filevers=({file_version_parts}),
+            prodvers=({file_version_parts}),
             mask=0x3f,
             flags=0x0,
             OS=0x40004,
@@ -261,11 +264,11 @@ def build_windows_version_info() -> str:
                 [
                   StringStruct('CompanyName', 'SCimage'),
                   StringStruct('FileDescription', 'SCimage Desktop'),
-                  StringStruct('FileVersion', '{APP_VERSION}'),
+                  StringStruct('FileVersion', '{display_version}'),
                   StringStruct('InternalName', '{APP_NAME}'),
                   StringStruct('OriginalFilename', '{APP_NAME}.exe'),
                   StringStruct('ProductName', '{APP_NAME}'),
-                  StringStruct('ProductVersion', '{APP_VERSION}')
+                  StringStruct('ProductVersion', '{display_version}')
                 ]
               )
             ]),
@@ -274,6 +277,47 @@ def build_windows_version_info() -> str:
         )
         """
     ).strip()
+
+
+def resolve_windows_build_version(
+    *,
+    app_version: str = APP_VERSION,
+    ref_name: str | None = None,
+    run_number: str | None = None,
+) -> tuple[tuple[int, int, int, int], str]:
+    major, minor, patch = parse_semver_prefix(app_version)
+    build_number = resolve_windows_build_number(
+        ref_name=ref_name if ref_name is not None else os.getenv("GITHUB_REF_NAME", ""),
+        run_number=run_number if run_number is not None else os.getenv("GITHUB_RUN_NUMBER", ""),
+    )
+    version_tuple = (major, minor, patch, build_number)
+    return version_tuple, ".".join(str(part) for part in version_tuple)
+
+
+def resolve_windows_build_number(*, ref_name: str, run_number: str) -> int:
+    tag_text = str(ref_name or "").strip()
+    if tag_text:
+        release_match = re.search(r"-r(\d+)", tag_text)
+        retry_match = re.search(r"-retry\.(\d+)", tag_text)
+        if release_match:
+            base_number = int(release_match.group(1))
+            retry_number = int(retry_match.group(1)) if retry_match else 0
+            return min(65535, base_number * 100 + retry_number)
+
+    run_text = str(run_number or "").strip()
+    if run_text.isdigit():
+        return min(65535, int(run_text))
+    return 0
+
+
+def parse_semver_prefix(value: str) -> tuple[int, int, int]:
+    parts = [part for part in str(value or "").strip().split(".") if part != ""]
+    normalized = []
+    for index in range(3):
+        part = parts[index] if index < len(parts) else "0"
+        match = re.match(r"(\d+)", part)
+        normalized.append(int(match.group(1)) if match else 0)
+    return tuple(normalized)
 
 
 def run(command: list[str]) -> None:
