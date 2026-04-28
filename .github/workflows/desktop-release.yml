@@ -90,7 +90,7 @@ jobs:
         uses: softprops/action-gh-release@v3
         with:
           tag_name: ${{ github.ref_name }}
-          name: ${{ github.ref_name }}
+          name: SCimage ${{ github.ref_name }}
           body: |
             ## 项目说明
 

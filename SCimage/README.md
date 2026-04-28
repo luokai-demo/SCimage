@@ -67,7 +67,8 @@ generated/
 仓库内已经加入 GitHub Actions 自动打包与发布：
 
 - 推送到 `main` 后，会自动创建一个新 tag
-- 自动 tag 格式为 `v<版本号>-build.<run_number>`
+- 自动 tag 格式为 `v<版本号>-r<4位流水号>`
+- 如果同一流水号需要重发，则会追加 `-retry.<序号>`
 - 新 tag 会自动触发桌面打包工作流
 - 打包工作流会分别在 `Windows` 和 `macOS` runner 上构建
 - 构建完成后会自动创建 GitHub Release，并上传：
