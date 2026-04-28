@@ -580,6 +580,62 @@ function normalizeImageUrl(url) {
   }
 }
 
+function normalizeDownloadFilename(value, fallback = "image.png") {
+  const filename = String(value || "").trim();
+  if (!filename) {
+    return fallback;
+  }
+  const sanitized = filename.replace(/[\\/:*?"<>|]+/g, "-").trim();
+  return sanitized || fallback;
+}
+
+async function downloadWithDesktopBridge(url, filename) {
+  const api = window.pywebview?.api;
+  if (!api || typeof api.download_file !== "function") {
+    return false;
+  }
+  const result = await api.download_file(url, filename);
+  if (result?.canceled) {
+    return true;
+  }
+  if (!result?.ok) {
+    throw new Error(result?.error || "桌面版保存图片失败。");
+  }
+  return true;
+}
+
+async function downloadWithBrowser(url, filename) {
+  const response = await fetch(url, { method: "GET" });
+  if (!response.ok) {
+    throw new Error(`下载失败：HTTP ${response.status}`);
+  }
+  const blob = await response.blob();
+  const objectUrl = window.URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = objectUrl;
+  link.download = filename;
+  link.style.display = "none";
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  window.setTimeout(() => {
+    window.URL.revokeObjectURL(objectUrl);
+  }, 1000);
+}
+
+async function triggerImageDownload(url, filename) {
+  const normalizedUrl = normalizeImageUrl(url);
+  if (!normalizedUrl) {
+    throw new Error("图片地址无效，无法下载。");
+  }
+  const normalizedFilename = normalizeDownloadFilename(filename);
+  const handledByDesktop = await downloadWithDesktopBridge(normalizedUrl, normalizedFilename);
+  if (handledByDesktop) {
+    return;
+  }
+  await downloadWithBrowser(normalizedUrl, normalizedFilename);
+}
+
 function getGalleryPreviewUrl(image) {
   return normalizeImageUrl(image?.preview?.url || "");
 }
@@ -1689,6 +1745,29 @@ function createActionButton(label, action, jobId, extraClassName = "") {
   return button;
 }
 
+async function downloadGalleryImage(jobId, slot, triggerButton = null) {
+  const image = findJobImage(jobId, slot);
+  if (!image?.url) {
+    setStatus("error", "要下载的图片不存在。", { timeoutMs: 2200 });
+    return;
+  }
+
+  const previousDisabled = Boolean(triggerButton?.disabled);
+  if (triggerButton) {
+    triggerButton.disabled = true;
+  }
+  try {
+    await triggerImageDownload(image.url, image.name || `image-${image.slot || 1}.png`);
+  } catch (error) {
+    console.error("Download image failed:", error);
+    setStatus("error", error.message || "下载图片失败。", { timeoutMs: 2400 });
+  } finally {
+    if (triggerButton) {
+      triggerButton.disabled = previousDisabled;
+    }
+  }
+}
+
 function createGalleryTimeNode(value) {
   const formatted = formatDateTime(value);
   const timeNode = createElement("span", "time");
@@ -1975,10 +2054,10 @@ function syncImageCard(card, entry, openIndex) {
   if (copyButton) {
     copyButton.dataset.jobId = entry.job.id || "";
   }
-  const downloadLink = card.querySelector("a[download]");
-  if (downloadLink) {
-    downloadLink.href = entry.imageUrl;
-    downloadLink.download = entry.image.name || `image-${entry.image.slot || 1}.png`;
+  const downloadButton = card.querySelector("[data-action='download-image']");
+  if (downloadButton) {
+    downloadButton.dataset.jobId = entry.job.id || "";
+    downloadButton.dataset.slot = String(entry.image.slot || 0);
   }
 }
 
@@ -2056,12 +2135,11 @@ function buildImageCard(job, image, options = {}) {
   addSourceButton.setAttribute("title", "加入图生图参考图");
   actions.appendChild(addSourceButton);
 
-  const downloadLink = createElement("a", "", "下载");
-  downloadLink.href = imageUrl;
-  downloadLink.download = image.name || `image-${image.slot || 1}.png`;
-  downloadLink.setAttribute("title", "下载图片");
-  downloadLink.addEventListener("click", (event) => event.stopPropagation());
-  actions.appendChild(downloadLink);
+  const downloadButton = createActionButton("下载", "download-image", job.id);
+  downloadButton.dataset.slot = String(image.slot || 0);
+  downloadButton.setAttribute("aria-label", "下载图片");
+  downloadButton.setAttribute("title", "下载图片");
+  actions.appendChild(downloadButton);
   actions.appendChild(buildGalleryTerminalAction(job, image.slot || 0));
 
   metaRow.append(timeNode, actions);
@@ -2569,8 +2647,6 @@ function showLightboxItem(index) {
   elements.lightboxPrompt.classList.remove("expanded");
   elements.lightboxImg.src = item.src;
   elements.lightboxPrompt.textContent = item.prompt || "";
-  elements.lightboxDl.href = item.src;
-  elements.lightboxDl.download = item.filename;
   elements.lightboxCounter.textContent = `${index + 1} / ${galleryFlatList.length}`;
   if (elements.lightboxAddSource) {
     elements.lightboxAddSource.disabled = false;
@@ -2688,6 +2764,27 @@ function copyPrompt() {
     return;
   }
   copyToClipboard(item.prompt, elements.lightboxCopy, "已复制", "复制提示词");
+}
+
+async function downloadLightboxImage() {
+  const item = galleryFlatList[lightboxIndex];
+  if (!item) {
+    return;
+  }
+  const previousDisabled = elements.lightboxDl?.disabled || false;
+  if (elements.lightboxDl) {
+    elements.lightboxDl.disabled = true;
+  }
+  try {
+    await triggerImageDownload(item.src, item.filename);
+  } catch (error) {
+    console.error("Download lightbox image failed:", error);
+    setStatus("error", error.message || "下载图片失败。", { timeoutMs: 2400 });
+  } finally {
+    if (elements.lightboxDl) {
+      elements.lightboxDl.disabled = previousDisabled;
+    }
+  }
 }
 
 function findJobImage(jobId, slot) {
@@ -3094,6 +3191,10 @@ function handleJobAction(actionButton) {
   }
   if (action === "add-source-reference") {
     addGalleryImageToSource(jobId, Number(actionButton.dataset.slot || 0));
+    return;
+  }
+  if (action === "download-image") {
+    void downloadGalleryImage(jobId, Number(actionButton.dataset.slot || 0), actionButton);
     return;
   }
   if (action === "delete-job") {

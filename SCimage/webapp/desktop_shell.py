@@ -10,6 +10,7 @@ from urllib.parse import urlunsplit
 from urllib.request import urlopen
 
 from config import HOST
+from desktop_bridge import DesktopBridge
 from runtime_paths import APP_NAME, RUNTIME_PATHS
 from server import create_server, prepare_runtime_environment, serve_server, shutdown_server
 
@@ -84,6 +85,7 @@ def stop_desktop_server(handle: DesktopServerHandle) -> None:
 def _launch_window(handle: DesktopServerHandle) -> None:
     assert webview is not None
 
+    bridge = DesktopBridge(base_url=handle.url)
     window = webview.create_window(
         APP_NAME,
         handle.url,
@@ -91,7 +93,9 @@ def _launch_window(handle: DesktopServerHandle) -> None:
         height=WINDOW_HEIGHT,
         min_size=WINDOW_MIN_SIZE,
         background_color=WINDOW_BACKGROUND_COLOR,
+        js_api=bridge,
     )
+    bridge.attach_window(window)
     window.events.closed += lambda: stop_desktop_server(handle)
 
     gui_name = "edgechromium" if platform.system() == "Windows" else None
