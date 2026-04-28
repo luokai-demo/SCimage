@@ -27,7 +27,7 @@ jobs:
             artifact_name: SCimage-windows
             release_asset: SCimage-windows.zip
           - label: macOS
-            runner: macos-13
+            runner: macos-latest
             target: macos
             artifact_name: SCimage-macos
             release_asset: SCimage-macos.zip
