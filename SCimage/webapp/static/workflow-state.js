@@ -6,12 +6,20 @@
     throw new Error("OutputOptions must be loaded before workflow-state.js");
   }
 
-  const FORM_STORAGE_KEY = "image_workbench_form_state_v1";
-  const PROMPT_BANK_KEY = "image_workbench_saved_prompts_v1";
-  const ACTIVE_WORKFLOW_KEY = "image_workbench_active_tab_v1";
+  const WORKFLOW_STATE_API_PATH = "/api/workspace-state";
+  const PERSIST_DEBOUNCE_MS = 160;
+  const RETRY_PERSIST_MS = 400;
 
   const WORKFLOW_IDS = ["generate", "image-to-image"];
   const DEFAULT_WORKFLOW = "generate";
+
+  let apiRequestFn = null;
+  let formStoreCache = createEmptyFormStore();
+  let promptBankStoreCache = createEmptyPromptBankStore();
+  let activeWorkflowCache = DEFAULT_WORKFLOW;
+  let persistTimer = null;
+  let persistInFlight = null;
+  let persistDirty = false;
 
   function isSupportedWorkflow(value) {
     return WORKFLOW_IDS.includes(String(value || "").trim().toLowerCase());
@@ -25,20 +33,6 @@
     return isSupportedWorkflow(fallback) ? fallback : "";
   }
 
-  function parseJsonStorage(storageKey, fallback) {
-    try {
-      const raw = localStorage.getItem(storageKey);
-      return raw ? JSON.parse(raw) : fallback;
-    } catch (error) {
-      console.error(`Failed to parse localStorage key ${storageKey}:`, error);
-      return fallback;
-    }
-  }
-
-  function writeJsonStorage(storageKey, value) {
-    localStorage.setItem(storageKey, JSON.stringify(value));
-  }
-
   function createId() {
     if (window.crypto && typeof window.crypto.randomUUID === "function") {
       return window.crypto.randomUUID();
@@ -46,7 +40,7 @@
     return `id-${Date.now()}-${Math.random().toString(16).slice(2)}`;
   }
 
-  function cloneDefaultForm(workflow) {
+  function cloneDefaultForm() {
     return {
       prompt: "",
       size: OUTPUT_OPTIONS.getDefaultSizeOption(),
@@ -98,38 +92,6 @@
     return store;
   }
 
-  function readFormStore() {
-    return normalizeFormStore(parseJsonStorage(FORM_STORAGE_KEY, null));
-  }
-
-  function writeFormStore(store) {
-    writeJsonStorage(FORM_STORAGE_KEY, normalizeFormStore(store));
-  }
-
-  function readForm(workflow) {
-    const normalizedWorkflow = normalizeWorkflow(workflow);
-    return readFormStore().workflows[normalizedWorkflow] || cloneDefaultForm(normalizedWorkflow);
-  }
-
-  function writeForm(workflow, form) {
-    const normalizedWorkflow = normalizeWorkflow(workflow);
-    const store = readFormStore();
-    store.workflows[normalizedWorkflow] = normalizeForm(form, normalizedWorkflow);
-    writeFormStore(store);
-  }
-
-  function resetForms() {
-    writeFormStore(createEmptyFormStore());
-  }
-
-  function readActiveWorkflow() {
-    return normalizeWorkflow(localStorage.getItem(ACTIVE_WORKFLOW_KEY), DEFAULT_WORKFLOW);
-  }
-
-  function writeActiveWorkflow(workflow) {
-    localStorage.setItem(ACTIVE_WORKFLOW_KEY, normalizeWorkflow(workflow));
-  }
-
   function normalizePromptEntry(entry, fallbackWorkflow) {
     if (!entry || typeof entry !== "object") {
       return null;
@@ -140,7 +102,7 @@
     }
     const workflow = normalizeWorkflow(entry.workflow, fallbackWorkflow);
     const outputProfileId = OUTPUT_OPTIONS.normalizeOutputProfileId(
-      entry.outputProfileId,
+      entry.outputProfileId ?? entry.output_profile_id,
       OUTPUT_OPTIONS.getActiveOutputProfileId()
     );
     const rawSize = entry.size;
@@ -157,8 +119,8 @@
       size: OUTPUT_OPTIONS.normalizeSizeOption(rawSize, OUTPUT_OPTIONS.getDefaultSizeOption(outputProfileId), nextQuality, outputProfileId),
       quality: nextQuality,
       count: Number.parseInt(entry.count, 10) || 1,
-      createdAt: entry.createdAt || entry.updatedAt || new Date().toISOString(),
-      updatedAt: entry.updatedAt || entry.createdAt || new Date().toISOString(),
+      createdAt: entry.createdAt || entry.created_at || entry.updatedAt || entry.updated_at || new Date().toISOString(),
+      updatedAt: entry.updatedAt || entry.updated_at || entry.createdAt || entry.created_at || new Date().toISOString(),
     };
   }
 
@@ -186,12 +148,174 @@
     return store;
   }
 
+  function createDefaultState() {
+    return {
+      active_workflow: DEFAULT_WORKFLOW,
+      forms: createEmptyFormStore().workflows,
+      prompt_bank: createEmptyPromptBankStore().workflows,
+    };
+  }
+
+  function normalizeServerState(payload) {
+    const state = createDefaultState();
+    if (!payload || typeof payload !== "object") {
+      return state;
+    }
+
+    state.active_workflow = normalizeWorkflow(payload.active_workflow, DEFAULT_WORKFLOW);
+
+    if (payload.forms && typeof payload.forms === "object") {
+      WORKFLOW_IDS.forEach((workflow) => {
+        state.forms[workflow] = normalizeForm(payload.forms[workflow], workflow);
+      });
+    }
+
+    if (payload.prompt_bank && typeof payload.prompt_bank === "object") {
+      WORKFLOW_IDS.forEach((workflow) => {
+        const entries = payload.prompt_bank[workflow];
+        state.prompt_bank[workflow] = Array.isArray(entries)
+          ? entries.map((entry) => normalizePromptEntry(entry, workflow)).filter(Boolean)
+          : [];
+      });
+    }
+
+    return state;
+  }
+
+  function snapshotState() {
+    const normalizedForms = normalizeFormStore(formStoreCache);
+    const normalizedPromptBank = normalizePromptBankStore(promptBankStoreCache);
+    return {
+      active_workflow: normalizeWorkflow(activeWorkflowCache, DEFAULT_WORKFLOW),
+      forms: normalizedForms.workflows,
+      prompt_bank: normalizedPromptBank.workflows,
+    };
+  }
+
+  function applyServerState(payload) {
+    const normalized = normalizeServerState(payload);
+    formStoreCache = { workflows: normalized.forms };
+    promptBankStoreCache = { workflows: normalized.prompt_bank };
+    activeWorkflowCache = normalized.active_workflow;
+    return snapshotState();
+  }
+
+  function markDirty() {
+    persistDirty = true;
+    if (!apiRequestFn) {
+      return;
+    }
+    window.clearTimeout(persistTimer);
+    persistTimer = window.setTimeout(() => {
+      void flush();
+    }, PERSIST_DEBOUNCE_MS);
+  }
+
+  async function flush() {
+    window.clearTimeout(persistTimer);
+    persistTimer = null;
+
+    if (!apiRequestFn || !persistDirty) {
+      return snapshotState();
+    }
+    if (persistInFlight) {
+      return persistInFlight;
+    }
+
+    persistDirty = false;
+    const payload = snapshotState();
+    persistInFlight = apiRequestFn(WORKFLOW_STATE_API_PATH, {
+      method: "PUT",
+      body: payload,
+      timeoutMs: 8000,
+    })
+      .then((serverState) => applyServerState(serverState))
+      .catch((error) => {
+        console.error("Failed to persist workflow state:", error);
+        persistDirty = true;
+        return snapshotState();
+      })
+      .finally(() => {
+        persistInFlight = null;
+        if (persistDirty && apiRequestFn) {
+          window.clearTimeout(persistTimer);
+          persistTimer = window.setTimeout(() => {
+            void flush();
+          }, RETRY_PERSIST_MS);
+        }
+      });
+
+    return persistInFlight;
+  }
+
+  async function init(options = {}) {
+    apiRequestFn = typeof options.apiRequest === "function" ? options.apiRequest : null;
+    persistDirty = false;
+    window.clearTimeout(persistTimer);
+    persistTimer = null;
+    formStoreCache = createEmptyFormStore();
+    promptBankStoreCache = createEmptyPromptBankStore();
+    activeWorkflowCache = DEFAULT_WORKFLOW;
+
+    if (!apiRequestFn) {
+      return snapshotState();
+    }
+
+    try {
+      const serverState = normalizeServerState(
+        await apiRequestFn(WORKFLOW_STATE_API_PATH, {
+          method: "GET",
+          timeoutMs: 5000,
+        })
+      );
+      return applyServerState(serverState);
+    } catch (error) {
+      console.error("Failed to hydrate workflow state:", error);
+      return snapshotState();
+    }
+  }
+
+  function readFormStore() {
+    return normalizeFormStore(formStoreCache);
+  }
+
+  function writeFormStore(store) {
+    formStoreCache = normalizeFormStore(store);
+    markDirty();
+  }
+
+  function readForm(workflow) {
+    const normalizedWorkflow = normalizeWorkflow(workflow);
+    return readFormStore().workflows[normalizedWorkflow] || cloneDefaultForm(normalizedWorkflow);
+  }
+
+  function writeForm(workflow, form) {
+    const normalizedWorkflow = normalizeWorkflow(workflow);
+    const store = readFormStore();
+    store.workflows[normalizedWorkflow] = normalizeForm(form, normalizedWorkflow);
+    writeFormStore(store);
+  }
+
+  function resetForms() {
+    writeFormStore(createEmptyFormStore());
+  }
+
+  function readActiveWorkflow() {
+    return normalizeWorkflow(activeWorkflowCache, DEFAULT_WORKFLOW);
+  }
+
+  function writeActiveWorkflow(workflow) {
+    activeWorkflowCache = normalizeWorkflow(workflow);
+    markDirty();
+  }
+
   function readPromptBankStore() {
-    return normalizePromptBankStore(parseJsonStorage(PROMPT_BANK_KEY, null));
+    return normalizePromptBankStore(promptBankStoreCache);
   }
 
   function writePromptBankStore(store) {
-    writeJsonStorage(PROMPT_BANK_KEY, normalizePromptBankStore(store));
+    promptBankStoreCache = normalizePromptBankStore(store);
+    markDirty();
   }
 
   function readPromptBank(workflow) {
@@ -253,6 +377,8 @@
     isSupportedWorkflow,
     normalizeWorkflow,
     normalizeForm,
+    init,
+    flush,
     readForm,
     writeForm,
     resetForms,

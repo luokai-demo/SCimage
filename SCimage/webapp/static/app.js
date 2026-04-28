@@ -3200,6 +3200,10 @@ function bindEvents() {
   });
 
   document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "hidden") {
+      void WORKFLOW_STATE.flush?.();
+      return;
+    }
     if (document.visibilityState === "visible") {
       refreshJobs({ silent: true });
     }
@@ -3207,6 +3211,10 @@ function bindEvents() {
 
   window.addEventListener("focus", () => {
     refreshJobs({ silent: true });
+  });
+
+  window.addEventListener("beforeunload", () => {
+    void WORKFLOW_STATE.flush?.();
   });
 }
 
@@ -3247,6 +3255,7 @@ function startTimers() {
 }
 
 async function init() {
+  await WORKFLOW_STATE.init({ apiRequest });
   populateOutputOptionSelects();
   bindEvents();
   hydrateStaticUi();

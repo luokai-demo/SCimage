@@ -1,7 +1,6 @@
 "use strict";
 
 (() => {
-  const PANEL_COLLAPSED_KEY = "image_workbench_panel_collapsed_v1";
   const WORKFLOWS = {
     generate: {
       label: "文生图",
@@ -59,7 +58,6 @@
   let workflowChangeHandler = null;
   let sourceFilesChangeHandler = null;
   let sourceFiles = [];
-  let sourceFilesTouchedBeforeHydration = false;
   let isPanelCollapsed = false;
   let workflowAvailability = {
     generate: true,
@@ -102,11 +100,6 @@
 
   function setPanelCollapsed(nextValue) {
     isPanelCollapsed = Boolean(nextValue);
-    try {
-      localStorage.setItem(PANEL_COLLAPSED_KEY, isPanelCollapsed ? "1" : "0");
-    } catch (error) {
-      console.warn("Failed to persist panel state:", error);
-    }
     syncPanelToggleState();
   }
 
@@ -117,23 +110,9 @@
     return [file.name, file.size, file.lastModified].join("::");
   }
 
-  async function persistSourceFiles() {
-    if (!window.SourceImageStore?.saveFiles) {
-      return;
-    }
-    try {
-      await window.SourceImageStore.saveFiles(sourceFiles);
-    } catch (error) {
-      console.warn("Failed to persist source images:", error);
-    }
-  }
-
-  function syncSourceFiles(options = {}) {
+  function syncSourceFiles() {
     renderSourcePreview();
     emitSourceFilesChange();
-    if (options.persist !== false) {
-      persistSourceFiles();
-    }
   }
 
   function renderSourcePreview() {
@@ -166,7 +145,6 @@
         event.stopPropagation();
         const targetKey = buildSourceFileKey(file);
         sourceFiles = sourceFiles.filter((item) => buildSourceFileKey(item) !== targetKey);
-        sourceFilesTouchedBeforeHydration = true;
         syncSourceFiles();
       });
 
@@ -192,7 +170,6 @@
       }
     });
     if (addedCount > 0) {
-      sourceFilesTouchedBeforeHydration = true;
       syncSourceFiles();
     }
     return addedCount;
@@ -206,30 +183,7 @@
 
   function clearSourceFiles() {
     sourceFiles = [];
-    sourceFilesTouchedBeforeHydration = true;
-    if (window.SourceImageStore?.clearFiles) {
-      window.SourceImageStore.clearFiles().catch((error) => {
-        console.warn("Failed to clear persisted source images:", error);
-      });
-    }
-    syncSourceFiles({ persist: false });
-  }
-
-  async function hydratePersistedSourceFiles() {
-    if (!window.SourceImageStore?.loadFiles) {
-      syncSourceFiles({ persist: false });
-      return;
-    }
-
-    try {
-      const persistedFiles = await window.SourceImageStore.loadFiles();
-      if (!sourceFilesTouchedBeforeHydration) {
-        sourceFiles = persistedFiles;
-      }
-    } catch (error) {
-      console.warn("Failed to load persisted source images:", error);
-    }
-    syncSourceFiles({ persist: false });
+    syncSourceFiles();
   }
 
   async function addSourceImageFromUrl(options) {
@@ -436,13 +390,7 @@
       initialized = true;
     }
 
-    try {
-      isPanelCollapsed = localStorage.getItem(PANEL_COLLAPSED_KEY) === "1";
-    } catch (error) {
-      console.warn("Failed to read panel state:", error);
-      isPanelCollapsed = false;
-    }
-
+    isPanelCollapsed = false;
     const nextWorkflow = getWorkflowConfig(options.initialWorkflow) ? options.initialWorkflow : "generate";
     syncWorkflowAvailabilityUi();
     setActiveWorkflow(nextWorkflow, { emit: false });
@@ -450,7 +398,6 @@
     syncPanelToggleState();
     renderSourcePreview();
     emitSourceFilesChange();
-    hydratePersistedSourceFiles();
   }
 
   window.WorkspacePanel = {

@@ -42,12 +42,14 @@ from provider_profiles import ProviderProfileStore
 from request_parsing import CreateJobRequest, parse_create_job_request
 from runtime_paths import ensure_runtime_data_dirs
 from source_images import SourceImageFile, save_source_images
+from workspace_state_store import WorkspaceStateStore
 from workflows import requires_source_images, validate_workflow
 
 
 STORE = JobStore()
 RUNNERS = JobRegistry()
 PROVIDER_PROFILES = ProviderProfileStore()
+WORKSPACE_STATE = WorkspaceStateStore()
 TERMINAL_JOB_STATUSES = {"completed", "partial", "failed", "canceled"}
 
 
@@ -254,6 +256,9 @@ class ImageWorkbenchHandler(BaseHTTPRequestHandler):
 
     def do_PUT(self) -> None:
         parsed = urlparse(self.path)
+        if parsed.path == "/api/workspace-state":
+            self._handle_replace_workspace_state()
+            return
         if not parsed.path.startswith("/api/provider-profiles/"):
             self.send_error(HTTPStatus.NOT_FOUND, "Unknown API path.")
             return
@@ -309,6 +314,9 @@ class ImageWorkbenchHandler(BaseHTTPRequestHandler):
             return
         if parsed.path == "/api/provider-profiles":
             self._send_json(PROVIDER_PROFILES.get_state(), HTTPStatus.OK)
+            return
+        if parsed.path == "/api/workspace-state":
+            self._send_json(WORKSPACE_STATE.get_state(), HTTPStatus.OK)
             return
         if parsed.path.startswith("/generated/"):
             relative = parsed.path.removeprefix("/generated/")
@@ -679,6 +687,12 @@ class ImageWorkbenchHandler(BaseHTTPRequestHandler):
             },
             HTTPStatus.OK,
         )
+
+    def _handle_replace_workspace_state(self) -> None:
+        payload = self._read_json_body()
+        if payload is None:
+            return
+        self._send_json(WORKSPACE_STATE.replace_state(payload), HTTPStatus.OK)
 
     def _read_json_body(self) -> dict | None:
         content_length = int(self.headers.get("Content-Length", "0"))

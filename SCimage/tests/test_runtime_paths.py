@@ -28,6 +28,7 @@ class RuntimePathsTests(unittest.TestCase):
         self.assertEqual(paths.data_root, PROJECT_ROOT.resolve())
         self.assertEqual(paths.generated_dir, PROJECT_ROOT.resolve() / "generated")
         self.assertEqual(paths.local_state_dir, PROJECT_ROOT.resolve() / ".local")
+        self.assertEqual(paths.workspace_state_path, PROJECT_ROOT.resolve() / ".local/workspace-state.json")
 
     def test_windows_frozen_prefers_d_drive(self) -> None:
         paths = resolve_runtime_paths(
@@ -41,6 +42,7 @@ class RuntimePathsTests(unittest.TestCase):
 
         self.assertEqual(paths.data_root, Path("D:/") / APP_NAME)
         self.assertEqual(paths.generated_dir, Path("D:/") / APP_NAME / "generated")
+        self.assertEqual(paths.workspace_state_path, Path("D:/") / APP_NAME / ".local/workspace-state.json")
 
     def test_windows_frozen_without_d_drive_falls_back_to_executable_sibling(self) -> None:
         executable_path = "/tmp/SCimage.exe"
@@ -54,6 +56,10 @@ class RuntimePathsTests(unittest.TestCase):
         )
 
         self.assertEqual(paths.data_root, Path(executable_path).resolve().parent / APP_NAME)
+        self.assertEqual(
+            paths.workspace_state_path,
+            Path(executable_path).resolve().parent / APP_NAME / ".local/workspace-state.json",
+        )
 
     def test_macos_frozen_uses_documents_directory(self) -> None:
         paths = resolve_runtime_paths(
@@ -67,6 +73,7 @@ class RuntimePathsTests(unittest.TestCase):
 
         self.assertEqual(paths.data_root, Path("/Users/tester/Documents") / APP_NAME)
         self.assertEqual(paths.provider_profiles_path, Path("/Users/tester/Documents") / APP_NAME / ".local/provider-profiles.json")
+        self.assertEqual(paths.workspace_state_path, Path("/Users/tester/Documents") / APP_NAME / ".local/workspace-state.json")
 
     def test_ensure_runtime_data_dirs_creates_expected_tree(self) -> None:
         with TemporaryDirectory() as temp_dir:
@@ -85,6 +92,7 @@ class RuntimePathsTests(unittest.TestCase):
             self.assertTrue(paths.data_root.exists())
             self.assertTrue(paths.generated_dir.exists())
             self.assertTrue(paths.local_state_dir.exists())
+            self.assertEqual(paths.workspace_state_path.parent, paths.local_state_dir)
 
 
 if __name__ == "__main__":

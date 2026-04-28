@@ -23,6 +23,7 @@ class RuntimePaths:
     local_state_dir: Path
     provider_profiles_path: Path
     job_records_path: Path
+    workspace_state_path: Path
 
 
 def resolve_runtime_paths(
@@ -72,6 +73,7 @@ def resolve_runtime_paths(
         local_state_dir=local_state_dir,
         provider_profiles_path=local_state_dir / "provider-profiles.json",
         job_records_path=local_state_dir / "job-records.json",
+        workspace_state_path=local_state_dir / "workspace-state.json",
     )
 
 

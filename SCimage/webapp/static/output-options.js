@@ -24,8 +24,9 @@
   };
   const PROFILE_DEFS = {
     [OUTPUT_PROFILE_ASPECT_V1]: {
-      defaultQuality: "low",
-      defaultSize: "9:16",
+      defaultQuality: AUTO_OPTION,
+      resolvedDefaultQuality: "low",
+      defaultSize: AUTO_OPTION,
       qualityOptions: [
         { value: AUTO_OPTION, label: "自动" },
         { value: "low", label: "标准 1K" },
@@ -53,8 +54,9 @@
       ],
     },
     [OUTPUT_PROFILE_PIXEL_V1]: {
-      defaultQuality: "standard",
-      defaultSize: "720x1280",
+      defaultQuality: AUTO_OPTION,
+      resolvedDefaultQuality: "standard",
+      defaultSize: AUTO_OPTION,
       qualityOptions: [
         { value: AUTO_OPTION, label: "自动" },
         { value: "standard", label: "标准 1K" },
@@ -181,6 +183,10 @@
     return getProfile(outputProfileId).defaultQuality;
   }
 
+  function getResolvedDefaultQuality(outputProfileId = activeOutputProfileId) {
+    return getProfile(outputProfileId).resolvedDefaultQuality;
+  }
+
   function getDefaultSizeOption(outputProfileId = activeOutputProfileId) {
     return getProfile(outputProfileId).defaultSize;
   }
@@ -259,7 +265,7 @@
 
   function getSizeLookupQuality(quality, outputProfileId = activeOutputProfileId) {
     const normalizedQuality = normalizeQuality(quality, null, outputProfileId);
-    return normalizedQuality === AUTO_OPTION ? getDefaultQuality(outputProfileId) : normalizedQuality;
+    return normalizedQuality === AUTO_OPTION ? getResolvedDefaultQuality(outputProfileId) : normalizedQuality;
   }
 
   function defaultSizeForQuality(quality, outputProfileId = activeOutputProfileId) {
@@ -444,6 +450,7 @@
     normalizeOutputProfileId,
     inferOutputProfileId,
     getDefaultQuality,
+    getResolvedDefaultQuality,
     getDefaultSizeOption,
     getQualityOptions,
     getSizeOptions,

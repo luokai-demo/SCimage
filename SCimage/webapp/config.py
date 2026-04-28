@@ -15,4 +15,5 @@ GENERATED_DIR = RUNTIME_PATHS.generated_dir
 LOCAL_STATE_DIR = RUNTIME_PATHS.local_state_dir
 PROVIDER_PROFILES_PATH = RUNTIME_PATHS.provider_profiles_path
 JOB_RECORDS_PATH = RUNTIME_PATHS.job_records_path
+WORKSPACE_STATE_PATH = RUNTIME_PATHS.workspace_state_path
 DEFAULT_PROVIDER_MODEL = os.getenv("IMAGE_API_MODEL", "gpt-image-2")
