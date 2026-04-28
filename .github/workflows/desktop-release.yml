@@ -92,11 +92,28 @@ jobs:
           tag_name: ${{ github.ref_name }}
           name: ${{ github.ref_name }}
           body: |
-            自动发布完成。
+            ## 项目说明
 
-            本次 Release 包含：
+            `SCimage` 是一个本地运行的图像生成工作台，支持网页开发态和桌面便携包发布。
+
+            详细说明可查看仓库文档：
+
+            - `SCimage/README.md`
+            - `SCimage/docs/项目说明.md`
+            - `SCimage/docs/发布说明.md`
+
+            ## 本次发布
+
+            本次版本由 GitHub Actions 自动构建并发布。
+
+            ## 发布内容
+
             - Windows 桌面包：`SCimage-windows.zip`
             - macOS 桌面包：`SCimage-macos.zip`
+
+            ## 补充说明
+
+            下方会附带 GitHub 自动生成的提交变更列表，适合快速查看代码层面的差异。
           generate_release_notes: true
           files: |
             release-assets/SCimage-windows/SCimage-windows.zip

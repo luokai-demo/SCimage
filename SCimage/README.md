@@ -2,6 +2,14 @@
 
 一个本地运行的通用图像生成工作台，同时支持网页开发态和桌面便携包。
 
+## 项目说明
+
+如果你想先快速了解这个项目，建议按下面顺序看：
+
+- [项目说明](./docs/项目说明.md)
+- [发布说明](./docs/发布说明.md)
+- [安全说明](./SECURITY.md)
+
 ## 开发态启动
 
 在项目根目录运行：
@@ -26,6 +34,7 @@
 generated/
 .local/provider-profiles.json
 .local/job-records.json
+.local/workspace-state.json
 ```
 
 ## 桌面打包
@@ -85,6 +94,7 @@ generated/
 generated/
 .local/provider-profiles.json
 .local/job-records.json
+.local/workspace-state.json
 ```
 
 ## 提供方配置
@@ -98,8 +108,16 @@ generated/
 
 这些配置属于本地私有状态，不应该提交到版本库。
 
+## 发布说明
+
+每次 release 的重点更新，建议同时看两处：
+
+- GitHub Release 页面：看桌面包产物和当次摘要
+- [发布说明](./docs/发布说明.md)：看持续维护的中文更新记录
+
 ## 说明
 
 - 桌面版会直接打开独立窗口，不再依赖手动打开浏览器
 - Windows 桌面版依赖系统 WebView2 Runtime；如果缺失，启动时会直接提示
 - 图像生成链路已改成服务内直接调用 Python 业务函数，不再依赖源码脚本路径
+- 工作区状态当前通过后端本地文件持久化，不依赖浏览器本地存储
