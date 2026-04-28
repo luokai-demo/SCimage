@@ -23,6 +23,12 @@ TARGET_TO_SYSTEM = {
 }
 
 
+def configure_console_encoding() -> None:
+    for stream in (sys.stdout, sys.stderr):
+        if hasattr(stream, "reconfigure"):
+            stream.reconfigure(encoding="utf-8", errors="replace")
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Build the SCimage desktop bundle.")
     parser.add_argument("--target", choices=(WINDOWS_TARGET, MACOS_TARGET), required=True)
@@ -32,6 +38,7 @@ def parse_args() -> argparse.Namespace:
 
 
 def main() -> int:
+    configure_console_encoding()
     args = parse_args()
     if args.internal_generate_assets:
         if not args.assets_dir:
