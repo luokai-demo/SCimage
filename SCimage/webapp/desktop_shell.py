@@ -9,6 +9,7 @@ from urllib.error import URLError
 from urllib.parse import urlunsplit
 from urllib.request import urlopen
 
+from brand_assets import resolve_desktop_window_icon_path
 from config import HOST
 from desktop_bridge import DesktopBridge
 from runtime_paths import APP_NAME, RUNTIME_PATHS
@@ -98,11 +99,16 @@ def _launch_window(handle: DesktopServerHandle) -> None:
     bridge.attach_window(window)
     window.events.closed += lambda: stop_desktop_server(handle)
 
+    start_kwargs = {"debug": False}
     gui_name = "edgechromium" if platform.system() == "Windows" else None
     if gui_name:
-        webview.start(debug=False, gui=gui_name)
-    else:
-        webview.start(debug=False)
+        start_kwargs["gui"] = gui_name
+
+    icon_path = resolve_desktop_window_icon_path()
+    if icon_path is not None:
+        start_kwargs["icon"] = str(icon_path)
+
+    webview.start(**start_kwargs)
 
 
 def _require_desktop_dependencies() -> None:
