@@ -256,7 +256,6 @@ def _request_image_to_image(
             config=openai_sdk_config,
             status_callback=status_callback,
             cancel_event=cancel_event,
-            runner=runner,
         )
     if compat_profile.image_to_image_transport == IMAGE_TO_IMAGE_TRANSPORT_IMAGES_EDITS:
         return request_edit(
@@ -321,7 +320,6 @@ def _request_text_to_image(
             config=openai_sdk_config,
             status_callback=status_callback,
             cancel_event=cancel_event,
-            runner=runner,
         )
     if compat_profile.text_to_image_transport == TEXT_TO_IMAGE_TRANSPORT_IMAGES_GENERATIONS:
         return request_generation(

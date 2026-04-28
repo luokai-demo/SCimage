@@ -1,13 +1,10 @@
 from __future__ import annotations
 
 from contextlib import ExitStack
-from dataclasses import asdict, dataclass
-import multiprocessing as mp
+from dataclasses import dataclass
 from pathlib import Path
 from threading import Event
-from typing import TYPE_CHECKING, Callable, Optional
-
-from job_control import resolve_process_group_id, terminate_process_tree
+from typing import Callable, Optional
 
 try:
     from openai import OpenAI
@@ -16,13 +13,9 @@ except ImportError:  # pragma: no cover - handled at runtime
 
 from provider_model_catalog import normalize_openai_compatible_base_url
 
-if TYPE_CHECKING:
-    from job_control import JobRunner
-
 
 StatusCallback = Optional[Callable[[str], None]]
 CancelEvent = Optional[Event]
-SDK_PROCESS_POLL_INTERVAL_SECONDS = 0.2
 
 
 @dataclass(frozen=True)
@@ -56,6 +49,11 @@ def _require_openai_client() -> None:
 def _report_status(callback: StatusCallback, message: str) -> None:
     if callback:
         callback(message)
+
+
+def _raise_if_cancelled(cancel_event: CancelEvent) -> None:
+    if cancel_event and cancel_event.is_set():
+        raise RuntimeError("图像任务已取消。")
 
 
 def _build_client(*, base_url: str, api_key: str, config: OpenAISDKConfig) -> OpenAI:
@@ -101,23 +99,6 @@ def _execute_openai_sdk_request(request: OpenAISDKRequest, config: OpenAISDKConf
         client.close()
 
 
-def _sdk_worker(
-    child_conn,
-    request_payload: dict,
-    config_payload: dict,
-) -> None:
-    try:
-        result = _execute_openai_sdk_request(
-            OpenAISDKRequest(**request_payload),
-            OpenAISDKConfig(**config_payload),
-        )
-        child_conn.send({"ok": result})
-    except Exception as exc:  # pragma: no cover - exercised via parent integration
-        child_conn.send({"error": str(exc)})
-    finally:
-        child_conn.close()
-
-
 def _run_sdk_request(
     *,
     request: OpenAISDKRequest,
@@ -125,55 +106,12 @@ def _run_sdk_request(
     status_message: str,
     status_callback: StatusCallback = None,
     cancel_event: CancelEvent = None,
-    runner: "JobRunner" | None = None,
 ) -> dict:
     _report_status(status_callback, status_message)
-
-    context = mp.get_context("spawn")
-    parent_conn, child_conn = context.Pipe(duplex=False)
-    process = context.Process(
-        target=_sdk_worker,
-        args=(child_conn, asdict(request), asdict(config)),
-        daemon=True,
-    )
-    process.start()
-    child_conn.close()
-
-    process_group_id = resolve_process_group_id(process.pid)
-    if runner:
-        runner.register_process(process.pid, process_group_id)
-
-    try:
-        while True:
-            if cancel_event and cancel_event.is_set():
-                terminate_process_tree(process.pid, process_group_id)
-                process.join(timeout=1)
-                raise RuntimeError("图像任务已取消。")
-
-            if parent_conn.poll(SDK_PROCESS_POLL_INTERVAL_SECONDS):
-                message = parent_conn.recv()
-                if isinstance(message, dict) and "ok" in message:
-                    process.join(timeout=1)
-                    return message["ok"]
-                if isinstance(message, dict) and message.get("error"):
-                    raise RuntimeError(str(message["error"]))
-                raise RuntimeError("OpenAI SDK 子进程返回了未知结果。")
-
-            if process.exitcode is not None:
-                if process.exitcode == 0 and parent_conn.poll():
-                    message = parent_conn.recv()
-                    if isinstance(message, dict) and "ok" in message:
-                        return message["ok"]
-                    if isinstance(message, dict) and message.get("error"):
-                        raise RuntimeError(str(message["error"]))
-                raise RuntimeError("OpenAI SDK 子进程已退出，但没有返回结果。")
-    finally:
-        if runner:
-            runner.unregister_process(process.pid, process_group_id)
-        parent_conn.close()
-        if process.is_alive():
-            terminate_process_tree(process.pid, process_group_id)
-            process.join(timeout=1)
+    _raise_if_cancelled(cancel_event)
+    result = _execute_openai_sdk_request(request, config)
+    _raise_if_cancelled(cancel_event)
+    return result
 
 
 def request_openai_sdk_generation(
@@ -188,7 +126,6 @@ def request_openai_sdk_generation(
     config: OpenAISDKConfig,
     status_callback: StatusCallback = None,
     cancel_event: CancelEvent = None,
-    runner: "JobRunner" | None = None,
 ) -> dict:
     return _run_sdk_request(
         request=OpenAISDKRequest(
@@ -205,7 +142,6 @@ def request_openai_sdk_generation(
         status_message="正在通过 OpenAI SDK 图片接口请求文生图。",
         status_callback=status_callback,
         cancel_event=cancel_event,
-        runner=runner,
     )
 
 
@@ -222,7 +158,6 @@ def request_openai_sdk_edit(
     config: OpenAISDKConfig,
     status_callback: StatusCallback = None,
     cancel_event: CancelEvent = None,
-    runner: "JobRunner" | None = None,
 ) -> dict:
     return _run_sdk_request(
         request=OpenAISDKRequest(
@@ -240,5 +175,4 @@ def request_openai_sdk_edit(
         status_message="正在通过 OpenAI SDK 图片接口请求图生图。",
         status_callback=status_callback,
         cancel_event=cancel_event,
-        runner=runner,
     )

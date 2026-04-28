@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import base64
 from pathlib import Path
+from threading import Event
 import sys
 from tempfile import TemporaryDirectory
 import unittest
@@ -18,7 +19,7 @@ for candidate in (WEBAPP_DIR, SCRIPTS_DIR):
         sys.path.insert(0, candidate_text)
 
 from gateway_client import GatewayConfig, GatewayFatalError, _is_retryable_message, save_image_item
-from openai_sdk_gateway import normalize_openai_sdk_base_url
+from openai_sdk_gateway import OpenAISDKConfig, normalize_openai_sdk_base_url, request_openai_sdk_generation
 from output_options import (
     OUTPUT_PROFILE_ASPECT_V1,
     OUTPUT_PROFILE_PIXEL_V1,
@@ -155,6 +156,45 @@ class OpenAISDKGatewayTests(unittest.TestCase):
             normalize_openai_sdk_base_url("https://example.com/v1"),
             "https://example.com/v1",
         )
+
+    def test_request_generation_runs_in_process_for_desktop_compatibility(self) -> None:
+        with patch(
+            "openai_image_sdk._execute_openai_sdk_request",
+            return_value={"data": [{"b64_json": "ZmFrZQ=="}]},
+        ) as mocked_execute:
+            payload = request_openai_sdk_generation(
+                base_url="https://example.com",
+                api_key="test-key",
+                model="gpt-image-1",
+                prompt="apple",
+                count=1,
+                quality="low",
+                size="1024x1024",
+                config=OpenAISDKConfig(),
+            )
+
+        self.assertEqual(payload, {"data": [{"b64_json": "ZmFrZQ=="}]})
+        mocked_execute.assert_called_once()
+
+    def test_request_generation_honors_cancel_before_request(self) -> None:
+        cancel_event = Event()
+        cancel_event.set()
+
+        with patch("openai_image_sdk._execute_openai_sdk_request") as mocked_execute:
+            with self.assertRaisesRegex(RuntimeError, "图像任务已取消"):
+                request_openai_sdk_generation(
+                    base_url="https://example.com",
+                    api_key="test-key",
+                    model="gpt-image-1",
+                    prompt="apple",
+                    count=1,
+                    quality="low",
+                    size="1024x1024",
+                    config=OpenAISDKConfig(),
+                    cancel_event=cancel_event,
+                )
+
+        mocked_execute.assert_not_called()
 
 
 class GatewayPayloadFallbackTests(unittest.TestCase):
