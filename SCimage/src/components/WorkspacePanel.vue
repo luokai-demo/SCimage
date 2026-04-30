@@ -145,7 +145,13 @@
                     <div class="workspace-group-title">提示词</div>
                     <div id="promptSectionHint" class="workspace-group-hint">直接描述你想生成的画面、风格和细节。</div>
                   </div>
-                  <button type="button" id="togglePromptBankBtn" class="chip-btn" :aria-expanded="promptDialog.open.value" @click="promptDialog.setOpen(true)">词库</button>
+                  <button
+                    type="button"
+                    id="togglePromptBankBtn"
+                    class="chip-btn"
+                    :aria-expanded="promptDialog.open.value"
+                    @click="promptDialog.setOpen(!promptDialog.open.value)"
+                  >词库</button>
                 </div>
                 <textarea v-model="runtime.currentWorkflowForm.value.prompt" id="prompt" placeholder="一只在星空下奔跑的白色柴犬，水彩风格"></textarea>
               </section>
