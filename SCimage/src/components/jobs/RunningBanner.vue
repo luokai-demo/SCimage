@@ -26,8 +26,8 @@
             <div class="running-job-prompt">{{ job.prompt || "未提供提示词" }}</div>
           </div>
           <div class="running-job-actions">
-            <button type="button" data-action="copy-job-prompt" :data-job-id="job.id">复制</button>
-            <button type="button" data-action="cancel-job" :data-job-id="job.id">中断</button>
+            <button type="button" @click="copyPrompt(job)">复制</button>
+            <button type="button" @click="runtime.jobAction(String(job.id || ''), 'cancel')">中断</button>
           </div>
         </div>
         <div class="running-job-progress-block">
@@ -57,6 +57,7 @@
 
 <script setup lang="ts">
 import { computed } from "vue";
+import { useScimageRuntime } from "../../composables/useScimageRuntime";
 import type { JobSummary } from "../../stores/jobs";
 import { useJobStore } from "../../stores/jobs";
 import {
@@ -70,6 +71,7 @@ import {
 } from "./job-formatters";
 
 const jobStore = useJobStore();
+const runtime = useScimageRuntime();
 const runningJobs = computed(() => jobStore.runningJobs);
 const subtitle = computed(() => {
   if (!runningJobs.value.length) {
@@ -90,5 +92,9 @@ function remainingCount(job: JobSummary) {
 function progressWidth(job: JobSummary) {
   const progress = getJobProgressPercent(job);
   return progress > 0 ? `${Math.max(progress, 6)}%` : "0%";
+}
+
+async function copyPrompt(job: JobSummary) {
+  await navigator.clipboard?.writeText(String(job.prompt || ""));
 }
 </script>

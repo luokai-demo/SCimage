@@ -12,16 +12,17 @@
 import { onMounted } from "vue";
 import { TooltipProvider } from "reka-ui";
 import { useUiStore } from "../stores/ui";
+import { useScimageRuntime } from "../composables/useScimageRuntime";
 import WorkspacePanel from "./WorkspacePanel.vue";
 import GalleryPanel from "./GalleryPanel.vue";
 import FeedbackOverlays from "./FeedbackOverlays.vue";
 
 const uiStore = useUiStore();
+const runtime = useScimageRuntime();
 
-onMounted(async () => {
+onMounted(() => {
   uiStore.markMounted();
-  const { initScimageController } = await import("../controllers/scimage-controller");
-  await initScimageController();
+  void runtime.initRuntime();
 });
 </script>
 
@@ -522,11 +523,9 @@ body {
   padding: 4px 4px 24px;
 }
 .gallery-grid {
-  display: grid;
-  grid-template-columns: repeat(var(--gallery-columns, 4), minmax(0, 1fr));
-  grid-auto-rows: var(--gallery-grid-row-height, 8px);
-  gap: var(--gallery-grid-gap, 10px);
-  align-items: start;
+  display: block;
+  column-count: var(--gallery-columns, 4);
+  column-gap: var(--gallery-grid-gap, 10px);
 }
 .gallery-grid.grouped-by-task {
   display: block;
@@ -592,10 +591,9 @@ body {
 
 .gallery-item {
   container: gallery / inline-size;
-  display: block;
+  display: inline-block;
   width: 100%;
-  min-height: 0;
-  margin: 0;
+  margin: 0 0 var(--gallery-grid-gap, 10px);
   position: relative;
   border-radius: 10px;
   overflow: hidden;
@@ -603,6 +601,7 @@ body {
   cursor: pointer;
   transition: background var(--transition), box-shadow 180ms ease;
   background: var(--gallery-placeholder-color, rgba(255,255,255,0.02));
+  break-inside: avoid;
   box-shadow:
     0 1px 0 rgba(255,255,255,0.04) inset,
     0 14px 30px rgba(0,0,0,0.18);
@@ -662,15 +661,19 @@ body {
 }
 .gallery-item.is-loaded::before,
 .gallery-item.is-error::before { opacity: 0; }
+.gallery-item img,
 .gallery-item img[data-src] {
   display: block;
   width: 100%;
   position: relative;
   z-index: 1;
-  opacity: 0;
+  opacity: 1;
   background: rgba(255,255,255,0.02);
   object-fit: cover;
   will-change: opacity;
+}
+.gallery-item img:not([data-src]) {
+  height: auto;
 }
 .gallery-item.has-masonry-profile img[data-src] {
   height: 100%;

@@ -27,15 +27,15 @@
           <div v-if="item.optionSummary" class="prompt-meta">{{ item.optionSummary }}</div>
           <div v-if="item.savedAtText" class="prompt-meta">{{ item.savedAtText }}</div>
           <div class="prompt-bank-actions">
-            <button type="button" data-prompt-action="apply" :data-prompt-id="item.id">
+            <button type="button" @click="runtime.applyPrompt(item)">
               <CornerDownLeft aria-hidden="true" />
               <span>套用</span>
             </button>
-            <button type="button" data-prompt-action="copy" :data-prompt-id="item.id">
+            <button type="button" @click="copyPrompt(item.prompt)">
               <Copy aria-hidden="true" />
               <span>复制</span>
             </button>
-            <button type="button" class="gallery-del-btn" data-prompt-action="delete" :data-prompt-id="item.id">
+            <button type="button" class="gallery-del-btn" @click="runtime.deletePrompt(item.id)">
               <Trash2 aria-hidden="true" />
               <span>删除</span>
             </button>
@@ -51,7 +51,13 @@
 
 <script setup lang="ts">
 import { Copy, CornerDownLeft, Search, Trash2 } from "lucide-vue-next";
+import { useScimageRuntime } from "../composables/useScimageRuntime";
 import { usePromptStore } from "../stores/prompts";
 
 const promptStore = usePromptStore();
+const runtime = useScimageRuntime();
+
+async function copyPrompt(prompt: string) {
+  await navigator.clipboard?.writeText(prompt);
+}
 </script>

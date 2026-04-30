@@ -1,54 +1,79 @@
 <template>
 <!-- Right: Gallery -->
   <div class="gallery-area">
-    <div class="gallery-page-drag-zone gallery-page-drag-zone-left" data-selection-drag-zone aria-hidden="true"></div>
+    <div class="gallery-page-drag-zone gallery-page-drag-zone-left" data-selection-drag-zone aria-hidden="true" @pointerdown="startEdgeSelection"></div>
     <div class="gallery-header" id="galleryHeader">
-      <div class="gallery-page-drag-zone gallery-page-drag-zone-header" data-selection-drag-zone aria-hidden="true"></div>
+      <div class="gallery-page-drag-zone gallery-page-drag-zone-header" data-selection-drag-zone aria-hidden="true" @pointerdown="startEdgeSelection"></div>
       <div class="gallery-header-normal" id="galleryHeaderNormal">
         <div class="gallery-header-left">
-          <span class="gallery-count" id="galleryCount"></span>
-          <span id="fsDirStatus" style="display:none; color:var(--text-tertiary); font-size:11px;"></span>
+          <span class="gallery-count" id="galleryCount">{{ galleryCountText }}</span>
+          <span v-if="jobStore.runningCount" id="fsDirStatus" style="color:var(--text-tertiary); font-size:11px;">{{ jobStore.runningCount }} 个任务进行中</span>
         </div>
         <div class="gallery-actions-right">
           <div class="gallery-filter">
-            <button class="active" data-gallery-filter="all">全部</button>
-            <button data-gallery-filter="tasks">任务</button>
-            <button data-gallery-filter="prompts">提示词</button>
+            <button :class="{ active: galleryStore.filter === 'all' }" data-gallery-filter="all" @click="runtime.setGalleryFilter('all')">全部</button>
+            <button :class="{ active: galleryStore.filter === 'tasks' }" data-gallery-filter="tasks" @click="runtime.setGalleryFilter('tasks')">任务</button>
+            <button :class="{ active: galleryStore.filter === 'prompts' }" data-gallery-filter="prompts" @click="runtime.setGalleryFilter('prompts')">提示词</button>
           </div>
-          <button class="gallery-sort-btn" id="sortBtn" title="排序">新→旧 ↓</button>
+          <button class="gallery-sort-btn" id="sortBtn" title="排序" @click="runtime.toggleSort">{{ galleryStore.sortAsc ? "旧→新 ↑" : "新→旧 ↓" }}</button>
           <div class="settings-wrap">
-            <IconButton id="settingsToggleBtn" class-name="settings-toggle" label="设置">
+            <IconButton id="settingsToggleBtn" class-name="settings-toggle" label="设置" @click="settingsOpen = !settingsOpen">
               <Settings aria-hidden="true" />
             </IconButton>
-            <div class="settings-panel" id="settingsPanel">
-              <span class="settings-info" id="storageMode">当前配置：载入中</span>
-              <span class="settings-info" id="storageUsage">同步：自动刷新</span>
-              <button id="refreshGalleryBtn">刷新</button>
-              <button id="cleanupGeneratedBtn">清理空文件夹</button>
-              <button id="clearSavedPromptsBtn">清空提示词</button>
+            <div v-show="settingsOpen" class="settings-panel open" id="settingsPanel">
+              <span class="settings-info" id="storageMode">当前配置：{{ providerStore.activeProfile?.name || "未设置" }}</span>
+              <span class="settings-info" id="storageUsage">{{ syncText }}</span>
+              <button id="refreshGalleryBtn" @click="runtime.refreshJobs({ manual: true })">刷新</button>
+              <button id="cleanupGeneratedBtn" @click="runtime.cleanupEmptyGeneratedDirs">清理空文件夹</button>
+              <button id="clearSavedPromptsBtn" @click="runtime.clearPrompts">清空提示词</button>
               <hr>
-              <button class="danger" id="resetFormStateBtn">重置表单</button>
+              <button class="danger" id="resetFormStateBtn" @click="resetForm">重置表单</button>
             </div>
           </div>
         </div>
       </div>
-      <div class="gallery-header-batch" id="galleryHeaderBatch" hidden>
-        <div id="batchToolbar" class="batch-toolbar" hidden>
-          <span id="batchCount">已选择 0 张</span>
+      <div class="gallery-header-batch" id="galleryHeaderBatch" :hidden="!galleryStore.selectedCount">
+        <div id="batchToolbar" class="batch-toolbar" :hidden="!galleryStore.selectedCount">
+          <span id="batchCount">已选择 {{ galleryStore.selectedCount }} 张</span>
           <span class="batch-hint">按住图库边缘空白拖拽可框选，单击边缘空白取消选择</span>
-          <button id="batchDownloadBtn" type="button">下载</button>
-          <button id="batchDeleteBtn" class="danger" type="button">删除</button>
-          <button id="batchClearBtn" type="button">取消</button>
+          <button id="batchDownloadBtn" type="button" @click="runtime.batchDownload">下载</button>
+          <button id="batchDeleteBtn" class="danger" type="button" @click="runtime.batchDelete">删除</button>
+          <button id="batchClearBtn" type="button" @click="runtime.clearSelection">取消</button>
         </div>
       </div>
     </div>
     <RunningBanner />
     <div id="galleryWindowShell" class="gallery-window-shell">
-      <div id="selectionBox" class="selection-box" hidden></div>
-      <div id="galleryWindow" class="gallery-window">
+      <div id="selectionBox" class="selection-box" :hidden="!selectionBox.visible" :style="selectionBoxStyle"></div>
+      <div id="galleryWindow" class="gallery-window" @scroll="onGalleryScroll">
         <div class="gallery-viewport-content">
-          <div id="galleryGrid" class="gallery-grid"></div>
-          <div id="galleryEmpty" class="gallery-empty">还没有图片</div>
+          <div id="galleryGrid" class="gallery-grid">
+            <div
+              v-for="(item, index) in runtime.visibleGalleryItems.value"
+              :key="`${item.jobId}:${item.slot}`"
+              :class="['gallery-item', 'is-loaded', { 'is-selected': isSelected(item) }]"
+              :data-gallery-key="`${item.jobId}:${item.slot}`"
+              :data-open-lightbox="index"
+              :data-job-id="item.jobId"
+              :data-image-slot="item.slot"
+              @click="runtime.openLightbox(index)"
+            >
+              <button type="button" class="gallery-select-btn" @click.stop="runtime.toggleSelection(item)">✓</button>
+              <img :src="item.src" :alt="item.prompt" loading="lazy">
+              <div class="gallery-overlay">
+                <div class="prompt-preview">{{ item.prompt }}</div>
+                <div class="meta-row">
+                  <span class="meta-actions">
+                    <button type="button" @click.stop="copyPrompt(item.prompt)">复制</button>
+                    <button type="button" @click.stop="runtime.addSourceImageFromGallery(item)">参考</button>
+                    <button type="button" @click.stop="runtime.downloadItem(item)">下载</button>
+                    <button type="button" class="gallery-del-btn" @click.stop="runtime.deleteImage(item.jobId, item.slot)">删除</button>
+                  </span>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div v-show="!runtime.visibleGalleryItems.value.length" id="galleryEmpty" class="gallery-empty">还没有图片</div>
         </div>
       </div>
     </div>
@@ -56,7 +81,91 @@
 </template>
 
 <script setup lang="ts">
+import { computed, reactive, ref } from "vue";
 import { Settings } from "lucide-vue-next";
+import { useScimageRuntime } from "../composables/useScimageRuntime";
+import type { GalleryFlatItem } from "../stores/gallery";
 import RunningBanner from "./jobs/RunningBanner.vue";
 import IconButton from "./ui/IconButton.vue";
+
+const runtime = useScimageRuntime();
+const galleryStore = runtime.galleryStore;
+const jobStore = runtime.jobStore;
+const providerStore = runtime.providerStore;
+const settingsOpen = ref(false);
+const selectionStart = reactive({ x: 0, y: 0, active: false });
+const selectionBox = reactive({ visible: false, left: 0, top: 0, width: 0, height: 0 });
+
+const galleryCountText = computed(() => {
+  const count = runtime.visibleGalleryItems.value.length;
+  const total = Number(galleryStore.pagination.total || count);
+  return total > count ? `${count}/${total} 张图片` : `${count} 张图片`;
+});
+
+const syncText = computed(() => {
+  if (jobStore.lastSyncError) return `同步失败：${jobStore.lastSyncError}`;
+  if (jobStore.lastSyncAt) return `最后同步：${new Date(jobStore.lastSyncAt).toLocaleTimeString()}`;
+  return "同步：自动刷新";
+});
+
+const selectionBoxStyle = computed(() => ({
+  left: `${selectionBox.left}px`,
+  top: `${selectionBox.top}px`,
+  width: `${selectionBox.width}px`,
+  height: `${selectionBox.height}px`,
+}));
+
+function isSelected(item: GalleryFlatItem) {
+  return galleryStore.selectedKeys.has(`${item.jobId}:${item.slot}`);
+}
+
+function startEdgeSelection(event: PointerEvent) {
+  if (galleryStore.selectedCount && event.detail <= 1) {
+    runtime.clearSelection();
+  }
+  selectionStart.x = event.clientX;
+  selectionStart.y = event.clientY;
+  selectionStart.active = true;
+  selectionBox.visible = true;
+  updateSelectionBox(event.clientX, event.clientY);
+  window.addEventListener("pointermove", onSelectionMove);
+  window.addEventListener("pointerup", finishSelection, { once: true });
+}
+
+function updateSelectionBox(x: number, y: number) {
+  selectionBox.left = Math.min(selectionStart.x, x);
+  selectionBox.top = Math.min(selectionStart.y, y);
+  selectionBox.width = Math.abs(x - selectionStart.x);
+  selectionBox.height = Math.abs(y - selectionStart.y);
+}
+
+function onSelectionMove(event: PointerEvent) {
+  if (!selectionStart.active) return;
+  updateSelectionBox(event.clientX, event.clientY);
+}
+
+function finishSelection() {
+  window.removeEventListener("pointermove", onSelectionMove);
+  selectionStart.active = false;
+  const rect = new DOMRect(selectionBox.left, selectionBox.top, selectionBox.width, selectionBox.height);
+  if (selectionBox.width > 8 && selectionBox.height > 8) runtime.selectByRect(rect);
+  selectionBox.visible = false;
+}
+
+function onGalleryScroll(event: Event) {
+  const target = event.currentTarget as HTMLElement;
+  const remaining = target.scrollHeight - target.scrollTop - target.clientHeight;
+  if (remaining <= 900) void runtime.loadMoreGallery();
+}
+
+async function copyPrompt(prompt: string) {
+  await navigator.clipboard?.writeText(prompt);
+}
+
+function resetForm() {
+  runtime.currentWorkflowForm.value.prompt = "";
+  runtime.currentWorkflowForm.value.count = "1";
+  runtime.currentWorkflowForm.value.size = "auto";
+  runtime.currentWorkflowForm.value.quality = "auto";
+}
 </script>

@@ -8,6 +8,7 @@
           :type="type"
           :aria-label="label"
           :title="label"
+          @click="emit('click', $event)"
         >
           <slot />
         </button>
@@ -34,4 +35,8 @@ withDefaults(defineProps<{
   className: "",
   type: "button",
 });
+
+const emit = defineEmits<{
+  click: [event: MouseEvent];
+}>();
 </script>

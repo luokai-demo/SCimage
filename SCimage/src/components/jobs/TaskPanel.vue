@@ -33,13 +33,13 @@
               <span>{{ isActiveStatus(String(job.status || "")) ? getJobDurationText(job) : `耗时 ${getJobDurationText(job)}` }}</span>
             </div>
             <div class="left-task-actions">
-              <button type="button" data-action="copy-job-prompt" :data-job-id="job.id">复制</button>
-              <button v-if="isActiveStatus(String(job.status || ''))" type="button" data-action="cancel-job" :data-job-id="job.id">中断</button>
+              <button type="button" @click="copyPrompt(job)">复制</button>
+              <button v-if="isActiveStatus(String(job.status || ''))" type="button" @click="runtime.jobAction(String(job.id || ''), 'cancel')">中断</button>
               <template v-else-if="isRetryableJob(job)">
-                <button type="button" data-action="retry-job" :data-job-id="job.id">重试</button>
-                <button type="button" class="gallery-del-btn" data-action="delete-job" :data-job-id="job.id">删除</button>
+                <button type="button" @click="runtime.jobAction(String(job.id || ''), 'retry')">重试</button>
+                <button type="button" class="gallery-del-btn" @click="runtime.jobAction(String(job.id || ''), 'delete')">删除</button>
               </template>
-              <button v-else type="button" class="gallery-del-btn" data-action="delete-job" :data-job-id="job.id">删除</button>
+              <button v-else type="button" class="gallery-del-btn" @click="runtime.jobAction(String(job.id || ''), 'delete')">删除</button>
             </div>
           </article>
           <div v-if="endIndex < sortedJobs.length" class="task-list-spacer" :style="{ height: `${(sortedJobs.length - endIndex) * itemHeight}px` }" />
@@ -60,7 +60,9 @@
 
 <script setup lang="ts">
 import { computed, ref } from "vue";
+import { useScimageRuntime } from "../../composables/useScimageRuntime";
 import { useJobStore } from "../../stores/jobs";
+import type { JobSummary } from "../../stores/jobs";
 import {
   getJobDurationText,
   getJobMessage,
@@ -78,6 +80,7 @@ const overscan = 8;
 const scrollTop = ref(0);
 const viewportHeight = ref(280);
 const jobStore = useJobStore();
+const runtime = useScimageRuntime();
 
 const sortedJobs = computed(() => jobStore.sortedJobs);
 const runningCount = computed(() => jobStore.runningCount);
@@ -119,11 +122,15 @@ function onScroll(event: Event) {
   viewportHeight.value = target.clientHeight || 280;
   const remaining = target.scrollHeight - target.scrollTop - target.clientHeight;
   if (remaining <= 900) {
-    window.dispatchEvent(new CustomEvent("scimage:load-more-jobs", { detail: { source: "scroll", silent: true } }));
+    void runtime.loadMoreJobs();
   }
 }
 
 function requestLoadMore() {
-  window.dispatchEvent(new CustomEvent("scimage:load-more-jobs", { detail: { source: "task-list" } }));
+  void runtime.loadMoreJobs();
+}
+
+async function copyPrompt(job: JobSummary) {
+  await navigator.clipboard?.writeText(String(job.prompt || ""));
 }
 </script>

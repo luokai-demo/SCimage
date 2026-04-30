@@ -9,7 +9,12 @@
     </div>
     <Label v-else class="ui-select-label" :for="selectId">{{ label }}</Label>
     <div class="ui-select-control">
-      <select :id="selectId" :aria-describedby="ariaDescribedby">
+      <select
+        :id="selectId"
+        :aria-describedby="ariaDescribedby"
+        :value="modelValue"
+        @change="emit('update:modelValue', ($event.target as HTMLSelectElement).value)"
+      >
         <slot />
       </select>
       <ChevronDown class="ui-select-icon" aria-hidden="true" />
@@ -29,5 +34,10 @@ defineProps<{
   className?: string;
   ariaDescribedby?: string;
   labelAction?: boolean;
+  modelValue?: string;
+}>();
+
+const emit = defineEmits<{
+  "update:modelValue": [value: string];
 }>();
 </script>
