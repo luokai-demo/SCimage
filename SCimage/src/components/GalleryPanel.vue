@@ -257,7 +257,6 @@ function updateGalleryColumns() {
   const columns = clamp(Math.floor((width + gapPx) / (targetColumnWidth + gapPx)), 1, 8);
   galleryColumnCount.value = columns;
   grid.style.setProperty("--gallery-columns", String(columns));
-  grid.style.setProperty("--gallery-task-columns", String(columns));
   grid.style.setProperty("--gallery-grid-gap", `${gapPx}px`);
 }
 
