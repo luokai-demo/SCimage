@@ -88,10 +88,7 @@ const runningCount = computed(() => jobStore.runningCount);
 const countText = computed(() => {
   const total = Number(jobStore.pagination.total || 0);
   const loaded = sortedJobs.value.length;
-  if (!total) {
-    return `${loaded} 个任务`;
-  }
-  return loaded >= total ? `${total} 个任务` : `${loaded}/${total} 个任务`;
+  return `${total || loaded} 个任务`;
 });
 const previewText = computed(() => {
   if (!sortedJobs.value.length) {
