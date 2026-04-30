@@ -1,8 +1,7 @@
 <template>
-  <DialogRoot :open="dialog.open.value" @update:open="dialog.setOpen">
+  <DialogRoot :open="dialog.open.value" :modal="false" @update:open="dialog.setOpen">
     <DialogPortal>
-      <DialogOverlay class="prompt-library-overlay" />
-      <DialogContent class="prompt-library-dialog" aria-describedby="promptLibraryDescription">
+      <DialogContent class="prompt-library-dialog" aria-describedby="promptLibraryDescription" @interact-outside.prevent>
         <div class="prompt-library-head">
           <div>
             <DialogTitle class="prompt-library-title">提示词库</DialogTitle>
@@ -68,7 +67,6 @@ import { Plus, X } from "lucide-vue-next";
 import {
   DialogContent,
   DialogDescription,
-  DialogOverlay,
   DialogPortal,
   DialogRoot,
   DialogTitle,

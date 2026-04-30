@@ -2221,16 +2221,6 @@ input[type="file"]::file-selector-button:hover { border-color: var(--border-hove
   border-color: var(--border-hover);
   color: var(--text-primary);
 }
-.prompt-library-overlay {
-  position: fixed;
-  inset: 0;
-  z-index: 900;
-  background: transparent;
-  pointer-events: none;
-}
-.prompt-library-overlay[data-state="closed"] {
-  display: none;
-}
 .prompt-library-dialog {
   position: fixed;
   z-index: 901;
