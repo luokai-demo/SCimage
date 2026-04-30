@@ -50,29 +50,36 @@
       <div id="selectionBox" class="selection-box" :hidden="!selectionBox.visible" :style="selectionBoxStyle"></div>
       <div id="galleryWindow" class="gallery-window" @scroll="onGalleryScroll">
         <div class="gallery-viewport-content">
-          <div id="galleryGrid" ref="galleryGridRef" :class="['gallery-grid', { 'grouped-by-task': galleryStore.filter !== 'all' }]">
+          <div
+            id="galleryGrid"
+            ref="galleryGridRef"
+            :class="['gallery-grid', { 'grouped-by-task': galleryStore.filter !== 'all' }]"
+            :style="galleryGridStyle"
+          >
             <template v-if="galleryStore.filter === 'all'">
-              <div
-                v-for="(item, index) in runtime.visibleGalleryItems.value"
-                :key="`${item.jobId}:${item.slot}`"
-                :class="['gallery-item', 'is-loaded', { 'is-selected': isSelected(item) }]"
-                :data-gallery-key="`${item.jobId}:${item.slot}`"
-                :data-open-lightbox="index"
-                :data-job-id="item.jobId"
-                :data-image-slot="item.slot"
-                @click="runtime.openLightbox(index)"
-              >
-                <button type="button" class="gallery-select-btn" @click.stop="runtime.toggleSelection(item)">✓</button>
-                <img :src="item.src" :alt="item.prompt" loading="lazy">
-                <div class="gallery-overlay">
-                  <div class="prompt-preview">{{ item.prompt }}</div>
-                  <div class="meta-row">
-                    <span class="meta-actions">
-                      <button type="button" @click.stop="copyPrompt(item.prompt)">复制</button>
-                      <button type="button" @click.stop="runtime.addSourceImageFromGallery(item)">参考</button>
-                      <button type="button" @click.stop="runtime.downloadItem(item)">下载</button>
-                      <button type="button" class="gallery-del-btn" @click.stop="runtime.deleteImage(item.jobId, item.slot)">删除</button>
-                    </span>
+              <div v-for="(column, columnIndex) in galleryColumns" :key="`gallery-column-${columnIndex}`" class="gallery-column">
+                <div
+                  v-for="item in column"
+                  :key="`${item.jobId}:${item.slot}`"
+                  :class="['gallery-item', 'is-loaded', { 'is-selected': isSelected(item) }]"
+                  :data-gallery-key="`${item.jobId}:${item.slot}`"
+                  :data-open-lightbox="itemIndex(item)"
+                  :data-job-id="item.jobId"
+                  :data-image-slot="item.slot"
+                  @click="runtime.openLightbox(itemIndex(item))"
+                >
+                  <button type="button" class="gallery-select-btn" @click.stop="runtime.toggleSelection(item)">✓</button>
+                  <img :src="item.src" :alt="item.prompt" loading="lazy">
+                  <div class="gallery-overlay">
+                    <div class="prompt-preview">{{ item.prompt }}</div>
+                    <div class="meta-row">
+                      <span class="meta-actions">
+                        <button type="button" @click.stop="copyPrompt(item.prompt)">复制</button>
+                        <button type="button" @click.stop="runtime.addSourceImageFromGallery(item)">参考</button>
+                        <button type="button" @click.stop="runtime.downloadItem(item)">下载</button>
+                        <button type="button" class="gallery-del-btn" @click.stop="runtime.deleteImage(item.jobId, item.slot)">删除</button>
+                      </span>
+                    </div>
                   </div>
                 </div>
               </div>
@@ -83,28 +90,30 @@
                   <div class="gallery-task-section-title">{{ group.title }}</div>
                   <div class="gallery-task-section-meta">{{ group.meta }}</div>
                 </div>
-                <div class="gallery-task-section-grid">
-                  <div
-                    v-for="item in group.items"
-                    :key="`${item.jobId}:${item.slot}`"
-                    :class="['gallery-item', 'is-loaded', { 'is-selected': isSelected(item) }]"
-                    :data-gallery-key="`${item.jobId}:${item.slot}`"
-                    :data-open-lightbox="itemIndex(item)"
-                    :data-job-id="item.jobId"
-                    :data-image-slot="item.slot"
-                    @click="runtime.openLightbox(itemIndex(item))"
-                  >
-                    <button type="button" class="gallery-select-btn" @click.stop="runtime.toggleSelection(item)">✓</button>
-                    <img :src="item.src" :alt="item.prompt" loading="lazy">
-                    <div class="gallery-overlay">
-                      <div class="prompt-preview">{{ item.prompt }}</div>
-                      <div class="meta-row">
-                        <span class="meta-actions">
-                          <button type="button" @click.stop="copyPrompt(item.prompt)">复制</button>
-                          <button type="button" @click.stop="runtime.addSourceImageFromGallery(item)">参考</button>
-                          <button type="button" @click.stop="runtime.downloadItem(item)">下载</button>
-                          <button type="button" class="gallery-del-btn" @click.stop="runtime.deleteImage(item.jobId, item.slot)">删除</button>
-                        </span>
+                <div class="gallery-task-section-grid" :style="galleryGridStyle">
+                  <div v-for="(column, columnIndex) in distributeColumns(group.items)" :key="`${group.id}-column-${columnIndex}`" class="gallery-column">
+                    <div
+                      v-for="item in column"
+                      :key="`${item.jobId}:${item.slot}`"
+                      :class="['gallery-item', 'is-loaded', { 'is-selected': isSelected(item) }]"
+                      :data-gallery-key="`${item.jobId}:${item.slot}`"
+                      :data-open-lightbox="itemIndex(item)"
+                      :data-job-id="item.jobId"
+                      :data-image-slot="item.slot"
+                      @click="runtime.openLightbox(itemIndex(item))"
+                    >
+                      <button type="button" class="gallery-select-btn" @click.stop="runtime.toggleSelection(item)">✓</button>
+                      <img :src="item.src" :alt="item.prompt" loading="lazy">
+                      <div class="gallery-overlay">
+                        <div class="prompt-preview">{{ item.prompt }}</div>
+                        <div class="meta-row">
+                          <span class="meta-actions">
+                            <button type="button" @click.stop="copyPrompt(item.prompt)">复制</button>
+                            <button type="button" @click.stop="runtime.addSourceImageFromGallery(item)">参考</button>
+                            <button type="button" @click.stop="runtime.downloadItem(item)">下载</button>
+                            <button type="button" class="gallery-del-btn" @click.stop="runtime.deleteImage(item.jobId, item.slot)">删除</button>
+                          </span>
+                        </div>
                       </div>
                     </div>
                   </div>
@@ -135,6 +144,7 @@ const providerStore = runtime.providerStore;
 const settingsOpen = ref(false);
 const galleryGridRef = ref<HTMLElement | null>(null);
 const galleryGroups = useGalleryGroups(runtime.visibleGalleryItems, computed(() => galleryStore.filter));
+const galleryColumnCount = ref(4);
 const selectionStart = reactive({ x: 0, y: 0, active: false });
 const selectionBox = reactive({ visible: false, left: 0, top: 0, width: 0, height: 0 });
 let gridResizeObserver: ResizeObserver | null = null;
@@ -159,12 +169,26 @@ const selectionBoxStyle = computed(() => ({
   height: `${selectionBox.height}px`,
 }));
 
+const galleryGridStyle = computed(() => ({
+  "--gallery-columns": String(galleryColumnCount.value),
+}));
+
+const galleryColumns = computed(() => distributeColumns(runtime.visibleGalleryItems.value));
+
 function isSelected(item: GalleryFlatItem) {
   return galleryStore.selectedKeys.has(`${item.jobId}:${item.slot}`);
 }
 
 function itemIndex(item: GalleryFlatItem) {
   return galleryGroups.itemIndexByKey.value.get(`${item.jobId}:${item.slot}`) ?? 0;
+}
+
+function distributeColumns(items: GalleryFlatItem[]) {
+  const columns = Array.from({ length: galleryColumnCount.value }, () => [] as GalleryFlatItem[]);
+  items.forEach((item, index) => {
+    columns[index % galleryColumnCount.value].push(item);
+  });
+  return columns;
 }
 
 function startEdgeSelection(event: PointerEvent) {
@@ -229,6 +253,7 @@ function updateGalleryColumns() {
   const width = grid.clientWidth;
   if (!width) return;
   const columns = clamp(Math.floor((width + gapPx) / (targetColumnWidth + gapPx)), 1, 8);
+  galleryColumnCount.value = columns;
   grid.style.setProperty("--gallery-columns", String(columns));
   grid.style.setProperty("--gallery-task-columns", String(columns));
   grid.style.setProperty("--gallery-grid-gap", `${gapPx}px`);
