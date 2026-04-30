@@ -21,51 +21,10 @@
           </TabsList>
 
           <TabsContent value="builtin" force-mount class="prompt-library-tab-content">
-            <div v-if="dialog.selectedTokens.value.length" class="prompt-library-selected">
-              <div class="prompt-library-section-title">已选词组</div>
-              <div class="prompt-library-selected-list">
-                <div v-for="(item, index) in dialog.selectedTokens.value" :key="item" class="prompt-library-selected-chip">
-                  <span>{{ item }}</span>
-                  <button type="button" :disabled="index === 0" aria-label="前移词组" @click="runtime.reorderLibraryPromptToken(item, -1)">
-                    <ChevronLeft aria-hidden="true" />
-                  </button>
-                  <button
-                    type="button"
-                    :disabled="index === dialog.selectedTokens.value.length - 1"
-                    aria-label="后移词组"
-                    @click="runtime.reorderLibraryPromptToken(item, 1)"
-                  >
-                    <ChevronRight aria-hidden="true" />
-                  </button>
-                  <button type="button" aria-label="移除词组" @click="runtime.removePromptToken(item)">
-                    <X aria-hidden="true" />
-                  </button>
-                </div>
-              </div>
-            </div>
             <div class="prompt-library-tools">
               <div class="prompt-library-search">
                 <Search aria-hidden="true" />
                 <input v-model="dialog.query.value" type="search" placeholder="搜索词组" aria-label="搜索内置词组">
-              </div>
-              <button type="button" class="prompt-library-clear" :disabled="!dialog.selectedTokens.value.length" @click="runtime.clearLibraryPromptTokens">
-                清除本次
-              </button>
-            </div>
-            <div v-if="dialog.recentTokens.value.length && !dialog.query.value.trim()" class="prompt-library-recent">
-              <div class="prompt-library-section-title">最近使用</div>
-              <div class="builtin-prompt-chips is-recent">
-                <button
-                  v-for="item in dialog.recentTokens.value"
-                  :key="item"
-                  type="button"
-                  :class="['builtin-prompt-chip', { 'is-selected': isTokenSelected(item) }]"
-                  @click="toggleToken(item)"
-                >
-                  <Check v-if="isTokenSelected(item)" aria-hidden="true" />
-                  <Plus v-else aria-hidden="true" />
-                  <span>{{ item }}</span>
-                </button>
               </div>
             </div>
             <div class="builtin-prompt-layout">
@@ -85,11 +44,10 @@
                   v-for="item in activeGroupItems"
                   :key="item"
                   type="button"
-                  :class="['builtin-prompt-chip', { 'is-selected': isTokenSelected(item) }]"
-                  @click="toggleToken(item)"
+                  class="builtin-prompt-chip"
+                  @click="runtime.appendPromptToken(item)"
                 >
-                  <Check v-if="isTokenSelected(item)" aria-hidden="true" />
-                  <Plus v-else aria-hidden="true" />
+                  <Plus aria-hidden="true" />
                   <span>{{ item }}</span>
                 </button>
                 <div v-if="!activeGroupItems.length" class="prompt-library-empty">没有匹配的词组</div>
@@ -112,7 +70,7 @@
 
 <script setup lang="ts">
 import { computed, ref, watch } from "vue";
-import { Check, ChevronLeft, ChevronRight, Plus, Search, X } from "lucide-vue-next";
+import { Plus, Search, X } from "lucide-vue-next";
 import {
   DialogContent,
   DialogDescription,
@@ -144,18 +102,6 @@ const visibleGroups = computed(() => {
     .filter((group) => group.items.length);
 });
 const activeGroupItems = computed(() => visibleGroups.value.find((group) => group.id === activeGroup.value)?.items || []);
-
-function isTokenSelected(token: string) {
-  return dialog.selectedSet.value.has(token);
-}
-
-function toggleToken(token: string) {
-  if (isTokenSelected(token)) {
-    runtime.removePromptToken(token);
-    return;
-  }
-  runtime.appendPromptToken(token);
-}
 
 watch(visibleGroups, (groups) => {
   if (!groups.some((group) => group.id === activeGroup.value)) {

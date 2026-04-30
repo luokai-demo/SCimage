@@ -758,7 +758,6 @@ function savePrompt() {
 
 function applyPrompt(prompt: SavedPrompt) {
   currentForm().prompt = prompt.prompt;
-  usePromptLibraryDialog().clearSelected();
   usePromptLibraryDialog().setOpen(false);
 }
 
@@ -777,40 +776,8 @@ function composePromptTokens(baseTokens: string[], libraryTokens: string[]) {
 function appendPromptToken(token: string) {
   const value = token.trim();
   if (!value) return;
-  const promptDialog = usePromptLibraryDialog();
-  if (promptDialog.selectedSet.value.has(value)) return;
   const form = currentForm();
-  const existingLibraryTokens = promptDialog.selectedTokens.value;
-  const manualTokens = splitPromptTokens(form.prompt).filter((item) => !promptDialog.selectedSet.value.has(item));
-  form.prompt = composePromptTokens(manualTokens, [...existingLibraryTokens, value]);
-  promptDialog.markSelected(value);
-}
-
-function syncPromptLibraryTokens() {
-  const promptDialog = usePromptLibraryDialog();
-  const manualTokens = splitPromptTokens(currentForm().prompt).filter((item) => !promptDialog.selectedSet.value.has(item));
-  currentForm().prompt = composePromptTokens(manualTokens, promptDialog.selectedTokens.value);
-}
-
-function removePromptToken(token: string) {
-  const value = token.trim();
-  if (!value) return;
-  const promptDialog = usePromptLibraryDialog();
-  promptDialog.unmarkSelected(value);
-  currentForm().prompt = splitPromptTokens(currentForm().prompt).filter((item) => item !== value).join("，");
-}
-
-function reorderLibraryPromptToken(token: string, direction: -1 | 1) {
-  const promptDialog = usePromptLibraryDialog();
-  promptDialog.moveSelected(token.trim(), direction);
-  syncPromptLibraryTokens();
-}
-
-function clearLibraryPromptTokens() {
-  const promptDialog = usePromptLibraryDialog();
-  const selected = promptDialog.selectedSet.value;
-  currentForm().prompt = splitPromptTokens(currentForm().prompt).filter((item) => !selected.has(item)).join("，");
-  promptDialog.clearSelected();
+  form.prompt = composePromptTokens(splitPromptTokens(form.prompt), [value]);
 }
 
 function deletePrompt(id: string) {
@@ -864,9 +831,6 @@ export function useScimageRuntime() {
     activateProviderProfile,
     applyPrompt,
     appendPromptToken,
-    removePromptToken,
-    reorderLibraryPromptToken,
-    clearLibraryPromptTokens,
     batchDelete,
     batchDownload,
     busyJobIds,
