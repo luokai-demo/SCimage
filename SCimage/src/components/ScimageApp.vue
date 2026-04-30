@@ -29,8 +29,8 @@ onMounted(() => {
 <style>
 
 :root {
-  --panel-width: clamp(300px, 24vw, 340px);
-  --panel-width-compact: 280px;
+  --panel-width: clamp(360px, 28vw, 420px);
+  --panel-width-compact: 326px;
   --bg: #000000;
   --surface: #0a0a0a;
   --border: #1a1a1a;
@@ -90,7 +90,7 @@ body {
   min-width: 54px;
 }
 .panel-inner {
-  padding: 18px 10px 12px;
+  padding: 18px 14px 12px;
   flex: 1;
   display: flex;
   flex-direction: column;
@@ -110,7 +110,7 @@ body {
 .panel-header-copy {
   min-width: 0;
   overflow: hidden;
-  max-width: 240px;
+  max-width: 300px;
   transition: max-width var(--panel-transition), opacity 260ms ease, transform var(--panel-transition);
 }
 .panel.is-collapsed .panel-header {
@@ -186,7 +186,7 @@ body {
 }
 .connection-card:not([open]) summary::after { transform: rotate(-90deg); }
 .connection-card-body {
-  height: clamp(180px, 28vh, 220px);
+  height: clamp(176px, 25vh, 226px);
   overflow-y: auto;
   overscroll-behavior: contain;
   scrollbar-gutter: stable;
@@ -199,12 +199,13 @@ body {
   min-height: 0;
   flex-direction: column;
   overflow: hidden;
+  gap: 10px;
 }
 .workflow-tabs {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 6px;
-  margin-bottom: 10px;
+  margin-bottom: 0;
 }
 .workflow-tab {
   min-height: 32px;
@@ -234,7 +235,7 @@ body {
   cursor: not-allowed;
 }
 .workspace-card {
-  flex: 1;
+  flex: 1 1 auto;
   min-height: 0;
   display: flex;
   flex-direction: column;
@@ -243,7 +244,7 @@ body {
   background:
     radial-gradient(circle at top right, rgba(255,255,255,0.055), transparent 34%),
     linear-gradient(180deg, rgba(255,255,255,0.02), rgba(255,255,255,0.012));
-  padding: 10px;
+  padding: 11px;
 }
 .workspace-card-head {
   display: flex;
@@ -292,16 +293,17 @@ body {
   min-height: 0;
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 10px;
   overflow-y: auto;
   overscroll-behavior: contain;
-  padding-right: 4px;
+  padding-right: 5px;
+  scrollbar-gutter: stable;
 }
 .workspace-group {
   border: 1px solid var(--border);
   border-radius: var(--radius);
   background: rgba(0,0,0,0.28);
-  padding: 9px;
+  padding: 10px;
 }
 .workspace-group.mode-hidden { display: none; }
 .workspace-group-head {
@@ -374,7 +376,7 @@ body {
   margin-top: 8px;
 }
 .helper-note {
-  min-height: 32px;
+  min-height: 34px;
   padding: 7px 8px;
   border-radius: var(--radius);
   border: 1px solid var(--border);
@@ -1266,7 +1268,7 @@ input[type="range"]::-webkit-slider-runnable-track { background: var(--border); 
 input[type="range"]::-webkit-slider-thumb { -webkit-appearance: none; width: 14px; height: 14px; border-radius: 50%; background: var(--accent); margin-top: -5px; cursor: pointer; }
 select { cursor: pointer; }
 .row { display: flex; gap: 8px; flex-wrap: wrap; }
-.row .form-group { flex: 1; min-width: 100px; }
+.row .form-group { flex: 1; min-width: 128px; }
 input[type="file"] { padding: 7px; cursor: pointer; font-size: 12px; }
 input[type="file"]::file-selector-button {
   background: var(--surface); color: var(--text-secondary);
@@ -1302,6 +1304,7 @@ input[type="file"]::file-selector-button:hover { border-color: var(--border-hove
   display: flex;
   gap: 8px;
   margin-top: 8px;
+  min-width: 0;
 }
 .button-row > * {
   flex: 1;
@@ -1467,8 +1470,9 @@ input[type="file"]::file-selector-button:hover { border-color: var(--border-hove
     width: var(--panel-width-compact);
     min-width: var(--panel-width-compact);
   }
-  .panel-header-copy { max-width: 196px; }
+  .panel-header-copy { max-width: 238px; }
   .gallery-area { padding: 20px; }
+  .task-panel-meta { max-width: 82px; }
 }
 
 /* Mobile */
@@ -1825,18 +1829,24 @@ input[type="file"]::file-selector-button:hover { border-color: var(--border-hove
 
 /* Left task list */
 .task-panel {
-  margin-top: 10px;
+  margin-top: 0;
   flex-shrink: 0;
   border: 1px solid var(--border); border-radius: var(--radius);
-  background: #000; overflow: hidden;
+  background: #000;
+  overflow: hidden;
+  min-width: 0;
 }
 .task-panel-header {
-  display: flex; align-items: center; justify-content: space-between;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
   gap: 10px;
+  min-height: 38px;
   padding: 8px 9px;
   cursor: pointer;
   user-select: none;
   list-style: none;
+  min-width: 0;
 }
 .task-panel-header::-webkit-details-marker { display: none; }
 .task-panel-heading {
@@ -1844,6 +1854,7 @@ input[type="file"]::file-selector-button:hover { border-color: var(--border-hove
   display: flex;
   flex-direction: column;
   gap: 3px;
+  overflow: hidden;
 }
 .task-panel-title { font-size: 11px; font-weight: 600; color: var(--text-secondary); }
 .task-panel-preview {
@@ -1859,9 +1870,20 @@ input[type="file"]::file-selector-button:hover { border-color: var(--border-hove
   align-items: center;
   gap: 6px;
   flex-shrink: 0;
+  min-width: 0;
+  max-width: 96px;
+  justify-content: flex-end;
 }
-.task-panel-count { font-size: 10px; color: var(--text-tertiary); }
+.task-panel-count {
+  min-width: 0;
+  font-size: 10px;
+  color: var(--text-tertiary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
 .task-panel-chevron {
+  flex: 0 0 auto;
   color: var(--text-tertiary);
   font-size: 12px;
   transition: transform 180ms ease;
@@ -1921,7 +1943,15 @@ input[type="file"]::file-selector-button:hover { border-color: var(--border-hove
 .left-task-card.is-canceled { border-color: rgba(229,72,77,0.35); }
 .left-task-card.is-completed { border-color: rgba(69,165,87,0.24); }
 .left-task-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 5px; }
-.left-task-type { font-size: 10px; color: var(--text-primary); font-weight: 600; }
+.left-task-type {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 10px;
+  color: var(--text-primary);
+  font-weight: 600;
+}
 .left-task-badge {
   padding: 2px 6px; border-radius: 999px; font-size: 9px;
   color: var(--text-secondary); background: rgba(255,255,255,0.08); white-space: nowrap;
@@ -1942,7 +1972,20 @@ input[type="file"]::file-selector-button:hover { border-color: var(--border-hove
   white-space: pre-line;
   overflow: hidden;
 }
-.left-task-meta { margin-top: 6px; color: var(--text-tertiary); font-size: 9px; display: flex; justify-content: space-between; gap: 8px; }
+.left-task-meta {
+  margin-top: 6px;
+  color: var(--text-tertiary);
+  font-size: 9px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+}
+.left-task-meta span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .left-task-actions { display: flex; gap: 5px; margin-top: 7px; }
 .left-task-actions button {
   flex: 1; padding: 4px 6px; border-radius: var(--radius); font-size: 9px;
