@@ -145,24 +145,9 @@
                     <div class="workspace-group-title">提示词</div>
                     <div id="promptSectionHint" class="workspace-group-hint">直接描述你想生成的画面、风格和细节。</div>
                   </div>
-                  <button type="button" id="togglePromptBankBtn" class="chip-btn" :aria-expanded="promptBankOpen" @click="promptBankOpen = !promptBankOpen">词库</button>
+                  <button type="button" id="togglePromptBankBtn" class="chip-btn" :aria-expanded="promptDialog.open.value" @click="promptDialog.setOpen(true)">词库</button>
                 </div>
                 <textarea v-model="runtime.currentWorkflowForm.value.prompt" id="prompt" placeholder="一只在星空下奔跑的白色柴犬，水彩风格"></textarea>
-
-                <details class="inline-drawer" id="promptBankPanel" :open="promptBankOpen">
-                  <summary>
-                    <span>已保存提示词</span>
-                    <span id="promptBankCount" class="workspace-inline-hint">{{ promptStore.activePrompts.length }} 条</span>
-                    <ChevronDown class="details-chevron" aria-hidden="true" />
-                  </summary>
-                  <div class="inline-drawer-body">
-                    <div class="button-row compact">
-                      <button type="button" id="savePromptBtn" class="btn-secondary" @click="runtime.savePrompt">保存当前提示词</button>
-                      <button type="button" id="clearPromptBankBtn" class="btn-secondary" @click="runtime.clearPrompts">清空词库</button>
-                    </div>
-                    <PromptBankPanel />
-                  </div>
-                </details>
               </section>
 
               <section class="workspace-group">
@@ -219,18 +204,16 @@
 import { ref } from "vue";
 import { ChevronDown, ChevronLeft, Eye, RefreshCw, X } from "lucide-vue-next";
 import { useScimageRuntime } from "../composables/useScimageRuntime";
-import { usePromptStore } from "../stores/prompts";
+import { usePromptLibraryDialog } from "../composables/usePromptLibraryDialog";
 import IconButton from "./ui/IconButton.vue";
-import PromptBankPanel from "./PromptBankPanel.vue";
 import TaskPanel from "./jobs/TaskPanel.vue";
 import UiSelectField from "./ui/UiSelectField.vue";
 
 const runtime = useScimageRuntime();
 const workspaceStore = runtime.workspaceStore;
 const providerStore = runtime.providerStore;
-const promptStore = usePromptStore();
+const promptDialog = usePromptLibraryDialog();
 const apiKeyVisible = ref(false);
-const promptBankOpen = ref(false);
 const sourceInput = ref<HTMLInputElement | null>(null);
 
 function onSourceChange(event: Event) {

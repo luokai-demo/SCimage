@@ -5,6 +5,7 @@
       <GalleryPanel />
     </div>
     <FeedbackOverlays />
+    <PromptLibraryDialog />
     <ConfirmDialog />
   </TooltipProvider>
 </template>
@@ -17,6 +18,7 @@ import { useScimageRuntime } from "../composables/useScimageRuntime";
 import WorkspacePanel from "./WorkspacePanel.vue";
 import GalleryPanel from "./GalleryPanel.vue";
 import FeedbackOverlays from "./FeedbackOverlays.vue";
+import PromptLibraryDialog from "./PromptLibraryDialog.vue";
 import ConfirmDialog from "./ui/ConfirmDialog.vue";
 
 const uiStore = useUiStore();
@@ -31,8 +33,8 @@ onMounted(() => {
 <style>
 
 :root {
-  --panel-width: clamp(360px, 28vw, 420px);
-  --panel-width-compact: 326px;
+  --panel-width: clamp(300px, 24vw, 340px);
+  --panel-width-compact: 280px;
   --bg: #000000;
   --surface: #0a0a0a;
   --border: #1a1a1a;
@@ -179,7 +181,7 @@ body {
   --gallery-task-columns: 5;
 }
 .panel-inner {
-  padding: 18px 14px 12px;
+  padding: 18px 10px 12px;
   flex: 1;
   display: flex;
   flex-direction: column;
@@ -199,7 +201,7 @@ body {
 .panel-header-copy {
   min-width: 0;
   overflow: hidden;
-  max-width: 300px;
+  max-width: 240px;
   transition: max-width var(--panel-transition), opacity 260ms ease, transform var(--panel-transition);
 }
 .panel.is-collapsed .panel-header {
@@ -277,8 +279,7 @@ body {
   stroke-width: 1.8;
   transition: transform var(--transition), color var(--transition);
 }
-.connection-card[open] > summary .details-chevron,
-.inline-drawer[open] > summary .details-chevron {
+.connection-card[open] > summary .details-chevron {
   transform: rotate(180deg);
 }
 .connection-card-body {
@@ -443,33 +444,6 @@ body {
   border-color: var(--border-hover);
   color: var(--text-primary);
   background: rgba(255,255,255,0.05);
-}
-.inline-drawer summary {
-  list-style: none;
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto auto;
-  align-items: center;
-  gap: 8px;
-  cursor: pointer;
-  user-select: none;
-}
-.inline-drawer summary::-webkit-details-marker { display: none; }
-.inline-drawer summary span:first-child {
-  font-size: 11px;
-  font-weight: 600;
-  color: var(--text-secondary);
-}
-.workspace-inline-hint {
-  font-size: 10px;
-  color: var(--text-tertiary);
-}
-.inline-drawer {
-  margin-top: 8px;
-  border-top: 1px solid var(--border);
-  padding-top: 8px;
-}
-.inline-drawer-body {
-  margin-top: 8px;
 }
 .helper-note {
   min-height: 34px;
@@ -1591,7 +1565,7 @@ input[type="file"]::file-selector-button:hover { border-color: var(--border-hove
     width: var(--panel-width-compact);
     min-width: var(--panel-width-compact);
   }
-  .panel-header-copy { max-width: 238px; }
+  .panel-header-copy { max-width: 196px; }
   .gallery-area { padding: 20px; }
   .task-panel-meta { max-width: 82px; }
 }
@@ -2246,6 +2220,190 @@ input[type="file"]::file-selector-button:hover { border-color: var(--border-hove
 .prompt-bank-actions button:hover {
   border-color: var(--border-hover);
   color: var(--text-primary);
+}
+.prompt-library-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 900;
+  background: transparent;
+  pointer-events: none;
+}
+.prompt-library-overlay[data-state="closed"] {
+  display: none;
+}
+.prompt-library-dialog {
+  position: fixed;
+  z-index: 901;
+  top: 64px;
+  right: 24px;
+  bottom: 24px;
+  width: min(520px, calc(100vw - var(--panel-width) - 48px));
+  min-width: 380px;
+  display: flex;
+  flex-direction: column;
+  border: 1px solid rgba(255,255,255,0.1);
+  border-radius: var(--radius-lg);
+  background: rgba(8,8,8,0.96);
+  box-shadow: 0 24px 80px rgba(0,0,0,0.46);
+  backdrop-filter: blur(14px);
+  padding: 14px;
+  animation: promptLibraryIn 170ms var(--panel-ease);
+}
+.prompt-library-dialog[data-state="closed"] {
+  display: none;
+}
+.prompt-library-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+.prompt-library-title {
+  color: var(--text-primary);
+  font-size: 14px;
+  line-height: 1.35;
+  font-weight: 650;
+}
+.prompt-library-description {
+  margin-top: 5px;
+  color: var(--text-tertiary);
+  font-size: 11px;
+  line-height: 1.45;
+}
+.prompt-library-close {
+  flex: 0 0 auto;
+  width: 28px;
+  height: 28px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: rgba(255,255,255,0.02);
+  color: var(--text-tertiary);
+  cursor: pointer;
+  display: inline-grid;
+  place-items: center;
+  transition: border-color var(--transition), color var(--transition), background var(--transition);
+}
+.prompt-library-close:hover {
+  border-color: var(--border-hover);
+  color: var(--text-primary);
+  background: rgba(255,255,255,0.06);
+}
+.prompt-library-close svg {
+  width: 14px;
+  height: 14px;
+}
+.prompt-library-tabs {
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+}
+.prompt-library-tab-list {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px;
+  margin-bottom: 12px;
+}
+.prompt-library-tab {
+  min-height: 30px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: rgba(255,255,255,0.02);
+  color: var(--text-tertiary);
+  font: inherit;
+  font-size: 11px;
+  cursor: pointer;
+  transition: border-color var(--transition), color var(--transition), background var(--transition);
+}
+.prompt-library-tab[data-state="active"] {
+  border-color: rgba(255,255,255,0.22);
+  background: rgba(255,255,255,0.07);
+  color: var(--text-primary);
+}
+.prompt-library-tab-content {
+  min-height: 0;
+  flex: 1;
+}
+.prompt-library-tab-content[data-state="inactive"] {
+  display: none;
+}
+.builtin-prompt-layout {
+  min-height: 0;
+  height: 100%;
+  display: grid;
+  grid-template-columns: 108px minmax(0, 1fr);
+  gap: 12px;
+}
+.builtin-prompt-groups {
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding-right: 2px;
+}
+.builtin-prompt-group-btn {
+  min-height: 30px;
+  padding: 0 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: transparent;
+  color: var(--text-secondary);
+  font: inherit;
+  font-size: 11px;
+  cursor: pointer;
+  text-align: left;
+}
+.builtin-prompt-group-btn.active {
+  border-color: rgba(255,255,255,0.2);
+  background: rgba(255,255,255,0.07);
+  color: var(--text-primary);
+}
+.builtin-prompt-chips {
+  align-content: start;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  min-height: 0;
+  overflow-y: auto;
+  padding-right: 4px;
+}
+.builtin-prompt-chip {
+  min-height: 30px;
+  max-width: 100%;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 0 10px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: rgba(255,255,255,0.03);
+  color: var(--text-secondary);
+  font: inherit;
+  font-size: 11px;
+  cursor: pointer;
+  transition: border-color var(--transition), color var(--transition), background var(--transition);
+}
+.builtin-prompt-chip:hover {
+  border-color: var(--border-hover);
+  color: var(--text-primary);
+  background: rgba(255,255,255,0.07);
+}
+.builtin-prompt-chip svg {
+  width: 12px;
+  height: 12px;
+  flex: 0 0 auto;
+}
+.prompt-library-saved-actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  margin-bottom: 10px;
+}
+@keyframes promptLibraryIn {
+  from { opacity: 0; transform: translateX(10px); }
+  to { opacity: 1; transform: translateX(0); }
 }
 .gallery-item[data-open-lightbox] img[data-src] {
   background: #060606;

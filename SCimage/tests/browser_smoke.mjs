@@ -16,8 +16,10 @@ async function main() {
   await page.goto(BASE_URL, { waitUntil: "networkidle" });
   await page.waitForSelector("#galleryWindow");
   await page.waitForSelector("#workspacePanel");
+  await page.locator("#togglePromptBankBtn").click();
   await page.waitForSelector("#savedPrompts", { state: "attached" });
   await page.waitForSelector(".prompt-bank-search input", { state: "attached" });
+  await page.locator(".prompt-library-close").click();
 
   const before = await page.locator("#galleryWindow").boundingBox();
   await page.locator("#panelToggleBtn").click();

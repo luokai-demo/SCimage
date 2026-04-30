@@ -5,6 +5,7 @@ import { usePromptStore, type SavedPrompt } from "../stores/prompts";
 import { useProviderStore, type ProviderProfilesState } from "../stores/provider";
 import { useWorkspaceStore, type WorkflowName } from "../stores/workspace";
 import { useConfirmDialog } from "./useConfirmDialog";
+import { usePromptLibraryDialog } from "./usePromptLibraryDialog";
 
 type StatusTone = "loading" | "success" | "error" | "";
 
@@ -553,6 +554,7 @@ async function generate() {
     await persistWorkspaceState();
     try {
       const job = await apiRequest<any>("/api/jobs", { method: "POST", body, timeoutMs: 30000 });
+      usePromptLibraryDialog().setOpen(false);
       await refreshJobs({ silent: true, reset: true });
       setStatus("success", `任务已创建，开始请求生成 ${job.count || base.count} 张图片。`, 2600);
     } catch (error) {
@@ -756,6 +758,16 @@ function savePrompt() {
 
 function applyPrompt(prompt: SavedPrompt) {
   currentForm().prompt = prompt.prompt;
+  usePromptLibraryDialog().setOpen(false);
+}
+
+function appendPromptToken(token: string) {
+  const value = token.trim();
+  if (!value) return;
+  const form = currentForm();
+  const parts = form.prompt.split(/[,，]/).map((item) => item.trim()).filter(Boolean);
+  if (parts.includes(value)) return;
+  form.prompt = [...parts, value].join("，");
 }
 
 function deletePrompt(id: string) {
@@ -808,6 +820,7 @@ export function useScimageRuntime() {
     addSourceImageFromGallery,
     activateProviderProfile,
     applyPrompt,
+    appendPromptToken,
     batchDelete,
     batchDownload,
     busyJobIds,
