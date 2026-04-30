@@ -665,28 +665,39 @@ body {
   min-width: 0;
   position: sticky;
   top: 0;
-  padding: 4px 2px 2px;
+  padding: 10px;
+  border: 1px solid rgba(255,255,255,0.055);
+  border-radius: var(--radius);
+  background: rgba(0,0,0,0.16);
 }
 .gallery-task-section-eyebrow {
-  margin-bottom: 8px;
+  margin-bottom: 9px;
   color: var(--text-tertiary);
   font-size: 10px;
   line-height: 1.2;
 }
 .gallery-task-section-title {
+  max-height: 84px;
   font-size: 12px;
-  line-height: 1.5;
+  line-height: 1.45;
+  font-weight: 600;
   color: var(--text-primary);
-  word-break: break-word;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+  display: -webkit-box;
+  -webkit-line-clamp: 4;
+  -webkit-box-orient: vertical;
 }
 .gallery-task-section-summary {
-  margin-top: 8px;
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid rgba(255,255,255,0.055);
   color: var(--text-secondary);
-  font-size: 12px;
-  line-height: 1.55;
-  word-break: break-word;
+  font-size: 11px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
   display: -webkit-box;
-  -webkit-line-clamp: 8;
+  -webkit-line-clamp: 5;
   -webkit-box-orient: vertical;
   overflow: hidden;
 }
@@ -695,6 +706,8 @@ body {
   font-size: 10px;
   color: var(--text-tertiary);
   white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .gallery-task-section-grid {
   min-width: 0;
