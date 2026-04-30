@@ -2311,13 +2311,129 @@ input[type="file"]::file-selector-button:hover { border-color: var(--border-hove
 .prompt-library-tab-content {
   min-height: 0;
   flex: 1;
+  display: flex;
+  flex-direction: column;
 }
 .prompt-library-tab-content[data-state="inactive"] {
   display: none;
 }
+.prompt-library-tools {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+.prompt-library-search {
+  position: relative;
+  min-width: 0;
+}
+.prompt-library-search svg {
+  position: absolute;
+  top: 50%;
+  left: 9px;
+  width: 13px;
+  height: 13px;
+  color: var(--text-tertiary);
+  transform: translateY(-50%);
+  pointer-events: none;
+}
+.prompt-library-search input {
+  min-height: 30px;
+  padding-left: 29px;
+}
+.prompt-library-clear {
+  min-height: 30px;
+  padding: 0 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: rgba(255,255,255,0.02);
+  color: var(--text-secondary);
+  font: inherit;
+  font-size: 11px;
+  cursor: pointer;
+  transition: border-color var(--transition), color var(--transition), background var(--transition), opacity var(--transition);
+}
+.prompt-library-clear:hover:not(:disabled) {
+  border-color: var(--border-hover);
+  color: var(--text-primary);
+  background: rgba(255,255,255,0.06);
+}
+.prompt-library-clear:disabled {
+  cursor: not-allowed;
+  opacity: 0.42;
+}
+.prompt-library-recent {
+  margin-bottom: 10px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid rgba(255,255,255,0.06);
+}
+.prompt-library-section-title {
+  margin-bottom: 6px;
+  color: var(--text-tertiary);
+  font-size: 10px;
+  line-height: 1.2;
+}
+.prompt-library-selected {
+  margin-bottom: 10px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid rgba(255,255,255,0.06);
+}
+.prompt-library-selected-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  max-height: 72px;
+  overflow-y: auto;
+  padding-right: 4px;
+}
+.prompt-library-selected-chip {
+  min-height: 28px;
+  max-width: 100%;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 0 5px 0 10px;
+  border: 1px solid rgba(69,165,87,0.32);
+  border-radius: 999px;
+  background: rgba(69,165,87,0.12);
+  color: #d6f6dd;
+  font-size: 11px;
+}
+.prompt-library-selected-chip span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.prompt-library-selected-chip button {
+  width: 20px;
+  height: 20px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  opacity: 0.78;
+  transition: background var(--transition), opacity var(--transition);
+}
+.prompt-library-selected-chip button:hover:not(:disabled) {
+  background: rgba(255,255,255,0.12);
+  opacity: 1;
+}
+.prompt-library-selected-chip button:disabled {
+  cursor: not-allowed;
+  opacity: 0.28;
+}
+.prompt-library-selected-chip svg {
+  width: 12px;
+  height: 12px;
+}
 .builtin-prompt-layout {
   min-height: 0;
-  height: 100%;
+  flex: 1;
   display: grid;
   grid-template-columns: 108px minmax(0, 1fr);
   gap: 12px;
@@ -2356,6 +2472,10 @@ input[type="file"]::file-selector-button:hover { border-color: var(--border-hove
   overflow-y: auto;
   padding-right: 4px;
 }
+.builtin-prompt-chips.is-recent {
+  max-height: 72px;
+  overflow-y: auto;
+}
 .builtin-prompt-chip {
   min-height: 30px;
   max-width: 100%;
@@ -2372,6 +2492,11 @@ input[type="file"]::file-selector-button:hover { border-color: var(--border-hove
   cursor: pointer;
   transition: border-color var(--transition), color var(--transition), background var(--transition);
 }
+.builtin-prompt-chip.is-selected {
+  border-color: rgba(69,165,87,0.34);
+  background: rgba(69,165,87,0.14);
+  color: #d6f6dd;
+}
 .builtin-prompt-chip:hover {
   border-color: var(--border-hover);
   color: var(--text-primary);
@@ -2381,6 +2506,15 @@ input[type="file"]::file-selector-button:hover { border-color: var(--border-hove
   width: 12px;
   height: 12px;
   flex: 0 0 auto;
+}
+.prompt-library-empty {
+  width: 100%;
+  min-height: 120px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-tertiary);
+  font-size: 12px;
 }
 .prompt-library-saved-actions {
   display: grid;

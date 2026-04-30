@@ -758,16 +758,59 @@ function savePrompt() {
 
 function applyPrompt(prompt: SavedPrompt) {
   currentForm().prompt = prompt.prompt;
+  usePromptLibraryDialog().clearSelected();
   usePromptLibraryDialog().setOpen(false);
+}
+
+function splitPromptTokens(prompt: string) {
+  return prompt.split(/[,，]/).map((item) => item.trim()).filter(Boolean);
+}
+
+function composePromptTokens(baseTokens: string[], libraryTokens: string[]) {
+  const result: string[] = [];
+  [...baseTokens, ...libraryTokens].forEach((token) => {
+    if (token && !result.includes(token)) result.push(token);
+  });
+  return result.join("，");
 }
 
 function appendPromptToken(token: string) {
   const value = token.trim();
   if (!value) return;
+  const promptDialog = usePromptLibraryDialog();
+  if (promptDialog.selectedSet.value.has(value)) return;
   const form = currentForm();
-  const parts = form.prompt.split(/[,，]/).map((item) => item.trim()).filter(Boolean);
-  if (parts.includes(value)) return;
-  form.prompt = [...parts, value].join("，");
+  const existingLibraryTokens = promptDialog.selectedTokens.value;
+  const manualTokens = splitPromptTokens(form.prompt).filter((item) => !promptDialog.selectedSet.value.has(item));
+  form.prompt = composePromptTokens(manualTokens, [...existingLibraryTokens, value]);
+  promptDialog.markSelected(value);
+}
+
+function syncPromptLibraryTokens() {
+  const promptDialog = usePromptLibraryDialog();
+  const manualTokens = splitPromptTokens(currentForm().prompt).filter((item) => !promptDialog.selectedSet.value.has(item));
+  currentForm().prompt = composePromptTokens(manualTokens, promptDialog.selectedTokens.value);
+}
+
+function removePromptToken(token: string) {
+  const value = token.trim();
+  if (!value) return;
+  const promptDialog = usePromptLibraryDialog();
+  promptDialog.unmarkSelected(value);
+  currentForm().prompt = splitPromptTokens(currentForm().prompt).filter((item) => item !== value).join("，");
+}
+
+function reorderLibraryPromptToken(token: string, direction: -1 | 1) {
+  const promptDialog = usePromptLibraryDialog();
+  promptDialog.moveSelected(token.trim(), direction);
+  syncPromptLibraryTokens();
+}
+
+function clearLibraryPromptTokens() {
+  const promptDialog = usePromptLibraryDialog();
+  const selected = promptDialog.selectedSet.value;
+  currentForm().prompt = splitPromptTokens(currentForm().prompt).filter((item) => !selected.has(item)).join("，");
+  promptDialog.clearSelected();
 }
 
 function deletePrompt(id: string) {
@@ -821,6 +864,9 @@ export function useScimageRuntime() {
     activateProviderProfile,
     applyPrompt,
     appendPromptToken,
+    removePromptToken,
+    reorderLibraryPromptToken,
+    clearLibraryPromptTokens,
     batchDelete,
     batchDownload,
     busyJobIds,
