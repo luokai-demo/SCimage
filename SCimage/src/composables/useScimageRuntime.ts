@@ -780,6 +780,23 @@ function appendPromptToken(token: string) {
   form.prompt = composePromptTokens(splitPromptTokens(form.prompt), [value]);
 }
 
+function removePromptToken(token: string) {
+  const value = token.trim();
+  if (!value) return;
+  currentForm().prompt = splitPromptTokens(currentForm().prompt).filter((item) => item !== value).join("，");
+}
+
+function togglePromptToken(token: string) {
+  const value = token.trim();
+  if (!value) return;
+  const currentTokens = splitPromptTokens(currentForm().prompt);
+  if (currentTokens.includes(value)) {
+    removePromptToken(value);
+    return;
+  }
+  appendPromptToken(value);
+}
+
 function deletePrompt(id: string) {
   const promptStore = usePromptStore();
   promptStore.replacePrompts(promptStore.prompts.filter((item) => item.id !== id));
@@ -831,6 +848,8 @@ export function useScimageRuntime() {
     activateProviderProfile,
     applyPrompt,
     appendPromptToken,
+    removePromptToken,
+    togglePromptToken,
     batchDelete,
     batchDownload,
     busyJobIds,

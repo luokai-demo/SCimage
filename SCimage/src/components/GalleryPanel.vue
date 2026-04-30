@@ -50,31 +50,67 @@
       <div id="selectionBox" class="selection-box" :hidden="!selectionBox.visible" :style="selectionBoxStyle"></div>
       <div id="galleryWindow" class="gallery-window" @scroll="onGalleryScroll">
         <div class="gallery-viewport-content">
-          <div id="galleryGrid" ref="galleryGridRef" class="gallery-grid">
-            <div
-              v-for="(item, index) in runtime.visibleGalleryItems.value"
-              :key="`${item.jobId}:${item.slot}`"
-              :class="['gallery-item', 'is-loaded', { 'is-selected': isSelected(item) }]"
-              :data-gallery-key="`${item.jobId}:${item.slot}`"
-              :data-open-lightbox="index"
-              :data-job-id="item.jobId"
-              :data-image-slot="item.slot"
-              @click="runtime.openLightbox(index)"
-            >
-              <button type="button" class="gallery-select-btn" @click.stop="runtime.toggleSelection(item)">✓</button>
-              <img :src="item.src" :alt="item.prompt" loading="lazy">
-              <div class="gallery-overlay">
-                <div class="prompt-preview">{{ item.prompt }}</div>
-                <div class="meta-row">
-                  <span class="meta-actions">
-                    <button type="button" @click.stop="copyPrompt(item.prompt)">复制</button>
-                    <button type="button" @click.stop="runtime.addSourceImageFromGallery(item)">参考</button>
-                    <button type="button" @click.stop="runtime.downloadItem(item)">下载</button>
-                    <button type="button" class="gallery-del-btn" @click.stop="runtime.deleteImage(item.jobId, item.slot)">删除</button>
-                  </span>
+          <div id="galleryGrid" ref="galleryGridRef" :class="['gallery-grid', { 'grouped-by-task': galleryStore.filter !== 'all' }]">
+            <template v-if="galleryStore.filter === 'all'">
+              <div
+                v-for="(item, index) in runtime.visibleGalleryItems.value"
+                :key="`${item.jobId}:${item.slot}`"
+                :class="['gallery-item', 'is-loaded', { 'is-selected': isSelected(item) }]"
+                :data-gallery-key="`${item.jobId}:${item.slot}`"
+                :data-open-lightbox="index"
+                :data-job-id="item.jobId"
+                :data-image-slot="item.slot"
+                @click="runtime.openLightbox(index)"
+              >
+                <button type="button" class="gallery-select-btn" @click.stop="runtime.toggleSelection(item)">✓</button>
+                <img :src="item.src" :alt="item.prompt" loading="lazy">
+                <div class="gallery-overlay">
+                  <div class="prompt-preview">{{ item.prompt }}</div>
+                  <div class="meta-row">
+                    <span class="meta-actions">
+                      <button type="button" @click.stop="copyPrompt(item.prompt)">复制</button>
+                      <button type="button" @click.stop="runtime.addSourceImageFromGallery(item)">参考</button>
+                      <button type="button" @click.stop="runtime.downloadItem(item)">下载</button>
+                      <button type="button" class="gallery-del-btn" @click.stop="runtime.deleteImage(item.jobId, item.slot)">删除</button>
+                    </span>
+                  </div>
                 </div>
               </div>
-            </div>
+            </template>
+            <template v-else>
+              <section v-for="group in galleryGroups.grouped.value" :key="group.id" class="gallery-task-section">
+                <div class="gallery-task-section-head">
+                  <div class="gallery-task-section-title">{{ group.title }}</div>
+                  <div class="gallery-task-section-meta">{{ group.meta }}</div>
+                </div>
+                <div class="gallery-task-section-grid">
+                  <div
+                    v-for="item in group.items"
+                    :key="`${item.jobId}:${item.slot}`"
+                    :class="['gallery-item', 'is-loaded', { 'is-selected': isSelected(item) }]"
+                    :data-gallery-key="`${item.jobId}:${item.slot}`"
+                    :data-open-lightbox="itemIndex(item)"
+                    :data-job-id="item.jobId"
+                    :data-image-slot="item.slot"
+                    @click="runtime.openLightbox(itemIndex(item))"
+                  >
+                    <button type="button" class="gallery-select-btn" @click.stop="runtime.toggleSelection(item)">✓</button>
+                    <img :src="item.src" :alt="item.prompt" loading="lazy">
+                    <div class="gallery-overlay">
+                      <div class="prompt-preview">{{ item.prompt }}</div>
+                      <div class="meta-row">
+                        <span class="meta-actions">
+                          <button type="button" @click.stop="copyPrompt(item.prompt)">复制</button>
+                          <button type="button" @click.stop="runtime.addSourceImageFromGallery(item)">参考</button>
+                          <button type="button" @click.stop="runtime.downloadItem(item)">下载</button>
+                          <button type="button" class="gallery-del-btn" @click.stop="runtime.deleteImage(item.jobId, item.slot)">删除</button>
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </section>
+            </template>
           </div>
           <div v-show="!runtime.visibleGalleryItems.value.length" id="galleryEmpty" class="gallery-empty">还没有图片</div>
         </div>
@@ -87,6 +123,7 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from "vue";
 import { ArrowUpDown, Settings } from "lucide-vue-next";
 import { useScimageRuntime } from "../composables/useScimageRuntime";
+import { useGalleryGroups } from "../composables/useGalleryGroups";
 import type { GalleryFlatItem } from "../stores/gallery";
 import RunningBanner from "./jobs/RunningBanner.vue";
 import IconButton from "./ui/IconButton.vue";
@@ -97,6 +134,7 @@ const jobStore = runtime.jobStore;
 const providerStore = runtime.providerStore;
 const settingsOpen = ref(false);
 const galleryGridRef = ref<HTMLElement | null>(null);
+const galleryGroups = useGalleryGroups(runtime.visibleGalleryItems, computed(() => galleryStore.filter));
 const selectionStart = reactive({ x: 0, y: 0, active: false });
 const selectionBox = reactive({ visible: false, left: 0, top: 0, width: 0, height: 0 });
 let gridResizeObserver: ResizeObserver | null = null;
@@ -123,6 +161,10 @@ const selectionBoxStyle = computed(() => ({
 
 function isSelected(item: GalleryFlatItem) {
   return galleryStore.selectedKeys.has(`${item.jobId}:${item.slot}`);
+}
+
+function itemIndex(item: GalleryFlatItem) {
+  return galleryGroups.itemIndexByKey.value.get(`${item.jobId}:${item.slot}`) ?? 0;
 }
 
 function startEdgeSelection(event: PointerEvent) {
@@ -219,5 +261,6 @@ onBeforeUnmount(() => {
 });
 
 watch(() => runtime.visibleGalleryItems.value.length, () => nextTick(scheduleGalleryColumnsUpdate));
+watch(() => galleryStore.filter, () => nextTick(scheduleGalleryColumnsUpdate));
 watch(() => runtime.workspaceStore.isPanelCollapsed, () => nextTick(scheduleGalleryColumnsUpdate));
 </script>

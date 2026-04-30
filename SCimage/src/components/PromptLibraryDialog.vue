@@ -6,7 +6,7 @@
           <div>
             <DialogTitle class="prompt-library-title">提示词库</DialogTitle>
             <DialogDescription id="promptLibraryDescription" class="prompt-library-description">
-              点击内置词组会追加到当前提示词，已保存提示词仍可直接套用。
+              点击内置词组添加到当前提示词，再次点击可取消添加。
             </DialogDescription>
           </div>
           <button type="button" class="prompt-library-close" aria-label="关闭提示词库" @click="dialog.setOpen(false)">
@@ -44,11 +44,13 @@
                   v-for="item in activeGroupItems"
                   :key="item"
                   type="button"
-                  class="builtin-prompt-chip"
-                  @click="runtime.appendPromptToken(item)"
+                  :class="['builtin-prompt-chip', { 'is-selected': isTokenSelected(item) }]"
+                  @click="runtime.togglePromptToken(item)"
                 >
-                  <Plus aria-hidden="true" />
+                  <Check v-if="isTokenSelected(item)" aria-hidden="true" />
+                  <Plus v-else aria-hidden="true" />
                   <span>{{ item }}</span>
+                  <small>{{ isTokenSelected(item) ? "取消" : "添加" }}</small>
                 </button>
                 <div v-if="!activeGroupItems.length" class="prompt-library-empty">没有匹配的词组</div>
               </div>
@@ -70,7 +72,7 @@
 
 <script setup lang="ts">
 import { computed, ref, watch } from "vue";
-import { Plus, Search, X } from "lucide-vue-next";
+import { Check, Plus, Search, X } from "lucide-vue-next";
 import {
   DialogContent,
   DialogDescription,
@@ -102,6 +104,12 @@ const visibleGroups = computed(() => {
     .filter((group) => group.items.length);
 });
 const activeGroupItems = computed(() => visibleGroups.value.find((group) => group.id === activeGroup.value)?.items || []);
+
+const promptTokenSet = computed(() => new Set(runtime.currentWorkflowForm.value.prompt.split(/[,，]/).map((item) => item.trim()).filter(Boolean)));
+
+function isTokenSelected(token: string) {
+  return promptTokenSet.value.has(token);
+}
 
 watch(visibleGroups, (groups) => {
   if (!groups.some((group) => group.id === activeGroup.value)) {
