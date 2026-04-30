@@ -650,13 +650,13 @@ body {
 }
 .gallery-task-section {
   margin: 0 0 18px;
-  padding: 12px;
+  padding: 10px;
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
   background: rgba(255,255,255,0.02);
   display: grid;
-  grid-template-columns: minmax(180px, 240px) minmax(0, 1fr);
-  gap: 14px;
+  grid-template-columns: minmax(176px, 232px) minmax(0, 1fr);
+  gap: 12px;
   align-items: start;
   content-visibility: auto;
   contain-intrinsic-size: auto 420px;
@@ -665,19 +665,19 @@ body {
   min-width: 0;
   position: sticky;
   top: 0;
-  padding: 10px;
+  padding: 9px;
   border: 1px solid rgba(255,255,255,0.055);
   border-radius: var(--radius);
   background: rgba(0,0,0,0.16);
 }
 .gallery-task-section-eyebrow {
-  margin-bottom: 9px;
+  margin-bottom: 8px;
   color: var(--text-tertiary);
   font-size: 10px;
   line-height: 1.2;
 }
 .gallery-task-section-title {
-  max-height: 84px;
+  max-height: 70px;
   font-size: 12px;
   line-height: 1.45;
   font-weight: 600;
@@ -685,24 +685,24 @@ body {
   overflow: hidden;
   overflow-wrap: anywhere;
   display: -webkit-box;
-  -webkit-line-clamp: 4;
+  -webkit-line-clamp: 3;
   -webkit-box-orient: vertical;
 }
 .gallery-task-section-summary {
-  margin-top: 10px;
-  padding-top: 10px;
+  margin-top: 9px;
+  padding-top: 9px;
   border-top: 1px solid rgba(255,255,255,0.055);
   color: var(--text-secondary);
   font-size: 11px;
   line-height: 1.5;
   overflow-wrap: anywhere;
   display: -webkit-box;
-  -webkit-line-clamp: 5;
+  -webkit-line-clamp: 4;
   -webkit-box-orient: vertical;
   overflow: hidden;
 }
 .gallery-task-section-meta {
-  margin-top: 12px;
+  margin-top: 10px;
   font-size: 10px;
   color: var(--text-tertiary);
   white-space: nowrap;
@@ -1604,7 +1604,7 @@ input[type="file"]::file-selector-button:hover { border-color: var(--border-hove
   .panel-header-copy { max-width: 196px; }
   .gallery-area { padding: 20px; }
   .gallery-task-section {
-    grid-template-columns: minmax(150px, 190px) minmax(0, 1fr);
+    grid-template-columns: minmax(148px, 184px) minmax(0, 1fr);
   }
   .task-panel-meta { max-width: 82px; }
 }
