@@ -50,7 +50,7 @@
       <div id="selectionBox" class="selection-box" :hidden="!selectionBox.visible" :style="selectionBoxStyle"></div>
       <div id="galleryWindow" class="gallery-window" @scroll="onGalleryScroll">
         <div class="gallery-viewport-content">
-          <div id="galleryGrid" class="gallery-grid">
+          <div id="galleryGrid" ref="galleryGridRef" class="gallery-grid">
             <div
               v-for="(item, index) in runtime.visibleGalleryItems.value"
               :key="`${item.jobId}:${item.slot}`"
@@ -84,7 +84,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, reactive, ref } from "vue";
+import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from "vue";
 import { ArrowUpDown, Settings } from "lucide-vue-next";
 import { useScimageRuntime } from "../composables/useScimageRuntime";
 import type { GalleryFlatItem } from "../stores/gallery";
@@ -96,8 +96,11 @@ const galleryStore = runtime.galleryStore;
 const jobStore = runtime.jobStore;
 const providerStore = runtime.providerStore;
 const settingsOpen = ref(false);
+const galleryGridRef = ref<HTMLElement | null>(null);
 const selectionStart = reactive({ x: 0, y: 0, active: false });
 const selectionBox = reactive({ visible: false, left: 0, top: 0, width: 0, height: 0 });
+let gridResizeObserver: ResizeObserver | null = null;
+let layoutFrame = 0;
 
 const galleryCountText = computed(() => {
   const count = runtime.visibleGalleryItems.value.length;
@@ -171,4 +174,50 @@ function resetForm() {
   runtime.currentWorkflowForm.value.size = "auto";
   runtime.currentWorkflowForm.value.quality = "auto";
 }
+
+function clamp(value: number, min: number, max: number) {
+  return Math.min(max, Math.max(min, value));
+}
+
+function updateGalleryColumns() {
+  const grid = galleryGridRef.value;
+  if (!grid) return;
+  const gapPx = 12;
+  const targetColumnWidth = 176;
+  const width = grid.clientWidth;
+  if (!width) return;
+  const columns = clamp(Math.floor((width + gapPx) / (targetColumnWidth + gapPx)), 1, 6);
+  grid.style.setProperty("--gallery-columns", String(columns));
+  grid.style.setProperty("--gallery-task-columns", String(columns));
+  grid.style.setProperty("--gallery-grid-gap", `${gapPx}px`);
+}
+
+function scheduleGalleryColumnsUpdate() {
+  if (layoutFrame) cancelAnimationFrame(layoutFrame);
+  layoutFrame = requestAnimationFrame(() => {
+    layoutFrame = 0;
+    updateGalleryColumns();
+  });
+}
+
+onMounted(() => {
+  nextTick(() => {
+    updateGalleryColumns();
+    if (typeof ResizeObserver === "function" && galleryGridRef.value) {
+      gridResizeObserver = new ResizeObserver(scheduleGalleryColumnsUpdate);
+      gridResizeObserver.observe(galleryGridRef.value);
+    }
+    window.addEventListener("resize", scheduleGalleryColumnsUpdate);
+  });
+});
+
+onBeforeUnmount(() => {
+  gridResizeObserver?.disconnect();
+  gridResizeObserver = null;
+  window.removeEventListener("resize", scheduleGalleryColumnsUpdate);
+  if (layoutFrame) cancelAnimationFrame(layoutFrame);
+});
+
+watch(() => runtime.visibleGalleryItems.value.length, () => nextTick(scheduleGalleryColumnsUpdate));
+watch(() => runtime.workspaceStore.isPanelCollapsed, () => nextTick(scheduleGalleryColumnsUpdate));
 </script>

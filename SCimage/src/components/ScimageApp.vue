@@ -176,10 +176,6 @@ body {
   width: 54px;
   min-width: 54px;
 }
-.panel.is-collapsed + .gallery-area {
-  --gallery-columns: 5;
-  --gallery-task-columns: 5;
-}
 .panel-inner {
   padding: 12px 8px 10px;
   flex: 1;
