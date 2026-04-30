@@ -89,15 +89,22 @@ class ProviderProfileStoreTests(unittest.TestCase):
                 model="gpt-image-1",
                 api_key="secret-key",
                 compat_profile_id=OPENAI_CHAT_EDITS_COMPAT_PROFILE_ID,
+                supports_count_parameter=False,
             )
 
             self.assertEqual(
                 state["active_profile"]["compat_profile_id"],
                 OPENAI_CHAT_EDITS_COMPAT_PROFILE_ID,
             )
+            self.assertFalse(state["active_profile"]["supports_count_parameter"])
             self.assertTrue(
                 any(profile["id"] == OPENAI_CHAT_EDITS_COMPAT_PROFILE_ID for profile in state["compat_profiles"])
             )
+
+            reloaded_store = ProviderProfileStore(Path(temp_dir) / "provider-profiles.json")
+            reloaded_profile = reloaded_store.get_active_profile()
+            self.assertIsNotNone(reloaded_profile)
+            self.assertFalse(reloaded_profile.supports_count_parameter)
 
     def test_delete_active_profile_switches_to_remaining_profile(self) -> None:
         with TemporaryDirectory() as temp_dir:

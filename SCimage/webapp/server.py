@@ -4,19 +4,30 @@ import json
 import mimetypes
 import multiprocessing
 import threading
+import io
+import zipfile
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from urllib.parse import urlparse, urlunsplit
+from urllib.parse import parse_qs, urlparse, urlunsplit
 from uuid import uuid4
 
-from config import GENERATED_DIR, HOST, MAX_IMAGE_COUNT, PORT, RECENT_JOBS_LIMIT, STATIC_DIR
+from config import (
+    DEFAULT_JOBS_PAGE_SIZE,
+    GENERATED_DIR,
+    HOST,
+    MAX_IMAGE_COUNT,
+    MAX_JOBS_PAGE_SIZE,
+    PORT,
+    STATIC_DIR,
+)
 from generated_assets import (
     cleanup_empty_generated_dirs,
     cleanup_empty_job_output_dir,
     remove_job_image_file,
     remove_job_output_dir,
     remove_job_preview_file,
+    job_output_dir,
 )
 from image_service import generate_images
 from job_control import JobRegistry
@@ -126,6 +137,89 @@ def _validate_model_selection_from_payload(payload: dict, *, fallback_profile=No
     return normalized_base_url
 
 
+def _resolve_supports_count_parameter(value: object, *, fallback_profile=None) -> bool:
+    if isinstance(value, bool):
+        return value
+    if value is None:
+        return True if fallback_profile is None else bool(fallback_profile.supports_count_parameter)
+
+    normalized = str(value).strip().lower()
+    if not normalized:
+        return True if fallback_profile is None else bool(fallback_profile.supports_count_parameter)
+    if normalized in {"0", "false", "no", "off"}:
+        return False
+    return True
+
+
+def _normalize_batch_selections(raw_items: object) -> list[dict]:
+    if not isinstance(raw_items, list):
+        return []
+    selections = []
+    seen = set()
+    for item in raw_items:
+        if not isinstance(item, dict):
+            continue
+        job_id = str(item.get("job_id") or item.get("jobId") or "").strip()
+        try:
+            slot = int(item.get("slot", 0))
+        except (TypeError, ValueError):
+            slot = 0
+        key = (job_id, slot)
+        if not job_id or slot <= 0 or key in seen:
+            continue
+        seen.add(key)
+        selections.append({"job_id": job_id, "slot": slot})
+    return selections
+
+
+def _parse_int_query_value(query: dict[str, list[str]], key: str, *, default: int) -> int:
+    values = query.get(key) or []
+    if not values:
+        return default
+    try:
+        return int(str(values[0]).strip())
+    except (TypeError, ValueError):
+        return default
+
+
+def _build_jobs_page_payload(query: dict[str, list[str]]) -> dict:
+    offset = max(0, _parse_int_query_value(query, "offset", default=0))
+    limit = _parse_int_query_value(query, "limit", default=DEFAULT_JOBS_PAGE_SIZE)
+    cursor = str((query.get("cursor") or [""])[0]).strip()
+    limit = min(MAX_JOBS_PAGE_SIZE, max(1, limit))
+    return STORE.list_page(offset=offset, limit=limit, cursor=cursor)
+
+
+def _build_gallery_images_payload(query: dict[str, list[str]]) -> dict:
+    limit = _parse_int_query_value(query, "limit", default=DEFAULT_JOBS_PAGE_SIZE)
+    cursor = str((query.get("cursor") or [""])[0]).strip()
+    sort = str((query.get("sort") or ["desc"])[0]).strip().lower()
+    group_by = str((query.get("group_by") or [""])[0]).strip().lower()
+    group_key = str((query.get("group_key") or [""])[0]).strip()
+    limit = min(MAX_JOBS_PAGE_SIZE, max(1, limit))
+    return STORE.list_gallery_images(
+        limit=limit,
+        cursor=cursor,
+        sort_asc=sort == "asc",
+        group_by=group_by,
+        group_key=group_key,
+    )
+
+
+def _build_gallery_groups_payload(query: dict[str, list[str]]) -> dict:
+    limit = _parse_int_query_value(query, "limit", default=DEFAULT_JOBS_PAGE_SIZE)
+    cursor = str((query.get("cursor") or [""])[0]).strip()
+    sort = str((query.get("sort") or ["desc"])[0]).strip().lower()
+    group_by = str((query.get("group_by") or ["task"])[0]).strip().lower()
+    limit = min(MAX_JOBS_PAGE_SIZE, max(1, limit))
+    return STORE.list_gallery_groups(
+        group_by="prompt" if group_by in {"prompt", "prompts"} else "task",
+        limit=limit,
+        cursor=cursor,
+        sort_asc=sort == "asc",
+    )
+
+
 def _run_job(
     job_id: str,
     workflow: str,
@@ -147,7 +241,7 @@ def _run_job(
             message=f"接口已返回，已保存 {completed_count}/{total_count} 张图片。",
         )
 
-    report(f"任务已创建，准备一次请求生成 {count} 张图片。")
+    report(f"任务已创建，准备生成 {count} 张图片。")
     try:
         result = generate_images(
             job_id=job_id,
@@ -252,6 +346,18 @@ class ImageWorkbenchHandler(BaseHTTPRequestHandler):
         if parsed.path == "/api/maintenance/generated/cleanup-empty-dirs":
             self._handle_cleanup_empty_generated_dirs()
             return
+        if parsed.path == "/api/maintenance/database":
+            payload = self._read_json_body()
+            if payload is None:
+                return
+            self._send_json(STORE.maintain_database(vacuum=bool(payload.get("vacuum"))), HTTPStatus.OK)
+            return
+        if parsed.path == "/api/gallery/batch/delete":
+            self._handle_batch_delete_images()
+            return
+        if parsed.path == "/api/gallery/batch/download":
+            self._handle_batch_download_images()
+            return
         self.send_error(HTTPStatus.NOT_FOUND, "Unknown API path.")
 
     def do_PUT(self) -> None:
@@ -307,7 +413,21 @@ class ImageWorkbenchHandler(BaseHTTPRequestHandler):
             self._serve_file(STATIC_DIR / "index.html", send_body=send_body)
             return
         if parsed.path == "/api/jobs":
-            self._send_json({"jobs": STORE.list_recent(RECENT_JOBS_LIMIT)}, HTTPStatus.OK)
+            self._send_json(_build_jobs_page_payload(parse_qs(parsed.query)), HTTPStatus.OK)
+            return
+        if parsed.path == "/api/gallery/images":
+            self._send_json(_build_gallery_images_payload(parse_qs(parsed.query)), HTTPStatus.OK)
+            return
+        if parsed.path == "/api/gallery/groups":
+            self._send_json(_build_gallery_groups_payload(parse_qs(parsed.query)), HTTPStatus.OK)
+            return
+        if parsed.path == "/api/maintenance/database":
+            self._send_json(STORE.maintain_database(vacuum=False), HTTPStatus.OK)
+            return
+        if parsed.path == "/api/maintenance/database/check":
+            query = parse_qs(parsed.query)
+            check_files = str((query.get("files") or ["0"])[0]).strip().lower() in {"1", "true", "yes"}
+            self._send_json(STORE.check_database(check_files=check_files), HTTPStatus.OK)
             return
         if parsed.path.startswith("/api/jobs/"):
             self._handle_job_status(parsed.path.removeprefix("/api/jobs/"))
@@ -556,6 +676,81 @@ class ImageWorkbenchHandler(BaseHTTPRequestHandler):
             HTTPStatus.OK,
         )
 
+    def _handle_batch_delete_images(self) -> None:
+        payload = self._read_json_body()
+        if payload is None:
+            return
+        selections = _normalize_batch_selections(payload.get("items", []))
+        if not selections:
+            self._send_json({"error": "请先选择要删除的图片。"}, HTTPStatus.BAD_REQUEST)
+            return
+        result = STORE.remove_images(selections)
+        for item in result["removed"]:
+            job_id = item["job_id"]
+            image = item["image"]
+            remove_job_image_file(job_id, str(image.get("name", "")).strip())
+            preview = image.get("preview")
+            if isinstance(preview, dict):
+                remove_job_preview_file(job_id, str(preview.get("name", "")).strip())
+            if job_id in result["deleted_jobs"]:
+                remove_job_output_dir(job_id)
+            else:
+                cleanup_empty_job_output_dir(job_id)
+        self._send_json(
+            {
+                "ok": True,
+                "removed_count": len(result["removed"]),
+                "deleted_jobs": result["deleted_jobs"],
+                "missing": result["missing"],
+            },
+            HTTPStatus.OK,
+        )
+
+    def _handle_batch_download_images(self) -> None:
+        payload = self._read_json_body()
+        if payload is None:
+            return
+        selections = _normalize_batch_selections(payload.get("items", []))
+        if not selections:
+            self._send_json({"error": "请先选择要下载的图片。"}, HTTPStatus.BAD_REQUEST)
+            return
+        buffer = io.BytesIO()
+        added = 0
+        with zipfile.ZipFile(buffer, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+            for selection in selections:
+                snapshot = STORE.snapshot(selection["job_id"])
+                if not snapshot:
+                    continue
+                image = next(
+                    (
+                        item for item in snapshot.get("images", [])
+                        if int(item.get("slot", 0)) == selection["slot"]
+                    ),
+                    None,
+                )
+                if not image:
+                    continue
+                image_name = str(image.get("name", "")).strip()
+                image_path = (job_output_dir(selection["job_id"]) / image_name).resolve()
+                try:
+                    image_path.relative_to(job_output_dir(selection["job_id"]).resolve())
+                except ValueError:
+                    continue
+                if not image_path.exists() or not image_path.is_file():
+                    continue
+                archive.write(image_path, f"{selection['job_id']}/{image_name}")
+                added += 1
+        if added == 0:
+            self._send_json({"error": "选中的图片文件不存在，无法下载。"}, HTTPStatus.NOT_FOUND)
+            return
+        body = buffer.getvalue()
+        self.send_response(HTTPStatus.OK)
+        self.send_header("Content-Type", "application/zip")
+        self.send_header("Content-Disposition", 'attachment; filename="SCimage-selected-images.zip"')
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
     def _handle_create_provider_profile(self) -> None:
         payload = self._read_json_body()
         if payload is None:
@@ -579,6 +774,10 @@ class ImageWorkbenchHandler(BaseHTTPRequestHandler):
                 payload,
                 fallback_profile=source_profile,
             )
+            supports_count_parameter = _resolve_supports_count_parameter(
+                payload.get("supports_count_parameter"),
+                fallback_profile=source_profile,
+            )
         except ValueError as exc:
             self._send_json({"error": str(exc)}, HTTPStatus.BAD_REQUEST)
             return
@@ -593,6 +792,7 @@ class ImageWorkbenchHandler(BaseHTTPRequestHandler):
                 model=str(payload.get("model", "")).strip(),
                 api_key=api_key,
                 compat_profile_id=compat_profile_id,
+                supports_count_parameter=supports_count_parameter,
             )
         except ValueError as exc:
             self._send_json({"error": str(exc)}, HTTPStatus.BAD_REQUEST)
@@ -614,6 +814,10 @@ class ImageWorkbenchHandler(BaseHTTPRequestHandler):
                 payload,
                 fallback_profile=current_profile,
             )
+            supports_count_parameter = _resolve_supports_count_parameter(
+                payload.get("supports_count_parameter"),
+                fallback_profile=current_profile,
+            )
         except ValueError as exc:
             self._send_json({"error": str(exc)}, HTTPStatus.BAD_REQUEST)
             return
@@ -633,6 +837,7 @@ class ImageWorkbenchHandler(BaseHTTPRequestHandler):
                 model=str(payload.get("model", "")).strip(),
                 compat_profile_id=str(payload.get("compat_profile_id", "")).strip(),
                 api_key=api_key if api_key else None,
+                supports_count_parameter=supports_count_parameter,
             )
         except ValueError as exc:
             self._send_json({"error": str(exc)}, HTTPStatus.BAD_REQUEST)
@@ -740,8 +945,7 @@ class ImageWorkbenchHandler(BaseHTTPRequestHandler):
 
 def prepare_runtime_environment() -> list[Path]:
     ensure_runtime_data_dirs()
-    removed_dirs = cleanup_empty_generated_dirs()
-    return removed_dirs
+    return []
 
 
 def create_server(*, host: str = HOST, port: int = PORT) -> ThreadingHTTPServer:

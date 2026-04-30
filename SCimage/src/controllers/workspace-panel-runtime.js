@@ -101,6 +101,9 @@
   function setPanelCollapsed(nextValue) {
     isPanelCollapsed = Boolean(nextValue);
     syncPanelToggleState();
+    window.dispatchEvent(new CustomEvent("gallery-layout-change", {
+      detail: { source: "workspace-panel", collapsed: isPanelCollapsed },
+    }));
   }
 
   function buildSourceFileKey(file) {

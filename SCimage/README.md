@@ -12,6 +12,13 @@
 
 ## 开发态启动
 
+前端已经切换为 `Vue 3 + TypeScript + Vite + Pinia`。修改 `src/` 后需要先构建静态资源：
+
+```bash
+npm install
+npm run build
+```
+
 在项目根目录运行：
 
 ```bash
@@ -23,6 +30,8 @@
 常用命令：
 
 ```bash
+npm run typecheck
+npm run test:browser
 ./启动网页.command status
 ./启动网页.command stop
 ./启动网页.command restart
@@ -56,6 +65,7 @@ generated/
 
 打包脚本会自动：
 
+- 构建 Vue/Vite 前端资源到 `webapp/static`
 - 创建独立构建虚拟环境
 - 安装 `pyinstaller`、`pywebview`、`openai`、`Pillow`
 - 收集 `webapp/static` 资源

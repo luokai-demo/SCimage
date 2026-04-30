@@ -64,6 +64,7 @@ def main() -> int:
     work_dir = build_root / "pyinstaller"
 
     reset_build_dirs(build_root=build_root, dist_root=dist_root)
+    build_frontend_assets()
     venv_python = ensure_build_venv(venv_dir)
     install_build_dependencies(venv_python)
     generate_assets_with_venv(venv_python, target=args.target, assets_dir=assets_dir)
@@ -109,6 +110,14 @@ def ensure_build_venv(venv_dir: Path) -> Path:
 def install_build_dependencies(venv_python: Path) -> None:
     run([str(venv_python), "-m", "pip", "install", "--upgrade", "pip", "wheel"])
     run([str(venv_python), "-m", "pip", "install", "-r", str(PROJECT_ROOT / "requirements-desktop.txt")])
+
+
+def build_frontend_assets() -> None:
+    package_json = PROJECT_ROOT / "package.json"
+    if not package_json.exists():
+        raise SystemExit("缺少 package.json，无法构建 Vue 前端资源。")
+    run(["npm", "install"], cwd=PROJECT_ROOT)
+    run(["npm", "run", "build"], cwd=PROJECT_ROOT)
 
 
 def generate_assets_with_venv(venv_python: Path, *, target: str, assets_dir: Path) -> None:
@@ -320,9 +329,9 @@ def parse_semver_prefix(value: str) -> tuple[int, int, int]:
     return tuple(normalized)
 
 
-def run(command: list[str]) -> None:
+def run(command: list[str], *, cwd: Path = PROJECT_ROOT) -> None:
     print("$", " ".join(command))
-    subprocess.run(command, cwd=PROJECT_ROOT, check=True)
+    subprocess.run(command, cwd=cwd, check=True)
 
 
 if __name__ == "__main__":
