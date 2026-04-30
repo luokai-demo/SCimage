@@ -7,7 +7,7 @@
       </span>
       <span class="task-panel-meta">
         <span id="taskPanelCount" class="task-panel-count">{{ countText }}</span>
-        <span class="task-panel-chevron">⌄</span>
+        <ChevronDown class="task-panel-chevron" aria-hidden="true" />
       </span>
     </summary>
     <div class="task-panel-body">
@@ -60,6 +60,7 @@
 
 <script setup lang="ts">
 import { computed, ref } from "vue";
+import { ChevronDown } from "lucide-vue-next";
 import { useScimageRuntime } from "../../composables/useScimageRuntime";
 import { useJobStore } from "../../stores/jobs";
 import type { JobSummary } from "../../stores/jobs";

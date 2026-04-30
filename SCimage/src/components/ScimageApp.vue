@@ -1884,9 +1884,11 @@ input[type="file"]::file-selector-button:hover { border-color: var(--border-hove
 }
 .task-panel-chevron {
   flex: 0 0 auto;
+  width: 13px;
+  height: 13px;
   color: var(--text-tertiary);
-  font-size: 12px;
   transition: transform 180ms ease;
+  stroke-width: 1.8;
 }
 .task-panel[open] .task-panel-chevron { transform: rotate(180deg); }
 .task-panel-body {
