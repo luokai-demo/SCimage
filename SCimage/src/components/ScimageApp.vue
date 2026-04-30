@@ -616,10 +616,9 @@ body {
   padding: 4px 4px 24px;
 }
 .gallery-grid {
-  display: grid;
-  grid-template-columns: repeat(var(--gallery-columns, 4), minmax(0, 1fr));
-  gap: var(--gallery-grid-gap, 10px);
-  align-items: start;
+  display: block;
+  column-count: var(--gallery-columns, 4);
+  column-gap: var(--gallery-grid-gap, 10px);
 }
 .gallery-grid.grouped-by-task {
   display: block;
@@ -676,17 +675,16 @@ body {
   white-space: nowrap;
 }
 .gallery-task-section-grid {
-  display: grid;
-  grid-template-columns: repeat(var(--gallery-task-columns, 4), minmax(0, 1fr));
-  gap: var(--gallery-grid-gap, 10px);
-  align-items: start;
+  display: block;
+  column-count: var(--gallery-task-columns, 4);
+  column-gap: var(--gallery-grid-gap, 10px);
 }
 
 .gallery-item {
   container: gallery / inline-size;
-  display: block;
+  display: inline-block;
   width: 100%;
-  margin: 0;
+  margin: 0 0 var(--gallery-grid-gap, 10px);
   position: relative;
   border-radius: 10px;
   overflow: hidden;
@@ -694,6 +692,7 @@ body {
   cursor: pointer;
   transition: background var(--transition), box-shadow 180ms ease;
   background: var(--gallery-placeholder-color, rgba(255,255,255,0.02));
+  break-inside: avoid;
   box-shadow:
     0 1px 0 rgba(255,255,255,0.04) inset,
     0 14px 30px rgba(0,0,0,0.18);
