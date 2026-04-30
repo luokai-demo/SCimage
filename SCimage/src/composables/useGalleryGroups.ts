@@ -4,6 +4,7 @@ import type { GalleryFilter, GalleryFlatItem } from "../stores/gallery";
 export interface GalleryRenderGroup {
   id: string;
   title: string;
+  summary: string;
   meta: string;
   items: GalleryFlatItem[];
 }
@@ -24,6 +25,7 @@ function groupByTask(items: GalleryFlatItem[]): GalleryRenderGroup[] {
       group = {
         id: `task:${id}`,
         title: `任务 ${id.slice(0, 8) || "未知"}`,
+        summary: normalizePrompt(item.prompt),
         meta: "",
         items: [],
       };
@@ -45,6 +47,7 @@ function groupByPrompt(items: GalleryFlatItem[]): GalleryRenderGroup[] {
       group = {
         id: `prompt:${prompt}`,
         title: prompt,
+        summary: prompt,
         meta: "",
         items: [],
       };

@@ -654,15 +654,24 @@ body {
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
   background: rgba(255,255,255,0.02);
+  display: grid;
+  grid-template-columns: minmax(180px, 240px) minmax(0, 1fr);
+  gap: 14px;
+  align-items: start;
   content-visibility: auto;
   contain-intrinsic-size: auto 420px;
 }
-.gallery-task-section-head {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 12px;
-  margin-bottom: 10px;
+.gallery-task-section-info {
+  min-width: 0;
+  position: sticky;
+  top: 0;
+  padding: 4px 2px 2px;
+}
+.gallery-task-section-eyebrow {
+  margin-bottom: 8px;
+  color: var(--text-tertiary);
+  font-size: 10px;
+  line-height: 1.2;
 }
 .gallery-task-section-title {
   font-size: 12px;
@@ -670,12 +679,25 @@ body {
   color: var(--text-primary);
   word-break: break-word;
 }
+.gallery-task-section-summary {
+  margin-top: 8px;
+  color: var(--text-secondary);
+  font-size: 12px;
+  line-height: 1.55;
+  word-break: break-word;
+  display: -webkit-box;
+  -webkit-line-clamp: 8;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
 .gallery-task-section-meta {
+  margin-top: 12px;
   font-size: 10px;
   color: var(--text-tertiary);
   white-space: nowrap;
 }
 .gallery-task-section-grid {
+  min-width: 0;
   display: grid;
   grid-template-columns: repeat(var(--gallery-columns, 4), minmax(0, 1fr));
   gap: var(--gallery-grid-gap, 10px);
@@ -1568,6 +1590,9 @@ input[type="file"]::file-selector-button:hover { border-color: var(--border-hove
   }
   .panel-header-copy { max-width: 196px; }
   .gallery-area { padding: 20px; }
+  .gallery-task-section {
+    grid-template-columns: minmax(150px, 190px) minmax(0, 1fr);
+  }
   .task-panel-meta { max-width: 82px; }
 }
 
@@ -1577,6 +1602,9 @@ input[type="file"]::file-selector-button:hover { border-color: var(--border-hove
   .panel { width: 100%; min-width: 0; border-right: none; border-bottom: 1px solid var(--border); }
   .gallery-area { height: auto; min-height: 50vh; padding: 18px; }
   .gallery-window-shell { min-height: 50vh; }
+  .gallery-task-section { grid-template-columns: 1fr; }
+  .gallery-task-section-info { position: static; }
+  .gallery-task-section-summary { -webkit-line-clamp: 4; }
   .running-banner { max-height: 360px; }
   .running-banner-body { grid-template-columns: 1fr; max-height: 286px; }
   .running-job-header { flex-direction: column; align-items: stretch; }
