@@ -15,7 +15,10 @@
             <button :class="{ active: galleryStore.filter === 'tasks' }" data-gallery-filter="tasks" @click="runtime.setGalleryFilter('tasks')">任务</button>
             <button :class="{ active: galleryStore.filter === 'prompts' }" data-gallery-filter="prompts" @click="runtime.setGalleryFilter('prompts')">提示词</button>
           </div>
-          <button class="gallery-sort-btn" id="sortBtn" title="排序" @click="runtime.toggleSort">{{ galleryStore.sortAsc ? "旧→新 ↑" : "新→旧 ↓" }}</button>
+          <button class="gallery-sort-btn" id="sortBtn" title="排序" @click="runtime.toggleSort">
+            <span>{{ galleryStore.sortAsc ? "旧到新" : "新到旧" }}</span>
+            <ArrowUpDown aria-hidden="true" />
+          </button>
           <div class="settings-wrap">
             <IconButton id="settingsToggleBtn" class-name="settings-toggle" label="设置" @click="settingsOpen = !settingsOpen">
               <Settings aria-hidden="true" />
@@ -82,7 +85,7 @@
 
 <script setup lang="ts">
 import { computed, reactive, ref } from "vue";
-import { Settings } from "lucide-vue-next";
+import { ArrowUpDown, Settings } from "lucide-vue-next";
 import { useScimageRuntime } from "../composables/useScimageRuntime";
 import type { GalleryFlatItem } from "../stores/gallery";
 import RunningBanner from "./jobs/RunningBanner.vue";

@@ -8,7 +8,7 @@
       </span>
       <span class="running-banner-meta">
         <span id="runningBannerCount" class="running-banner-count">{{ runningJobs.length }} 个</span>
-        <span class="running-chevron">⌄</span>
+        <ChevronDown class="running-chevron" aria-hidden="true" />
       </span>
     </button>
     <div id="runningBannerBody" class="running-banner-body">
@@ -57,6 +57,7 @@
 
 <script setup lang="ts">
 import { computed } from "vue";
+import { ChevronDown } from "lucide-vue-next";
 import { useScimageRuntime } from "../../composables/useScimageRuntime";
 import type { JobSummary } from "../../stores/jobs";
 import { useJobStore } from "../../stores/jobs";

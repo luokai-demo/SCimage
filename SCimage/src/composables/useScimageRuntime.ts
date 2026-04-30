@@ -4,6 +4,7 @@ import { useJobStore, type JobSummary } from "../stores/jobs";
 import { usePromptStore, type SavedPrompt } from "../stores/prompts";
 import { useProviderStore, type ProviderProfilesState } from "../stores/provider";
 import { useWorkspaceStore, type WorkflowName } from "../stores/workspace";
+import { useConfirmDialog } from "./useConfirmDialog";
 
 type StatusTone = "loading" | "success" | "error" | "";
 
@@ -258,7 +259,14 @@ async function saveProviderProfile(asNew = false) {
 }
 
 async function deleteProviderProfile(profileId: string) {
-  if (!profileId || !window.confirm("确定删除这个配置吗？")) return;
+  if (!profileId) return;
+  const confirmed = await useConfirmDialog().confirm({
+    title: "删除 API 配置",
+    description: "这个 API 配置会从本地保存列表中移除，当前正在使用它时也会同步切换到下一个可用配置。",
+    confirmText: "删除配置",
+    tone: "danger",
+  });
+  if (!confirmed) return;
   const providerStore = useProviderStore();
   providerStore.setSaving(true);
   try {
@@ -579,7 +587,15 @@ async function jobAction(jobId: string, action: "cancel" | "retry" | "delete") {
   if (!jobId) return;
   const method = action === "delete" ? "DELETE" : "POST";
   const path = action === "delete" ? `/api/jobs/${jobId}` : `/api/jobs/${jobId}/${action}`;
-  if (action === "delete" && !window.confirm("确定删除这个任务吗？")) return;
+  if (action === "delete") {
+    const confirmed = await useConfirmDialog().confirm({
+      title: "删除任务",
+      description: "这个任务记录会被删除，任务下的图片也会从图库中移除。",
+      confirmText: "删除任务",
+      tone: "danger",
+    });
+    if (!confirmed) return;
+  }
   setJobBusy(jobId, true);
   try {
     await apiRequest(path, { method, timeoutMs: 30000 });
@@ -594,7 +610,13 @@ async function jobAction(jobId: string, action: "cancel" | "retry" | "delete") {
 }
 
 async function deleteImage(jobId: string, slot: number) {
-  if (!window.confirm("确定删除这张图片吗？")) return;
+  const confirmed = await useConfirmDialog().confirm({
+    title: "删除图片",
+    description: "这张图片会从图库和本地生成记录中移除。",
+    confirmText: "删除图片",
+    tone: "danger",
+  });
+  if (!confirmed) return;
   setJobBusy(jobId, true);
   try {
     await apiRequest(`/api/jobs/${jobId}/images/${slot}`, { method: "DELETE" });
@@ -634,7 +656,14 @@ function selectByRect(rect: DOMRect) {
 async function batchDelete() {
   const galleryStore = useGalleryStore();
   const items = galleryStore.selectedItems;
-  if (!items.length || !window.confirm(`确定删除选中的 ${items.length} 张图片吗？`)) return;
+  if (!items.length) return;
+  const confirmed = await useConfirmDialog().confirm({
+    title: "批量删除图片",
+    description: `选中的 ${items.length} 张图片会从图库和本地生成记录中移除。`,
+    confirmText: "删除图片",
+    tone: "danger",
+  });
+  if (!confirmed) return;
   try {
     await apiRequest("/api/gallery/batch/delete", { method: "POST", body: { items } });
     galleryStore.clearSelection();

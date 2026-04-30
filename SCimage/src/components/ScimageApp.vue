@@ -5,6 +5,7 @@
       <GalleryPanel />
     </div>
     <FeedbackOverlays />
+    <ConfirmDialog />
   </TooltipProvider>
 </template>
 
@@ -16,6 +17,7 @@ import { useScimageRuntime } from "../composables/useScimageRuntime";
 import WorkspacePanel from "./WorkspacePanel.vue";
 import GalleryPanel from "./GalleryPanel.vue";
 import FeedbackOverlays from "./FeedbackOverlays.vue";
+import ConfirmDialog from "./ui/ConfirmDialog.vue";
 
 const uiStore = useUiStore();
 const runtime = useScimageRuntime();
@@ -74,6 +76,89 @@ body {
   display: inline-flex;
   flex: 0 0 auto;
 }
+.confirm-dialog-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1200;
+  background: rgba(0,0,0,0.58);
+  backdrop-filter: blur(4px);
+  animation: confirmOverlayIn 130ms ease-out;
+}
+.confirm-dialog-content {
+  position: fixed;
+  z-index: 1201;
+  top: 50%;
+  left: 50%;
+  width: min(360px, calc(100vw - 36px));
+  transform: translate(-50%, -50%);
+  border: 1px solid rgba(255,255,255,0.1);
+  border-radius: var(--radius-lg);
+  background: #090909;
+  padding: 16px;
+  box-shadow: 0 24px 70px rgba(0,0,0,0.46);
+  animation: confirmContentIn 150ms var(--panel-ease);
+}
+.confirm-dialog-title {
+  color: var(--text-primary);
+  font-size: 14px;
+  font-weight: 650;
+  line-height: 1.35;
+}
+.confirm-dialog-description {
+  margin-top: 8px;
+  color: var(--text-secondary);
+  font-size: 12px;
+  line-height: 1.55;
+}
+.confirm-dialog-actions {
+  margin-top: 16px;
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+.confirm-dialog-cancel,
+.confirm-dialog-action {
+  min-width: 74px;
+  min-height: 30px;
+  padding: 0 12px;
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+  font-family: inherit;
+  font-size: 12px;
+  cursor: pointer;
+  transition: border-color var(--transition), background var(--transition), color var(--transition);
+}
+.confirm-dialog-cancel {
+  background: transparent;
+  color: var(--text-secondary);
+}
+.confirm-dialog-action {
+  background: rgba(255,255,255,0.92);
+  color: #000;
+}
+.confirm-dialog-action.is-danger {
+  border-color: rgba(229,72,77,0.36);
+  background: rgba(229,72,77,0.18);
+  color: #ffb3b6;
+}
+.confirm-dialog-cancel:hover {
+  border-color: var(--border-hover);
+  color: var(--text-primary);
+}
+.confirm-dialog-action:hover {
+  background: #fff;
+}
+.confirm-dialog-action.is-danger:hover {
+  background: rgba(229,72,77,0.28);
+}
+@keyframes confirmOverlayIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+@keyframes confirmContentIn {
+  from { opacity: 0; transform: translate(-50%, -48%); }
+  to { opacity: 1; transform: translate(-50%, -50%); }
+}
 
 /* Layout */
 .app { display: flex; height: 100vh; }
@@ -88,6 +173,10 @@ body {
 .panel.is-collapsed {
   width: 54px;
   min-width: 54px;
+}
+.panel.is-collapsed + .gallery-area {
+  --gallery-columns: 5;
+  --gallery-task-columns: 5;
 }
 .panel-inner {
   padding: 18px 14px 12px;
@@ -180,11 +269,18 @@ body {
   font-size: 11px; font-weight: 500; cursor: pointer; user-select: none;
 }
 .connection-card summary::-webkit-details-marker { display: none; }
-.connection-card summary::after {
-  content: '⌄'; color: var(--text-tertiary); font-size: 12px;
-  transition: transform var(--transition);
+.details-chevron {
+  flex: 0 0 auto;
+  width: 13px;
+  height: 13px;
+  color: var(--text-tertiary);
+  stroke-width: 1.8;
+  transition: transform var(--transition), color var(--transition);
 }
-.connection-card:not([open]) summary::after { transform: rotate(-90deg); }
+.connection-card[open] > summary .details-chevron,
+.inline-drawer[open] > summary .details-chevron {
+  transform: rotate(180deg);
+}
 .connection-card-body {
   height: clamp(176px, 25vh, 226px);
   overflow-y: auto;
@@ -350,9 +446,9 @@ body {
 }
 .inline-drawer summary {
   list-style: none;
-  display: flex;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
   align-items: center;
-  justify-content: space-between;
   gap: 8px;
   cursor: pointer;
   user-select: none;
@@ -412,9 +508,12 @@ body {
   min-width: 0;
 }
 .gallery-header-normal {
+  position: relative;
+  z-index: 13;
   justify-content: space-between;
   gap: 12px;
   animation: galleryHeaderSwap 150ms ease-out both;
+  pointer-events: none;
 }
 .gallery-header-normal[hidden],
 .gallery-header-batch[hidden] { display: none !important; }
@@ -436,7 +535,14 @@ body {
     transform: translateY(0);
   }
 }
-.gallery-header-left { display: flex; align-items: center; gap: 8px; }
+.gallery-header-left {
+  position: relative;
+  z-index: 13;
+  pointer-events: auto;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
 .gallery-count { color: var(--text-tertiary); font-size: 12px; }
 .gallery-filter { display: flex; gap: 4px; }
 .gallery-filter button {
@@ -452,12 +558,27 @@ body {
   font-family: inherit; cursor: pointer;
   border: 1px solid var(--border); background: transparent;
   color: var(--text-tertiary); transition: all var(--transition); white-space: nowrap;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
 }
 .gallery-sort-btn:hover { color: var(--text-secondary); border-color: var(--border-hover); }
-.gallery-actions-right { display: flex; gap: 8px; align-items: center; }
+.gallery-sort-btn svg {
+  width: 12px;
+  height: 12px;
+  stroke-width: 1.8;
+}
+.gallery-actions-right {
+  position: relative;
+  z-index: 13;
+  pointer-events: auto;
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
 .gallery-page-drag-zone {
   position: absolute;
-  z-index: 12;
+  z-index: 14;
   background: transparent;
   pointer-events: auto;
   touch-action: none;
@@ -470,8 +591,8 @@ body {
 }
 .gallery-page-drag-zone-header {
   top: 0;
-  left: 96px;
-  right: 260px;
+  left: 118px;
+  right: 360px;
   height: 34px;
 }
 .gallery-window-shell {
@@ -1533,6 +1654,31 @@ input[type="file"]::file-selector-button:hover { border-color: var(--border-hove
   font-size: 10px; line-height: 16px; text-align: center;
   cursor: pointer; padding: 0;
 }
+.source-preview-item {
+  position: relative;
+  display: inline-flex;
+}
+.source-preview-item button {
+  position: absolute;
+  top: -5px;
+  right: -5px;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border: 1px solid rgba(255,255,255,0.18);
+  border-radius: 999px;
+  background: rgba(229,72,77,0.9);
+  color: #fff;
+  cursor: pointer;
+  display: inline-grid;
+  place-items: center;
+  box-shadow: 0 8px 16px rgba(0,0,0,0.28);
+}
+.source-preview-item button svg {
+  width: 11px;
+  height: 11px;
+  stroke-width: 2;
+}
 
 /* Settings panel */
 .settings-wrap { position: relative; }
@@ -1601,6 +1747,11 @@ input[type="file"]::file-selector-button:hover { border-color: var(--border-hove
 .running-banner-meta { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
 .running-banner-count { color: var(--text-secondary); font-size: 10px; padding: 3px 8px; border-radius: 999px; background: rgba(255,255,255,0.04); }
 .running-chevron { color: var(--text-tertiary); font-size: 12px; transition: transform 180ms ease; }
+.running-chevron {
+  width: 13px;
+  height: 13px;
+  stroke-width: 1.8;
+}
 .running-banner.is-collapsed .running-chevron { transform: rotate(-90deg); }
 .running-banner-body {
   padding: 0 10px 10px;

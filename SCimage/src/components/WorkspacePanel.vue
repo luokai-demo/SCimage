@@ -12,7 +12,10 @@
 
       <div class="panel-body">
         <details class="connection-card" id="providerConfigCard">
-          <summary>提供方配置</summary>
+          <summary>
+            <span>API配置</span>
+            <ChevronDown class="details-chevron" aria-hidden="true" />
+          </summary>
           <div class="connection-card-body">
             <div class="provider-config-stack">
               <div class="provider-config-cluster">
@@ -126,7 +129,9 @@
                   <div class="drop-zone-preview" id="sourcePreview">
                     <span v-for="item in runtime.sourceImages.value" :key="item.key" class="source-preview-item">
                       <img :src="item.url" :alt="item.name">
-                      <button type="button" @click.stop="runtime.removeSourceImage(item.key)">×</button>
+                      <button type="button" aria-label="移除参考图" @click.stop="runtime.removeSourceImage(item.key)">
+                        <X aria-hidden="true" />
+                      </button>
                     </span>
                   </div>
                   <input ref="sourceInput" type="file" id="sourceImage" accept="image/*" multiple style="display:none;" @change="onSourceChange">
@@ -148,6 +153,7 @@
                   <summary>
                     <span>已保存提示词</span>
                     <span id="promptBankCount" class="workspace-inline-hint">{{ promptStore.activePrompts.length }} 条</span>
+                    <ChevronDown class="details-chevron" aria-hidden="true" />
                   </summary>
                   <div class="inline-drawer-body">
                     <div class="button-row compact">
@@ -211,7 +217,7 @@
 
 <script setup lang="ts">
 import { ref } from "vue";
-import { ChevronLeft, Eye, RefreshCw } from "lucide-vue-next";
+import { ChevronDown, ChevronLeft, Eye, RefreshCw, X } from "lucide-vue-next";
 import { useScimageRuntime } from "../composables/useScimageRuntime";
 import { usePromptStore } from "../stores/prompts";
 import IconButton from "./ui/IconButton.vue";
