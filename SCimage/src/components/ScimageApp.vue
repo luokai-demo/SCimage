@@ -2222,7 +2222,8 @@ input[type="file"]::file-selector-button:hover { border-color: var(--border-hove
   z-index: 901;
   top: 12px;
   left: calc(var(--panel-width) + 10px);
-  bottom: 12px;
+  bottom: auto;
+  height: min(560px, calc(100vh - 48px));
   width: min(520px, calc(100vw - var(--panel-width) - 28px));
   min-width: 360px;
   display: flex;
