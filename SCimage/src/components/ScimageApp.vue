@@ -33,8 +33,8 @@ onMounted(() => {
 <style>
 
 :root {
-  --panel-width: clamp(300px, 24vw, 340px);
-  --panel-width-compact: 280px;
+  --panel-width: 272px;
+  --panel-width-compact: 260px;
   --bg: #000000;
   --surface: #0a0a0a;
   --border: #1a1a1a;
@@ -181,7 +181,7 @@ body {
   --gallery-task-columns: 5;
 }
 .panel-inner {
-  padding: 18px 10px 12px;
+  padding: 12px 8px 10px;
   flex: 1;
   display: flex;
   flex-direction: column;
@@ -189,19 +189,19 @@ body {
   transition: padding var(--panel-transition);
 }
 .panel.is-collapsed .panel-inner {
-  padding: 18px 8px 12px;
+  padding: 12px 7px 10px;
 }
 .panel-header {
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
   gap: 8px;
-  margin-bottom: 10px;
+  margin-bottom: 8px;
 }
 .panel-header-copy {
   min-width: 0;
   overflow: hidden;
-  max-width: 240px;
+  max-width: 204px;
   transition: max-width var(--panel-transition), opacity 260ms ease, transform var(--panel-transition);
 }
 .panel.is-collapsed .panel-header {
@@ -220,8 +220,8 @@ body {
   white-space: nowrap;
 }
 .panel-toggle {
-  width: 28px;
-  height: 28px;
+  width: 24px;
+  height: 24px;
   flex-shrink: 0;
   display: inline-flex;
   align-items: center;
@@ -262,12 +262,12 @@ body {
 }
 .connection-card {
   border: 1px solid var(--border); border-radius: var(--radius);
-  background: rgba(255,255,255,0.015); margin-bottom: 8px; overflow: hidden;
+  background: rgba(255,255,255,0.015); margin-bottom: 6px; overflow: hidden;
   min-height: 0;
 }
 .connection-card summary {
   list-style: none; display: flex; align-items: center; justify-content: space-between;
-  gap: 8px; padding: 8px 8px; color: var(--text-secondary);
+  gap: 8px; padding: 6px 7px; color: var(--text-secondary);
   font-size: 11px; font-weight: 500; cursor: pointer; user-select: none;
 }
 .connection-card summary::-webkit-details-marker { display: none; }
@@ -283,12 +283,12 @@ body {
   transform: rotate(180deg);
 }
 .connection-card-body {
-  height: clamp(176px, 25vh, 226px);
+  height: clamp(150px, 22vh, 190px);
   overflow-y: auto;
   overscroll-behavior: contain;
   scrollbar-gutter: stable;
-  padding: 0 8px 8px;
-  padding-right: 4px;
+  padding: 0 6px 6px;
+  padding-right: 3px;
 }
 .workspace-shell {
   display: flex;
@@ -296,16 +296,16 @@ body {
   min-height: 0;
   flex-direction: column;
   overflow: hidden;
-  gap: 10px;
+  gap: 6px;
 }
 .workflow-tabs {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 6px;
+  gap: 4px;
   margin-bottom: 0;
 }
 .workflow-tab {
-  min-height: 32px;
+  min-height: 28px;
   padding: 0 6px;
   border: 1px solid var(--border);
   border-radius: var(--radius);
@@ -337,18 +337,18 @@ body {
   display: flex;
   flex-direction: column;
   border: 1px solid var(--border);
-  border-radius: var(--radius-lg);
+  border-radius: var(--radius);
   background:
     radial-gradient(circle at top right, rgba(255,255,255,0.055), transparent 34%),
     linear-gradient(180deg, rgba(255,255,255,0.02), rgba(255,255,255,0.012));
-  padding: 11px;
+  padding: 8px;
 }
 .workspace-card-head {
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
-  gap: 10px;
-  margin-bottom: 10px;
+  gap: 8px;
+  margin-bottom: 7px;
 }
 .workspace-card-copy { min-width: 0; }
 .workspace-eyebrow {
@@ -390,17 +390,17 @@ body {
   min-height: 0;
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 7px;
   overflow-y: auto;
   overscroll-behavior: contain;
-  padding-right: 5px;
+  padding-right: 3px;
   scrollbar-gutter: stable;
 }
 .workspace-group {
   border: 1px solid var(--border);
   border-radius: var(--radius);
   background: rgba(0,0,0,0.28);
-  padding: 10px;
+  padding: 8px;
 }
 .workspace-group.mode-hidden { display: none; }
 .workspace-group-head {
@@ -408,7 +408,7 @@ body {
   align-items: flex-start;
   justify-content: space-between;
   gap: 8px;
-  margin-bottom: 8px;
+  margin-bottom: 6px;
 }
 .workspace-group-title {
   font-size: 11px;
@@ -2234,11 +2234,11 @@ input[type="file"]::file-selector-button:hover { border-color: var(--border-hove
 .prompt-library-dialog {
   position: fixed;
   z-index: 901;
-  top: 64px;
-  right: 24px;
-  bottom: 24px;
-  width: min(520px, calc(100vw - var(--panel-width) - 48px));
-  min-width: 380px;
+  top: 12px;
+  left: calc(var(--panel-width) + 10px);
+  bottom: 12px;
+  width: min(520px, calc(100vw - var(--panel-width) - 28px));
+  min-width: 360px;
   display: flex;
   flex-direction: column;
   border: 1px solid rgba(255,255,255,0.1);
