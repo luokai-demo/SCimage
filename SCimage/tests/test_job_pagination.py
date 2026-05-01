@@ -115,10 +115,8 @@ class JobPaginationTests(unittest.TestCase):
 
             with patch.object(job_store, "JOB_RECORDS_PATH", json_path):
                 with patch.object(job_persistence, "GENERATED_DIR", temp_path / "generated"):
-                    store = job_store.JobStore(database_path)
-                    self.addCleanup(store.close)
-
-                    page = store.list_page(offset=0, limit=10)
+                    with job_store.JobStore(database_path) as store:
+                        page = store.list_page(offset=0, limit=10)
 
         self.assertEqual(page["total"], 1)
         self.assertEqual(page["jobs"][0]["id"], "legacy-job")
@@ -131,10 +129,8 @@ class JobPaginationTests(unittest.TestCase):
             database_path = temp_path / "job-records.db"
 
             with patch.object(job_store, "JOB_RECORDS_PATH", temp_path / "missing-job-records.json"):
-                existing_store = job_store.JobStore(database_path)
-                self.addCleanup(existing_store.close)
-                existing_store.create(prompt="existing", count=1, quality="auto", job_id="existing-job")
-                existing_store.close()
+                with job_store.JobStore(database_path) as existing_store:
+                    existing_store.create(prompt="existing", count=1, quality="auto", job_id="existing-job")
 
             json_path.write_text(
                 json.dumps(
@@ -165,10 +161,8 @@ class JobPaginationTests(unittest.TestCase):
 
             with patch.object(job_store, "JOB_RECORDS_PATH", json_path):
                 with patch.object(job_persistence, "GENERATED_DIR", temp_path / "generated"):
-                    store = job_store.JobStore(database_path)
-                    self.addCleanup(store.close)
-
-                    page = store.list_page(offset=0, limit=10)
+                    with job_store.JobStore(database_path) as store:
+                        page = store.list_page(offset=0, limit=10)
         job_ids = {job["id"] for job in page["jobs"]}
 
         self.assertEqual(page["total"], 2)
@@ -272,10 +266,8 @@ class JobPaginationTests(unittest.TestCase):
             with patch.object(job_store, "JOB_RECORDS_PATH", json_path):
                 with patch.object(job_persistence, "GENERATED_DIR", generated_dir):
                     with patch.object(job_persistence, "build_images_from_generated_dir") as mocked_builder:
-                        store = job_store.JobStore(temp_path / "job-records.db")
-                        self.addCleanup(store.close)
-
-                        total = store.list_page(offset=0, limit=10)["total"]
+                        with job_store.JobStore(temp_path / "job-records.db") as store:
+                            total = store.list_page(offset=0, limit=10)["total"]
 
         self.assertEqual(total, 0)
         mocked_builder.assert_not_called()
