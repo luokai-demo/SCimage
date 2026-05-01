@@ -68,7 +68,7 @@
                   :data-image-slot="item.slot"
                   @click="runtime.openLightbox(itemIndex(item))"
                 >
-                  <button type="button" class="gallery-select-btn" @click.stop="runtime.toggleSelection(item)">✓</button>
+                  <button type="button" class="gallery-select-btn" :aria-label="isSelected(item) ? '取消选择图片' : '选择图片'" @click.stop="runtime.toggleSelection(item)"></button>
                   <img :src="item.src" :alt="item.prompt" loading="lazy">
                   <div class="gallery-overlay">
                     <div class="prompt-preview">{{ item.prompt }}</div>
@@ -104,7 +104,7 @@
                       :data-image-slot="item.slot"
                       @click="runtime.openLightbox(itemIndex(item))"
                     >
-                      <button type="button" class="gallery-select-btn" @click.stop="runtime.toggleSelection(item)">✓</button>
+                      <button type="button" class="gallery-select-btn" :aria-label="isSelected(item) ? '取消选择图片' : '选择图片'" @click.stop="runtime.toggleSelection(item)"></button>
                       <img :src="item.src" :alt="item.prompt" loading="lazy">
                       <div class="gallery-overlay">
                         <div class="prompt-preview">{{ item.prompt }}</div>
