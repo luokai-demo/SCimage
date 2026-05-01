@@ -4,6 +4,8 @@ on:
   push:
     branches:
       - main
+    paths:
+      - "SCimage/**"
 
 permissions:
   actions: write
@@ -31,6 +33,7 @@ jobs:
         uses: actions/setup-python@v6
         with:
           python-version: "3.9"
+          check-latest: true
 
       - name: 打标签前运行测试
         shell: bash
