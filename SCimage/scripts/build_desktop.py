@@ -116,8 +116,9 @@ def build_frontend_assets() -> None:
     package_json = PROJECT_ROOT / "package.json"
     if not package_json.exists():
         raise SystemExit("缺少 package.json，无法构建 Vue 前端资源。")
-    run(["npm", "install"], cwd=PROJECT_ROOT)
-    run(["npm", "run", "build"], cwd=PROJECT_ROOT)
+    npm = command_name("npm")
+    run([npm, "install"], cwd=PROJECT_ROOT)
+    run([npm, "run", "build"], cwd=PROJECT_ROOT)
 
 
 def generate_assets_with_venv(venv_python: Path, *, target: str, assets_dir: Path) -> None:
@@ -332,6 +333,14 @@ def parse_semver_prefix(value: str) -> tuple[int, int, int]:
 def run(command: list[str], *, cwd: Path = PROJECT_ROOT) -> None:
     print("$", " ".join(command))
     subprocess.run(command, cwd=cwd, check=True)
+
+
+def command_name(name: str) -> str:
+    if os.name == "nt":
+        resolved = shutil.which(name) or shutil.which(f"{name}.cmd")
+        if resolved:
+            return resolved
+    return name
 
 
 if __name__ == "__main__":
