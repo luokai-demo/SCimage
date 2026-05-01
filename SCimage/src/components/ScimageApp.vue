@@ -1793,8 +1793,11 @@ input[type="file"]::file-selector-button:hover { border-color: var(--border-hove
 .gallery-item:hover .gallery-select-btn,
 .gallery-item.is-selected .gallery-select-btn,
 .gallery-select-btn:hover,
-.gallery-select-btn:focus,
 .gallery-select-btn:focus-visible { opacity: 1; }
+.gallery-select-btn:focus:not(:focus-visible) { opacity: 0; }
+.gallery-item.is-hovering .gallery-select-btn:focus,
+.gallery-item:hover .gallery-select-btn:focus,
+.gallery-item.is-selected .gallery-select-btn:focus { opacity: 1; }
 .gallery-select-btn::before {
   content: "";
   width: 10px;
