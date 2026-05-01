@@ -51,10 +51,24 @@ class JobStore:
         self._path = Path(database_path)
         self._lock = Lock()
         self._connection = self._connect()
+        self._closed = False
         with self._lock:
             self._initialize_schema_unlocked()
             self._migrate_json_records_unlocked()
             self._recover_incomplete_jobs_unlocked()
+
+    def __enter__(self) -> "JobStore":
+        return self
+
+    def __exit__(self, exc_type, exc, traceback) -> None:
+        self.close()
+
+    def close(self) -> None:
+        with self._lock:
+            if self._closed:
+                return
+            self._connection.close()
+            self._closed = True
 
     def create(
         self,
