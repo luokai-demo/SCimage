@@ -6,3 +6,6 @@ test-results/
 build/
 dist/
 .build-venv-*/
+
+node_modules/
+.npm-cache/

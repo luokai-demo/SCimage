@@ -29,7 +29,7 @@ if TYPE_CHECKING:
     from job_store import JobRecord
 
 
-def load_job_records(path: Path = JOB_RECORDS_PATH) -> dict[str, dict]:
+def load_job_records(path: Path = JOB_RECORDS_PATH, *, recover_generated: bool = False) -> dict[str, dict]:
     payload = _read_payload(path)
     raw_jobs = payload.get("jobs", {})
     if not isinstance(raw_jobs, dict):
@@ -44,8 +44,9 @@ def load_job_records(path: Path = JOB_RECORDS_PATH) -> dict[str, dict]:
             continue
         normalized[str(job_id)] = normalized_job
 
-    recovered = recover_jobs_from_generated_dir(normalized)
-    normalized.update(recovered)
+    if recover_generated:
+        recovered = recover_jobs_from_generated_dir(normalized)
+        normalized.update(recovered)
     return normalized
 
 
@@ -150,36 +151,15 @@ def recover_jobs_from_generated_dir(existing_jobs: dict[str, dict]) -> dict[str,
         return recovered
 
     for directory in sorted(child for child in GENERATED_DIR.iterdir() if child.is_dir()):
+        job_id = directory.name
+        if job_id in existing_jobs:
+            continue
+
         images = build_images_from_generated_dir(directory)
         if not images:
             continue
 
-        job_id = directory.name
         source_images = build_source_images_from_job_dir(directory)
-        existing = existing_jobs.get(job_id)
-        if existing:
-            existing_images = normalize_images(job_id, existing.get("images", []))
-            image_names = {image["name"] for image in existing_images}
-            for image in images:
-                if image["name"] not in image_names:
-                    existing_images.append(image)
-            existing_images.sort(key=lambda item: item.get("slot", 0))
-            existing["images"] = existing_images
-            existing_source_images = normalize_source_images(job_id, existing.get("source_images", []))
-            existing_source_names = {image["name"] for image in existing_source_images}
-            for source_image in source_images:
-                if source_image["name"] not in existing_source_names:
-                    existing_source_images.append(source_image)
-            existing_source_images.sort(key=lambda item: item.get("slot", 0))
-            existing["source_images"] = existing_source_images
-            if existing_source_images and normalize_workflow(existing.get("workflow")) == DEFAULT_WORKFLOW:
-                existing["workflow"] = IMAGE_TO_IMAGE_WORKFLOW
-            if existing.get("count", 0) < len(existing_images):
-                existing["count"] = len(existing_images)
-            if not existing.get("message"):
-                existing["message"] = "已从本地目录恢复历史图片。"
-            continue
-
         created_at, updated_at = _infer_directory_timestamps(directory)
         recovered[job_id] = {
             "id": job_id,
@@ -237,11 +217,56 @@ def _normalize_image_entry(job_id: str, raw_image: object, fallback_slot: int) -
     if existing_path is None or not file_name:
         return None
 
+    cached_record = _build_cached_image_record(
+        job_id=job_id,
+        file_path=existing_path,
+        slot=_to_int(raw_image.get("slot"), fallback_slot),
+        raw_image=raw_image,
+    )
+    if cached_record is not None:
+        return cached_record
+
     return build_generated_image_record(
         job_id,
         existing_path,
         _to_int(raw_image.get("slot"), fallback_slot),
     )
+
+
+def _build_cached_image_record(*, job_id: str, file_path: Path, slot: int, raw_image: dict) -> dict | None:
+    width = _to_int(raw_image.get("width"), 0)
+    height = _to_int(raw_image.get("height"), 0)
+    placeholder = raw_image.get("placeholder")
+    preview = raw_image.get("preview")
+    if width <= 0 or height <= 0 or not isinstance(placeholder, dict) or not isinstance(preview, dict):
+        return None
+
+    preview_name = str(preview.get("name", "")).strip()
+    if not preview_name:
+        return None
+    preview_path = GENERATED_DIR / job_id / "previews" / preview_name
+    if not preview_path.exists() or not preview_path.is_file():
+        return None
+
+    return {
+        "slot": slot,
+        "name": file_path.name,
+        "path": str(file_path),
+        "url": f"/generated/{job_id}/{file_path.name}",
+        "width": width,
+        "height": height,
+        "placeholder": {
+            "color": str(placeholder.get("color", "")).strip(),
+            "accent_color": str(placeholder.get("accent_color", "")).strip(),
+        },
+        "preview": {
+            "name": preview_name,
+            "path": str(preview_path),
+            "url": f"/generated/{job_id}/previews/{preview_name}",
+            "width": _to_int(preview.get("width"), 0),
+            "height": _to_int(preview.get("height"), 0),
+        },
+    }
 
 
 def _infer_directory_timestamps(directory: Path) -> tuple[str, str]:

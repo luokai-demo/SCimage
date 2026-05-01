@@ -12,6 +12,13 @@
 
 ## 开发态启动
 
+前端已经切换为 `Vue 3 + TypeScript + Vite + Pinia`。主要界面已经组件化，业务状态拆分到 Pinia store 与组合式逻辑中。修改 `src/` 后需要先构建静态资源：
+
+```bash
+npm install
+npm run build
+```
+
 在项目根目录运行：
 
 ```bash
@@ -23,6 +30,8 @@
 常用命令：
 
 ```bash
+npm run typecheck
+npm run test:browser
 ./启动网页.command status
 ./启动网页.command stop
 ./启动网页.command restart
@@ -56,6 +65,7 @@ generated/
 
 打包脚本会自动：
 
+- 构建 Vue/Vite 前端资源到 `webapp/static`
 - 创建独立构建虚拟环境
 - 安装 `pyinstaller`、`pywebview`、`openai`、`Pillow`
 - 收集 `webapp/static` 资源
@@ -115,6 +125,14 @@ generated/
 
 - GitHub Release 页面：看桌面包产物和当次摘要
 - [发布说明](./docs/发布说明.md)：看持续维护的中文更新记录
+
+## v1.1.0 重点
+
+- 前端完成 Vue 组件化与 Pinia 状态管理切换
+- 图库支持横向顺序瀑布流，以及按任务、按提示词分组查看
+- 分组视图改为左侧文字、右侧图片，并处理长任务名和长提示词
+- 提示词库融合已保存提示词和内置中文词组，支持搜索、添加、再次点击取消
+- 基础控件统一使用组件库和图标库，弹窗、下拉、设置与排序控件更一致
 
 ## 说明
 

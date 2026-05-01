@@ -24,6 +24,7 @@ class ProviderProfile:
     api_key: str
     model: str
     compat_profile_id: str = DEFAULT_COMPAT_PROFILE_ID
+    supports_count_parameter: bool = True
 
     def is_ready(self) -> bool:
         return bool(self.base_url and self.api_key and self.model)
@@ -38,6 +39,7 @@ class ProviderProfile:
             "base_url": self.base_url,
             "model": self.model,
             "compat_profile_id": self.compat_profile_id,
+            "supports_count_parameter": self.supports_count_parameter,
             "has_api_key": bool(self.api_key),
             "api_key_hint": _mask_secret(self.api_key),
         }
@@ -74,12 +76,14 @@ class ProviderProfileStore:
         model: str,
         api_key: str,
         compat_profile_id: str = DEFAULT_COMPAT_PROFILE_ID,
+        supports_count_parameter: bool = True,
     ) -> dict:
         normalized_name = _normalize_name(name)
         normalized_base_url = _normalize_base_url(base_url)
         normalized_model = _normalize_model(model)
         normalized_api_key = _normalize_api_key(api_key)
         normalized_compat_profile_id = normalize_compat_profile_id(compat_profile_id)
+        normalized_supports_count_parameter = _normalize_supports_count_parameter(supports_count_parameter)
 
         with self._lock:
             _, profiles = self._load_unlocked()
@@ -92,6 +96,7 @@ class ProviderProfileStore:
                 api_key=normalized_api_key,
                 model=normalized_model,
                 compat_profile_id=normalized_compat_profile_id,
+                supports_count_parameter=normalized_supports_count_parameter,
             )
             next_profiles = sorted([*profiles, next_profile], key=lambda profile: profile.name.lower())
             self._write_unlocked(next_profile.id, next_profiles)
@@ -106,6 +111,7 @@ class ProviderProfileStore:
         model: str,
         compat_profile_id: str,
         api_key: str | None = None,
+        supports_count_parameter: bool | None = None,
     ) -> dict:
         normalized_name = _normalize_name(name)
         normalized_base_url = _normalize_base_url(base_url)
@@ -120,6 +126,11 @@ class ProviderProfileStore:
 
             _assert_unique_name(normalized_name, profiles, exclude_id=current.id)
             next_api_key = current.api_key if api_key is None else _normalize_api_key(api_key)
+            next_supports_count_parameter = (
+                current.supports_count_parameter
+                if supports_count_parameter is None
+                else _normalize_supports_count_parameter(supports_count_parameter)
+            )
             updated = ProviderProfile(
                 id=current.id,
                 name=normalized_name,
@@ -127,6 +138,7 @@ class ProviderProfileStore:
                 api_key=next_api_key,
                 model=normalized_model,
                 compat_profile_id=normalized_compat_profile_id,
+                supports_count_parameter=next_supports_count_parameter,
             )
             next_profiles = sorted(
                 [updated if profile.id == current.id else profile for profile in profiles],
@@ -188,6 +200,8 @@ class ProviderProfileStore:
             profiles.append(profile)
             if normalize_compat_profile_id(raw_profile.get("compat_profile_id")) != profile.compat_profile_id:
                 mutated = True
+            if _normalize_supports_count_parameter(raw_profile.get("supports_count_parameter")) != profile.supports_count_parameter:
+                mutated = True
 
         profiles.sort(key=lambda profile: profile.name.lower())
         active_profile_id = str(payload.get("active_profile_id", "")).strip() or None
@@ -230,6 +244,7 @@ def _deserialize_profile(payload: dict) -> ProviderProfile | None:
     model = str(payload.get("model", "")).strip() or DEFAULT_PROVIDER_MODEL
     api_key = str(payload.get("api_key", "")).strip()
     compat_profile_id = normalize_compat_profile_id(payload.get("compat_profile_id"))
+    supports_count_parameter = _normalize_supports_count_parameter(payload.get("supports_count_parameter"))
     if not profile_id or not name or not base_url or not model:
         return None
     return ProviderProfile(
@@ -239,6 +254,7 @@ def _deserialize_profile(payload: dict) -> ProviderProfile | None:
         api_key=api_key,
         model=model,
         compat_profile_id=compat_profile_id,
+        supports_count_parameter=supports_count_parameter,
     )
 
 
@@ -278,6 +294,19 @@ def _normalize_api_key(value: str) -> str:
     if not normalized:
         raise ValueError("API Key 不能为空。")
     return normalized
+
+
+def _normalize_supports_count_parameter(value: object, *, fallback: bool = True) -> bool:
+    if isinstance(value, bool):
+        return value
+    if value is None:
+        return fallback
+    normalized = str(value).strip().lower()
+    if normalized in {"1", "true", "yes", "on"}:
+        return True
+    if normalized in {"0", "false", "no", "off"}:
+        return False
+    return fallback
 
 
 def _assert_unique_name(name: str, profiles: list[ProviderProfile], exclude_id: str | None = None) -> None:
