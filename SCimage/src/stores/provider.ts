@@ -7,6 +7,9 @@ export interface ProviderProfileSummary {
   model?: string;
   compat_profile_id?: string;
   supports_count_parameter?: boolean;
+  api_key?: string;
+  has_api_key?: boolean;
+  api_key_hint?: string;
 }
 
 export interface ProviderCompatProfile {

@@ -88,6 +88,7 @@ const modelPicker = reactive({
   loading: false,
   message: "",
   options: [] as Array<{ id: string; label: string }>,
+  hasLoaded: false,
 });
 const lightbox = reactive<LightboxState>({
   open: false,
@@ -118,6 +119,44 @@ let statusTimer = 0;
 let refreshInFlight: Promise<void> | null = null;
 let createJobInFlight: Promise<unknown> | null = null;
 const busyJobIds = ref(new Set<string>());
+const isCreatingJob = ref(false);
+const selectedProviderProfile = computed(() => {
+  const providerStore = useProviderStore();
+  return providerStore.selectedProfile;
+});
+const selectedProviderSourceId = computed(() => selectedProviderProfile.value?.id || useProviderStore().activeProfileId || "");
+const providerSaveBlockMessage = computed(() => {
+  if (!providerForm.base_url.trim()) return "请先填写 Base URL。";
+  if (!providerForm.api_key.trim() && !selectedProviderSourceId.value) return "请先填写 API Key。";
+  if (!providerForm.model.trim()) return "请先选择模型。";
+  return "";
+});
+const providerCanSave = computed(() => !useProviderStore().isSaving && !modelPicker.loading && !providerSaveBlockMessage.value);
+const providerCanSaveCurrent = computed(() => providerCanSave.value && Boolean(useProviderStore().activeProfileId));
+const providerCanSaveAs = computed(() => providerCanSave.value);
+const providerCanLoadModels = computed(() => (
+  !useProviderStore().isSaving &&
+  !modelPicker.loading &&
+  Boolean(providerForm.base_url.trim()) &&
+  Boolean(providerForm.api_key.trim() || selectedProviderSourceId.value)
+));
+const providerWorkflowAvailability = computed<Record<WorkflowName, boolean>>(() => {
+  const providerStore = useProviderStore();
+  const compat = providerStore.compatProfiles.find((item) => item.id === providerStore.activeProfile?.compat_profile_id);
+  return {
+    generate: true,
+    "image-to-image": compat ? compat.supports_image_to_image !== false : true,
+  };
+});
+const canGenerate = computed(() => {
+  const workspaceStore = useWorkspaceStore();
+  const form = forms[workspaceStore.activeWorkflow];
+  if (isCreatingJob.value) return false;
+  if (!providerWorkflowAvailability.value[workspaceStore.activeWorkflow]) return false;
+  if (!form.prompt.trim()) return false;
+  if (workspaceStore.activeWorkflow === "image-to-image" && !sourceImages.value.length) return false;
+  return true;
+});
 
 type ApiRequestOptions = Omit<RequestInit, "body"> & { body?: unknown; timeoutMs?: number };
 
@@ -184,7 +223,20 @@ function syncProviderForm() {
   providerForm.model = active?.model || "";
   providerForm.compat_profile_id = active?.compat_profile_id || providerStore.compatProfiles[0]?.id || "";
   providerForm.supports_count_parameter = active?.supports_count_parameter !== false;
-  providerForm.api_key = "";
+  providerForm.api_key = active?.api_key || "";
+  syncWorkflowAvailability();
+}
+
+function syncWorkflowAvailability() {
+  const workspaceStore = useWorkspaceStore();
+  const availability = providerWorkflowAvailability.value;
+  workspaceStore.setWorkflowAvailability("generate", availability.generate);
+  workspaceStore.setWorkflowAvailability("image-to-image", availability["image-to-image"]);
+  if (!availability[workspaceStore.activeWorkflow]) {
+    workspaceStore.setWorkflow("generate");
+    usePromptStore().setActiveWorkflow("generate");
+    void persistWorkspaceState();
+  }
 }
 
 function normalizeProviderState(payload: ProviderProfilesState): ProviderProfilesState {
@@ -239,6 +291,10 @@ function providerPayload() {
 
 async function saveProviderProfile(asNew = false) {
   const providerStore = useProviderStore();
+  if (asNew ? !providerCanSaveAs.value : !providerCanSaveCurrent.value) {
+    setStatus("error", !asNew && !providerStore.activeProfileId ? "请先使用“另存为新配置”创建第一套配置。" : providerSaveBlockMessage.value, 2200);
+    return;
+  }
   providerStore.setSaving(true);
   try {
     const selectedId = providerStore.activeProfileId;
@@ -248,7 +304,11 @@ async function saveProviderProfile(asNew = false) {
     }
     const path = asNew ? "/api/provider-profiles" : `/api/provider-profiles/${selectedId}`;
     const method = asNew ? "POST" : "PUT";
-    const payload = normalizeProviderState(await apiRequest<ProviderProfilesState>(path, { method, body: providerPayload() }));
+    const body = providerPayload();
+    if (asNew && !String(body.api_key || "").trim() && selectedProviderSourceId.value) {
+      body.source_profile_id = selectedProviderSourceId.value;
+    }
+    const payload = normalizeProviderState(await apiRequest<ProviderProfilesState>(path, { method, body }));
     providerStore.replaceState(payload);
     syncProviderForm();
     setStatus("success", asNew ? "新配置已保存。" : "当前配置已保存。", 2200);
@@ -283,16 +343,26 @@ async function deleteProviderProfile(profileId: string) {
 }
 
 async function loadModels() {
+  if (!providerForm.base_url.trim()) {
+    modelPicker.message = "请先填写 Base URL。";
+    return;
+  }
+  if (!providerForm.api_key.trim() && !selectedProviderSourceId.value) {
+    modelPicker.message = "请先填写 API Key。";
+    return;
+  }
   modelPicker.loading = true;
   modelPicker.message = "正在拉取模型...";
   try {
-    const payload = await apiRequest<{ models?: Array<{ id?: string; label?: string }>; data?: Array<{ id?: string; label?: string }> }>("/api/provider-profiles/models", {
+    const payload = await apiRequest<{ normalized_base_url?: string; models?: Array<{ id?: string; label?: string }>; data?: Array<{ id?: string; label?: string }> }>("/api/provider-profiles/models", {
       method: "POST",
-      body: { base_url: providerForm.base_url, api_key: providerForm.api_key },
+      body: { base_url: providerForm.base_url, api_key: providerForm.api_key, source_profile_id: selectedProviderSourceId.value },
       timeoutMs: 30000,
     });
+    if (payload.normalized_base_url) providerForm.base_url = String(payload.normalized_base_url);
     const models = payload.models || payload.data || [];
     modelPicker.options = models.map((model) => ({ id: String(model.id || ""), label: String(model.label || model.id || "") })).filter((model) => model.id);
+    modelPicker.hasLoaded = true;
     modelPicker.message = modelPicker.options.length ? `已拉取 ${modelPicker.options.length} 个模型。` : "没有返回可用模型。";
   } catch (error) {
     modelPicker.message = error instanceof Error ? error.message : String(error);
@@ -308,6 +378,7 @@ async function loadWorkspaceState() {
     const promptStore = usePromptStore();
     const active = payload?.active_workflow === "image-to-image" ? "image-to-image" : "generate";
     workspaceStore.setWorkflow(active);
+    promptStore.setActiveWorkflow(active);
     (["generate", "image-to-image"] as WorkflowName[]).forEach((workflow) => {
       const form = payload?.forms?.[workflow] || {};
       forms[workflow].prompt = String(form.prompt || "");
@@ -345,9 +416,7 @@ function currentForm() {
 }
 
 function setWorkflow(workflow: WorkflowName) {
-  const providerStore = useProviderStore();
-  const compat = providerStore.compatProfiles.find((item) => item.id === providerStore.activeProfile?.compat_profile_id);
-  if (workflow === "image-to-image" && compat && compat.supports_image_to_image === false) {
+  if (!providerWorkflowAvailability.value[workflow]) {
     setStatus("error", "当前提供方配置不支持图生图。", 2400);
     return;
   }
@@ -550,6 +619,7 @@ async function generate() {
     body = base;
   }
   createJobInFlight = (async () => {
+    isCreatingJob.value = true;
     setStatus("loading", "正在创建任务...");
     await persistWorkspaceState();
     try {
@@ -561,6 +631,7 @@ async function generate() {
       setStatus("error", error instanceof Error ? error.message : String(error));
     } finally {
       createJobInFlight = null;
+      isCreatingJob.value = false;
     }
   })();
   return createJobInFlight;
@@ -869,6 +940,8 @@ export function useScimageRuntime() {
     galleryStore,
     generate,
     initRuntime,
+    canGenerate,
+    isCreatingJob,
     isActiveStatus,
     isRetryableJob,
     jobAction,
@@ -881,6 +954,11 @@ export function useScimageRuntime() {
     navLightbox,
     openLightbox,
     providerForm,
+    providerCanLoadModels,
+    providerCanSaveAs,
+    providerCanSaveCurrent,
+    providerSaveBlockMessage,
+    providerWorkflowAvailability,
     providerStore,
     refreshJobs,
     removeSourceImage,
