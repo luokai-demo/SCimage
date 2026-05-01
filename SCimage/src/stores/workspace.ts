@@ -7,10 +7,17 @@ export const useWorkspaceStore = defineStore("workspace", {
     activeWorkflow: "generate" as WorkflowName,
     isPanelCollapsed: false,
     sourceFileCount: 0,
+    workflowAvailability: {
+      generate: true,
+      "image-to-image": true,
+    } as Record<WorkflowName, boolean>,
   }),
   actions: {
     setWorkflow(workflow: WorkflowName) {
       this.activeWorkflow = workflow;
+    },
+    setWorkflowAvailability(workflow: WorkflowName, available: boolean) {
+      this.workflowAvailability[workflow] = available;
     },
     setPanelCollapsed(collapsed: boolean) {
       this.isPanelCollapsed = collapsed;

@@ -11,7 +11,7 @@
       </div>
 
       <div class="panel-body">
-        <details class="connection-card" id="providerConfigCard">
+        <details class="connection-card" id="providerConfigCard" :open="providerConfigOpen" @toggle="onProviderConfigToggle">
           <summary>
             <span>API配置</span>
             <ChevronDown class="details-chevron" aria-hidden="true" />
@@ -25,7 +25,7 @@
                     <span class="field-meta-text">当前配置</span>
                   </div>
                   <div class="provider-profile-picker">
-                    <select id="providerProfileSelect" v-model="providerStore.activeProfileId" class="provider-profile-trigger" @change="runtime.activateProviderProfile(providerStore.activeProfileId)">
+                    <select id="providerProfileSelect" v-model="providerStore.activeProfileId" class="provider-profile-trigger" :disabled="providerStore.isSaving || !providerStore.hasProfiles" @change="runtime.activateProviderProfile(providerStore.activeProfileId)">
                       <option value="" disabled>未保存任何配置</option>
                       <option v-for="profile in providerStore.profiles" :key="profile.id" :value="profile.id">{{ profile.name }}</option>
                     </select>
@@ -54,8 +54,8 @@
                     <span class="field-meta-text">留空沿用已保存密钥</span>
                   </div>
                   <div class="input-with-action">
-                    <input v-model="runtime.providerForm.api_key" :type="apiKeyVisible ? 'text' : 'password'" id="apiKey" placeholder="输入新 API Key">
-                    <IconButton id="toggleApiKeyVisibilityBtn" class-name="input-action-btn" label="显示 API Key" @click="apiKeyVisible = !apiKeyVisible">
+                    <input v-model="runtime.providerForm.api_key" :type="apiKeyVisible ? 'text' : 'password'" id="apiKey" :placeholder="apiKeyPlaceholder">
+                    <IconButton id="toggleApiKeyVisibilityBtn" class-name="input-action-btn" :label="apiKeyVisible ? '隐藏 API Key' : '显示 API Key'" @click="apiKeyVisible = !apiKeyVisible">
                       <Eye aria-hidden="true" />
                     </IconButton>
                   </div>
@@ -65,12 +65,12 @@
               <div class="provider-config-cluster provider-option-stack">
                 <UiSelectField v-model="runtime.providerForm.model" select-id="model" label="模型" aria-describedby="modelStatusHint" label-action>
                   <template #label-action>
-                    <IconButton id="modelReloadBtn" class-name="field-label-icon-btn" label="拉取模型" @click="runtime.loadModels">
+                    <IconButton id="modelReloadBtn" class-name="field-label-icon-btn" label="拉取模型" :disabled="!runtime.providerCanLoadModels.value" @click="runtime.loadModels">
                       <RefreshCw aria-hidden="true" />
                     </IconButton>
                   </template>
                   <option value="" disabled>请选择 API 支持的模型</option>
-                  <option v-for="model in runtime.modelPicker.options" :key="model.id" :value="model.id">{{ model.label }}</option>
+                  <option v-for="model in modelOptions" :key="model.id" :value="model.id">{{ model.label }}</option>
                   <template #after>
                     <div id="modelStatusHint" class="field-hint" aria-live="polite">{{ runtime.modelPicker.message }}</div>
                   </template>
@@ -94,8 +94,8 @@
               </div>
 
               <div class="button-row button-row-tight">
-                <button type="button" id="saveProviderBtn" class="btn-secondary" @click="runtime.saveProviderProfile(false)">保存当前配置</button>
-                <button type="button" id="saveAsProviderBtn" class="btn-secondary" @click="runtime.saveProviderProfile(true)">另存为新配置</button>
+                <button type="button" id="saveProviderBtn" class="btn-secondary" :disabled="!runtime.providerCanSaveCurrent.value" :title="saveCurrentTitle" @click="runtime.saveProviderProfile(false)">保存当前配置</button>
+                <button type="button" id="saveAsProviderBtn" class="btn-secondary" :disabled="!runtime.providerCanSaveAs.value" :title="saveAsTitle" @click="runtime.saveProviderProfile(true)">另存为新配置</button>
               </div>
             </div>
           </div>
@@ -104,7 +104,7 @@
         <section class="workspace-shell" aria-labelledby="workspaceTitle">
           <div class="workflow-tabs" id="workflowTabs" role="tablist" aria-label="工作流切换">
             <button type="button" :class="['workflow-tab', { active: workspaceStore.activeWorkflow === 'generate' }]" data-workflow="generate" role="tab" :aria-selected="workspaceStore.activeWorkflow === 'generate'" @click="runtime.setWorkflow('generate')">文生图</button>
-            <button type="button" :class="['workflow-tab', { active: workspaceStore.activeWorkflow === 'image-to-image' }]" data-workflow="image-to-image" role="tab" :aria-selected="workspaceStore.activeWorkflow === 'image-to-image'" @click="runtime.setWorkflow('image-to-image')">图生图</button>
+            <button type="button" :class="['workflow-tab', { active: workspaceStore.activeWorkflow === 'image-to-image' }]" data-workflow="image-to-image" role="tab" :aria-selected="workspaceStore.activeWorkflow === 'image-to-image'" :disabled="!workspaceStore.workflowAvailability['image-to-image']" :title="workspaceStore.workflowAvailability['image-to-image'] ? '' : '当前提供方配置不支持图生图'" @click="runtime.setWorkflow('image-to-image')">图生图</button>
           </div>
 
           <section class="workspace-card">
@@ -113,7 +113,7 @@
                 <div class="workspace-eyebrow">左侧工作区</div>
                 <h2 id="workspaceTitle" class="workspace-title">{{ workspaceStore.activeWorkflow === 'image-to-image' ? '图生图' : '文生图' }}</h2>
               </div>
-              <span id="workspaceModeChip" class="workspace-chip is-live">已接入</span>
+              <span id="workspaceModeChip" :class="['workspace-chip', workspaceStore.workflowAvailability[workspaceStore.activeWorkflow] ? 'is-live' : 'is-planned']">{{ workspaceStore.workflowAvailability[workspaceStore.activeWorkflow] ? '已接入' : '未启用' }}</span>
             </div>
 
             <div class="workspace-stack">
@@ -143,7 +143,7 @@
                 <div class="workspace-group-head">
                   <div>
                     <div class="workspace-group-title">提示词</div>
-                    <div id="promptSectionHint" class="workspace-group-hint">直接描述你想生成的画面、风格和细节。</div>
+                    <div id="promptSectionHint" class="workspace-group-hint">{{ workflowPromptHint }}</div>
                   </div>
                   <button
                     type="button"
@@ -153,7 +153,7 @@
                     @click="promptDialog.setOpen(!promptDialog.open.value)"
                   >词库</button>
                 </div>
-                <textarea v-model="runtime.currentWorkflowForm.value.prompt" id="prompt" placeholder="一只在星空下奔跑的白色柴犬，水彩风格"></textarea>
+                <textarea v-model="runtime.currentWorkflowForm.value.prompt" id="prompt" :placeholder="workflowPromptPlaceholder"></textarea>
               </section>
 
               <section class="workspace-group">
@@ -193,7 +193,7 @@
                 </div>
                 <div id="status" class="status" :data-tone="runtime.status.tone">{{ runtime.status.message }}</div>
                 <div class="button-row">
-                  <button type="button" id="generateBtn" class="btn-primary" @click="runtime.generate">生成图片</button>
+                  <button type="button" id="generateBtn" class="btn-primary" :disabled="!runtime.canGenerate.value" @click="runtime.generate">{{ workspaceStore.activeWorkflow === 'image-to-image' ? '开始图生图' : '生成图片' }}</button>
                 </div>
               </section>
             </div>
@@ -207,7 +207,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref } from "vue";
+import { computed, ref, watch } from "vue";
 import { ChevronDown, ChevronLeft, Eye, RefreshCw, X } from "lucide-vue-next";
 import { useScimageRuntime } from "../composables/useScimageRuntime";
 import { usePromptLibraryDialog } from "../composables/usePromptLibraryDialog";
@@ -221,6 +221,42 @@ const providerStore = runtime.providerStore;
 const promptDialog = usePromptLibraryDialog();
 const apiKeyVisible = ref(false);
 const sourceInput = ref<HTMLInputElement | null>(null);
+const providerConfigOpen = ref(false);
+const providerConfigTouched = ref(false);
+const savedApiKeyHint = computed(() => providerStore.activeProfile?.api_key_hint || "");
+const apiKeyPlaceholder = computed(() => (providerStore.activeProfile?.has_api_key && savedApiKeyHint.value ? `已保存：${savedApiKeyHint.value}` : "输入 API Key"));
+const saveBlockMessage = computed(() => runtime.providerSaveBlockMessage.value);
+const saveCurrentTitle = computed(() => {
+  if (providerStore.isSaving) return "配置正在保存中。";
+  if (!providerStore.activeProfileId) return "请先使用“另存为新配置”创建第一套配置。";
+  return saveBlockMessage.value;
+});
+const saveAsTitle = computed(() => (providerStore.isSaving ? "配置正在保存中。" : saveBlockMessage.value));
+const workflowPromptHint = computed(() => (
+  workspaceStore.activeWorkflow === "image-to-image"
+    ? "可上传多张参考图，再描述你希望统一迁移出的画面效果。"
+    : "直接描述你想生成的画面、风格和细节。"
+));
+const workflowPromptPlaceholder = computed(() => (
+  workspaceStore.activeWorkflow === "image-to-image"
+    ? "参考多张样图的构图与质感，输出统一风格的人像海报"
+    : "一只在星空下奔跑的白色柴犬，水彩风格"
+));
+const modelOptions = computed(() => {
+  const options = runtime.modelPicker.options;
+  const currentModel = runtime.providerForm.model.trim();
+  if (!currentModel || options.some((model) => model.id === currentModel)) return options;
+  return [{ id: currentModel, label: currentModel }, ...options];
+});
+
+watch(() => providerStore.hasProfiles, (hasProfiles) => {
+  if (!providerConfigTouched.value) providerConfigOpen.value = !hasProfiles;
+}, { immediate: true });
+
+function onProviderConfigToggle(event: Event) {
+  providerConfigTouched.value = true;
+  providerConfigOpen.value = (event.currentTarget as HTMLDetailsElement).open;
+}
 
 function onSourceChange(event: Event) {
   const input = event.currentTarget as HTMLInputElement;

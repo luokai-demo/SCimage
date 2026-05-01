@@ -8,7 +8,8 @@
           :type="type"
           :aria-label="label"
           :title="label"
-          @click="emit('click', $event)"
+          :disabled="disabled"
+          @click="onClick"
         >
           <slot />
         </button>
@@ -30,13 +31,20 @@ withDefaults(defineProps<{
   label: string;
   className?: string;
   type?: "button" | "submit" | "reset";
+  disabled?: boolean;
 }>(), {
   id: undefined,
   className: "",
   type: "button",
+  disabled: false,
 });
 
 const emit = defineEmits<{
   click: [event: MouseEvent];
 }>();
+
+function onClick(event: MouseEvent) {
+  if (event.currentTarget instanceof HTMLButtonElement && event.currentTarget.disabled) return;
+  emit("click", event);
+}
 </script>
