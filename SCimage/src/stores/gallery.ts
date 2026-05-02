@@ -1,4 +1,6 @@
 import { defineStore } from "pinia";
+import { imageKey } from "../utils/galleryKeys";
+import type { JobSummary } from "./jobs";
 
 export type GalleryFilter = "all" | "tasks" | "prompts";
 
@@ -17,6 +19,19 @@ export interface GalleryFlatItem {
   filename: string;
   jobId: string;
   slot: number;
+  jobStatus?: string;
+  workflow?: string;
+  imageCount?: number;
+  totalCount?: number;
+  createdAt?: string;
+  updatedAt?: string;
+  width?: number;
+  height?: number;
+  placeholderColor?: string;
+  size?: string;
+  quality?: string;
+  outputProfileId?: string;
+  jobSnapshot?: JobSummary;
 }
 
 export interface GalleryImagePageItem {
@@ -54,9 +69,9 @@ export const useGalleryStore = defineStore("gallery", {
     totalCount: 0,
   }),
   getters: {
-    selectedCount: (state) => state.selectedKeys.size,
+    selectedCount: (state) => state.flatItems.filter((item) => state.selectedKeys.has(imageKey(item))).length,
     hasItems: (state) => state.flatItems.length > 0,
-    selectedItems: (state) => state.flatItems.filter((item) => state.selectedKeys.has(`${item.jobId || ""}:${Number(item.slot || 0)}`)),
+    selectedItems: (state) => state.flatItems.filter((item) => state.selectedKeys.has(imageKey(item))),
   },
   actions: {
     setFilter(filter: GalleryFilter) {
@@ -74,6 +89,8 @@ export const useGalleryStore = defineStore("gallery", {
     },
     replaceFlatItems(items: GalleryFlatItem[]) {
       this.flatItems = items;
+      const availableKeys = new Set(items.map((item) => imageKey(item)));
+      this.selectedKeys = new Set([...this.selectedKeys].filter((key) => availableKeys.has(key)));
     },
     patchPagination(pagination: Partial<GalleryPaginationState>) {
       this.pagination = { ...this.pagination, ...pagination };

@@ -5,7 +5,7 @@
         <div class="panel-header-copy">
           <h1>SCimage</h1>
         </div>
-        <IconButton id="panelToggleBtn" class-name="panel-toggle" label="收起左侧工作区" @click="workspaceStore.setPanelCollapsed(!workspaceStore.isPanelCollapsed)">
+        <IconButton id="panelToggleBtn" class-name="panel-toggle" :label="workspaceStore.isPanelCollapsed ? '展开左侧工作区' : '收起左侧工作区'" @click="workspaceStore.setPanelCollapsed(!workspaceStore.isPanelCollapsed)">
           <ChevronLeft aria-hidden="true" />
         </IconButton>
       </div>
@@ -25,10 +25,44 @@
                     <span class="field-meta-text">当前配置</span>
                   </div>
                   <div class="provider-profile-picker">
-                    <select id="providerProfileSelect" v-model="providerStore.activeProfileId" class="provider-profile-trigger" :disabled="providerStore.isSaving || !providerStore.hasProfiles" @change="runtime.activateProviderProfile(providerStore.activeProfileId)">
-                      <option value="" disabled>未保存任何配置</option>
-                      <option v-for="profile in providerStore.profiles" :key="profile.id" :value="profile.id">{{ profile.name }}</option>
-                    </select>
+                    <button
+                      id="providerProfileSelect"
+                      ref="providerProfileTrigger"
+                      type="button"
+                      :class="['provider-profile-trigger', { 'is-open': profileMenuOpen, 'is-empty': !activeProfileLabel }]"
+                      :disabled="providerStore.isSaving || !providerStore.hasProfiles"
+                      :aria-expanded="profileMenuOpen"
+                      :title="activeProfileLabel || '未保存任何配置'"
+                      @click="toggleProfileMenu"
+                    >{{ activeProfileLabel || "未保存任何配置" }}</button>
+                    <div id="providerProfileMenu" class="provider-profile-menu" :hidden="!profileMenuOpen" role="listbox">
+                      <div v-if="!providerStore.profiles.length" class="provider-profile-empty">还没有已保存配置</div>
+                      <template v-else>
+                        <div v-for="profile in providerStore.profiles" :key="profile.id" class="provider-profile-option-row">
+                          <button
+                            type="button"
+                            class="provider-profile-delete-btn"
+                            :disabled="providerStore.isSaving"
+                            :aria-label="`删除配置 ${profile.name}`"
+                            :title="`删除配置 ${profile.name}`"
+                            @click.stop="deleteProfile(profile.id)"
+                          >
+                            <X aria-hidden="true" />
+                          </button>
+                          <button
+                            type="button"
+                            :class="['provider-profile-option-btn', { 'is-active': profile.id === providerStore.activeProfileId }]"
+                            role="option"
+                            :aria-selected="profile.id === providerStore.activeProfileId"
+                            :disabled="providerStore.isSaving"
+                            @click="activateProfile(profile.id)"
+                          >
+                            <span class="provider-profile-option-label">{{ profile.name }}</span>
+                            <span v-if="profile.id === providerStore.activeProfileId" class="provider-profile-option-tag">当前</span>
+                          </button>
+                        </div>
+                      </template>
+                    </div>
                   </div>
                 </div>
                 <div class="form-group provider-config-field">
@@ -63,16 +97,18 @@
               </div>
 
               <div class="provider-config-cluster provider-option-stack">
-                <UiSelectField v-model="runtime.providerForm.model" select-id="model" label="模型" aria-describedby="modelStatusHint" label-action>
+                <UiSelectField v-model="runtime.providerForm.model" select-id="model" label="模型" aria-describedby="modelStatusHint" :disabled="runtime.modelPicker.loading" label-action>
                   <template #label-action>
-                    <IconButton id="modelReloadBtn" class-name="field-label-icon-btn" label="拉取模型" :disabled="!runtime.providerCanLoadModels.value" @click="runtime.loadModels">
+                    <IconButton id="modelReloadBtn" :class-name="`field-label-icon-btn${runtime.modelPicker.loading ? ' is-loading' : ''}`" label="拉取模型" :disabled="!runtime.providerCanLoadModels.value" @click="runtime.loadModels()">
                       <RefreshCw aria-hidden="true" />
                     </IconButton>
                   </template>
                   <option value="" disabled>请选择 API 支持的模型</option>
-                  <option v-for="model in modelOptions" :key="model.id" :value="model.id">{{ model.label }}</option>
+                  <optgroup v-for="group in modelOptionGroups" :key="group.key" :label="group.label">
+                    <option v-for="model in group.options" :key="model.id" :value="model.id">{{ model.label }}</option>
+                  </optgroup>
                   <template #after>
-                    <div id="modelStatusHint" class="field-hint" aria-live="polite">{{ runtime.modelPicker.message }}</div>
+                    <div id="modelStatusHint" class="field-hint" :data-tone="runtime.modelPicker.messageTone" aria-live="polite">{{ runtime.modelPicker.message }}</div>
                   </template>
                 </UiSelectField>
 
@@ -124,8 +160,18 @@
                     <div id="sourceHint" class="workspace-group-hint">支持拖拽、粘贴或选择多张图片作为参考。</div>
                   </div>
                 </div>
-                <div class="drop-zone" id="sourceDropZone" tabindex="0" aria-label="参考图上传区域" @drop.prevent="onDrop" @dragover.prevent>
-                  <div class="drop-zone-text" id="sourceDropText">将多张参考图拖到这里，或粘贴到工作区</div>
+                <div
+                  :class="['drop-zone', { dragover: sourceDragOver }]"
+                  id="sourceDropZone"
+                  tabindex="0"
+                  aria-label="参考图上传区域"
+                  @click="onSourceZoneClick"
+                  @drop.prevent="onDrop"
+                  @dragover.prevent="sourceDragOver = true"
+                  @dragleave="sourceDragOver = false"
+                  @paste="onPaste"
+                >
+                  <div class="drop-zone-text" id="sourceDropText">{{ runtime.sourceImages.value.length ? `已选择 ${runtime.sourceImages.value.length} 张参考图` : "将多张参考图拖到这里，或粘贴到工作区" }}</div>
                   <div class="drop-zone-preview" id="sourcePreview">
                     <span v-for="item in runtime.sourceImages.value" :key="item.key" class="source-preview-item">
                       <img :src="item.url" :alt="item.name">
@@ -160,15 +206,15 @@
                 <div class="workspace-group-head">
                   <div>
                     <div class="workspace-group-title">输出参数</div>
-                    <div class="workspace-group-hint">当前工作流独立保存这一组输出参数，尺寸使用标准像素预设。</div>
+                    <div class="workspace-group-hint">当前工作流独立保存这一组输出参数，尺寸会随质量档位联动。</div>
                   </div>
                 </div>
                 <div class="row">
                   <UiSelectField v-model="runtime.currentWorkflowForm.value.size" select-id="size" label="尺寸">
-                    <option v-for="option in runtime.sizeOptions" :key="option.value" :value="option.value">{{ option.label }}</option>
+                    <option v-for="option in sizeOptionItems" :key="option.value" :value="option.value">{{ option.label }}</option>
                   </UiSelectField>
                   <UiSelectField v-model="runtime.currentWorkflowForm.value.quality" select-id="quality" label="质量">
-                    <option v-for="option in runtime.qualityOptions" :key="option.value" :value="option.value">{{ option.label }}</option>
+                    <option v-for="option in qualityOptionItems" :key="option.value" :value="option.value">{{ option.label }}</option>
                   </UiSelectField>
                 </div>
                 <div class="row">
@@ -207,10 +253,11 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref, watch } from "vue";
+import { computed, onMounted, onUnmounted, ref, watch } from "vue";
 import { ChevronDown, ChevronLeft, Eye, RefreshCw, X } from "lucide-vue-next";
 import { useScimageRuntime } from "../composables/useScimageRuntime";
 import { usePromptLibraryDialog } from "../composables/usePromptLibraryDialog";
+import type { OutputOption } from "../data/outputOptions";
 import IconButton from "./ui/IconButton.vue";
 import TaskPanel from "./jobs/TaskPanel.vue";
 import UiSelectField from "./ui/UiSelectField.vue";
@@ -221,9 +268,13 @@ const providerStore = runtime.providerStore;
 const promptDialog = usePromptLibraryDialog();
 const apiKeyVisible = ref(false);
 const sourceInput = ref<HTMLInputElement | null>(null);
+const sourceDragOver = ref(false);
 const providerConfigOpen = ref(false);
 const providerConfigTouched = ref(false);
+const profileMenuOpen = ref(false);
+const providerProfileTrigger = ref<HTMLButtonElement | null>(null);
 const savedApiKeyHint = computed(() => providerStore.activeProfile?.api_key_hint || "");
+const activeProfileLabel = computed(() => providerStore.profiles.find((profile) => profile.id === providerStore.activeProfileId)?.name || providerStore.activeProfile?.name || "");
 const apiKeyPlaceholder = computed(() => (providerStore.activeProfile?.has_api_key && savedApiKeyHint.value ? `已保存：${savedApiKeyHint.value}` : "输入 API Key"));
 const saveBlockMessage = computed(() => runtime.providerSaveBlockMessage.value);
 const saveCurrentTitle = computed(() => {
@@ -232,6 +283,8 @@ const saveCurrentTitle = computed(() => {
   return saveBlockMessage.value;
 });
 const saveAsTitle = computed(() => (providerStore.isSaving ? "配置正在保存中。" : saveBlockMessage.value));
+const sizeOptionItems = computed(() => runtime.sizeOptions.value as OutputOption[]);
+const qualityOptionItems = computed(() => runtime.qualityOptions.value as OutputOption[]);
 const workflowPromptHint = computed(() => (
   workspaceStore.activeWorkflow === "image-to-image"
     ? "可上传多张参考图，再描述你希望统一迁移出的画面效果。"
@@ -246,7 +299,15 @@ const modelOptions = computed(() => {
   const options = runtime.modelPicker.options;
   const currentModel = runtime.providerForm.model.trim();
   if (!currentModel || options.some((model) => model.id === currentModel)) return options;
-  return [{ id: currentModel, label: currentModel }, ...options];
+  return [{ id: currentModel, label: currentModel, category: "other" as const }, ...options];
+});
+const modelOptionGroups = computed(() => {
+  const imageOptions = modelOptions.value.filter((model) => model.category === "image");
+  const otherOptions = modelOptions.value.filter((model) => model.category !== "image");
+  return [
+    { key: "image", label: "图片模型", options: imageOptions },
+    { key: "other", label: "其他模型", options: otherOptions },
+  ].filter((group) => group.options.length);
 });
 
 watch(() => providerStore.hasProfiles, (hasProfiles) => {
@@ -258,13 +319,73 @@ function onProviderConfigToggle(event: Event) {
   providerConfigOpen.value = (event.currentTarget as HTMLDetailsElement).open;
 }
 
+function toggleProfileMenu() {
+  if (providerStore.isSaving || !providerStore.hasProfiles) return;
+  profileMenuOpen.value = !profileMenuOpen.value;
+}
+
+function closeProfileMenu() {
+  profileMenuOpen.value = false;
+}
+
+function activateProfile(profileId: string) {
+  closeProfileMenu();
+  if (profileId === providerStore.activeProfileId) return;
+  void runtime.activateProviderProfile(profileId);
+}
+
+function deleteProfile(profileId: string) {
+  closeProfileMenu();
+  void runtime.deleteProviderProfile(profileId);
+}
+
+function onDocumentClick(event: MouseEvent) {
+  if (!profileMenuOpen.value) return;
+  const target = event.target as HTMLElement;
+  if (target.closest(".provider-profile-picker")) return;
+  closeProfileMenu();
+}
+
+function onDocumentKeydown(event: KeyboardEvent) {
+  if (event.key !== "Escape") return;
+  const wasOpen = profileMenuOpen.value;
+  closeProfileMenu();
+  if (wasOpen) providerProfileTrigger.value?.focus();
+}
+
 function onSourceChange(event: Event) {
   const input = event.currentTarget as HTMLInputElement;
   if (input.files) runtime.addSourceFiles(input.files);
   input.value = "";
 }
 
+function onSourceZoneClick(event: MouseEvent) {
+  if ((event.target as HTMLElement).closest("button")) return;
+  sourceInput.value?.click();
+}
+
 function onDrop(event: DragEvent) {
+  sourceDragOver.value = false;
   if (event.dataTransfer?.files) runtime.addSourceFiles(event.dataTransfer.files);
 }
+
+function onPaste(event: ClipboardEvent) {
+  const files = Array.from(event.clipboardData?.items || [])
+    .filter((item) => item.kind === "file")
+    .map((item) => item.getAsFile())
+    .filter(Boolean) as File[];
+  if (!files.length) return;
+  event.preventDefault();
+  runtime.addSourceFiles(files);
+}
+
+onMounted(() => {
+  document.addEventListener("click", onDocumentClick);
+  document.addEventListener("keydown", onDocumentKeydown);
+});
+
+onUnmounted(() => {
+  document.removeEventListener("click", onDocumentClick);
+  document.removeEventListener("keydown", onDocumentKeydown);
+});
 </script>

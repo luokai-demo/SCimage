@@ -1,7 +1,7 @@
 <template>
   <DialogRoot :open="dialog.open.value" :modal="false" @update:open="dialog.setOpen">
     <DialogPortal>
-      <DialogContent class="prompt-library-dialog" aria-describedby="promptLibraryDescription" @interact-outside.prevent>
+      <DialogContent id="promptBankPanel" class="prompt-library-dialog" aria-describedby="promptLibraryDescription" @interact-outside.prevent>
         <div class="prompt-library-head">
           <div>
             <DialogTitle class="prompt-library-title">提示词库</DialogTitle>
@@ -59,6 +59,7 @@
 
           <TabsContent value="saved" force-mount class="prompt-library-tab-content">
             <div class="prompt-library-saved-actions">
+              <span id="promptBankCount" class="prompt-bank-count">{{ runtime.promptStore.activePrompts.length }} 条</span>
               <button type="button" class="btn-secondary" id="savePromptBtn" @click="runtime.savePrompt">保存当前提示词</button>
               <button type="button" class="btn-secondary" id="clearPromptBankBtn" @click="runtime.clearPrompts">清空词库</button>
             </div>

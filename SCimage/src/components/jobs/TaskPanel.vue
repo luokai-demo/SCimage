@@ -30,7 +30,7 @@
             <div class="left-task-message">{{ getJobMessage(job) }}</div>
             <div class="left-task-meta">
               <span>{{ getJobProgressText(job) }}</span>
-              <span>{{ isActiveStatus(String(job.status || "")) ? getJobDurationText(job) : `耗时 ${getJobDurationText(job)}` }}</span>
+              <span>{{ isActiveStatus(String(job.status || "")) ? durationText(job) : `耗时 ${durationText(job)}` }}</span>
             </div>
             <div class="left-task-actions">
               <button type="button" @click="copyPrompt(job)">复制</button>
@@ -64,6 +64,7 @@ import { ChevronDown } from "lucide-vue-next";
 import { useScimageRuntime } from "../../composables/useScimageRuntime";
 import { useJobStore } from "../../stores/jobs";
 import type { JobSummary } from "../../stores/jobs";
+import { copyTextToClipboard } from "../../utils/clipboard";
 import {
   getJobDurationText,
   getJobMessage,
@@ -73,7 +74,7 @@ import {
   isActiveStatus,
   isRetryableJob,
   truncateText,
-} from "./job-formatters";
+} from "../../utils/jobFormatters";
 
 const itemHeight = 124;
 const maxRendered = 180;
@@ -128,7 +129,13 @@ function requestLoadMore() {
   void runtime.loadMoreJobs();
 }
 
+function durationText(job: JobSummary) {
+  runtime.clockTick.value;
+  return getJobDurationText(job);
+}
+
 async function copyPrompt(job: JobSummary) {
-  await navigator.clipboard?.writeText(String(job.prompt || ""));
+  const copied = await copyTextToClipboard(String(job.prompt || ""));
+  runtime.setStatus(copied ? "success" : "error", copied ? "提示词已复制。" : "无法复制到剪贴板。", copied ? 1200 : 2500);
 }
 </script>

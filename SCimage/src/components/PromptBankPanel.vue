@@ -53,11 +53,13 @@
 import { Copy, CornerDownLeft, Search, Trash2 } from "lucide-vue-next";
 import { useScimageRuntime } from "../composables/useScimageRuntime";
 import { usePromptStore } from "../stores/prompts";
+import { copyTextToClipboard } from "../utils/clipboard";
 
 const promptStore = usePromptStore();
 const runtime = useScimageRuntime();
 
 async function copyPrompt(prompt: string) {
-  await navigator.clipboard?.writeText(prompt);
+  const copied = await copyTextToClipboard(prompt);
+  runtime.setStatus(copied ? "success" : "error", copied ? "提示词已复制。" : "无法复制到剪贴板。", copied ? 1200 : 2500);
 }
 </script>

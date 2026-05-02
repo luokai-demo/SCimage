@@ -27,10 +27,12 @@
               <span class="settings-info" id="storageMode">当前配置：{{ providerStore.activeProfile?.name || "未设置" }}</span>
               <span class="settings-info" id="storageUsage">{{ syncText }}</span>
               <button id="refreshGalleryBtn" @click="runtime.refreshJobs({ manual: true })">刷新</button>
-              <button id="cleanupGeneratedBtn" @click="runtime.cleanupEmptyGeneratedDirs">清理空文件夹</button>
+              <button id="cleanupGeneratedBtn" :disabled="runtime.isCleaningGeneratedDirs.value" @click="runtime.cleanupEmptyGeneratedDirs">
+                {{ runtime.isCleaningGeneratedDirs.value ? "清理中..." : "清理空文件夹" }}
+              </button>
               <button id="clearSavedPromptsBtn" @click="runtime.clearPrompts">清空提示词</button>
               <hr>
-              <button class="danger" id="resetFormStateBtn" @click="resetForm">重置表单</button>
+              <button class="danger" id="resetFormStateBtn" @click="runtime.resetFormState">重置表单</button>
             </div>
           </div>
         </div>
@@ -48,40 +50,33 @@
     <RunningBanner />
     <div id="galleryWindowShell" class="gallery-window-shell">
       <div id="selectionBox" class="selection-box" :hidden="!selectionBox.visible" :style="selectionBoxStyle"></div>
-      <div id="galleryWindow" class="gallery-window" @scroll="onGalleryScroll">
+      <div id="galleryWindow" ref="galleryWindowRef" class="gallery-window" @scroll="onGalleryScroll">
         <div class="gallery-viewport-content">
           <div
             id="galleryGrid"
             ref="galleryGridRef"
-            :class="['gallery-grid', { 'grouped-by-task': galleryStore.filter !== 'all' }]"
+            :class="['gallery-grid', { 'grouped-by-task': galleryStore.filter !== 'all', 'is-virtualized': galleryStore.filter === 'all' }]"
             :style="galleryGridStyle"
           >
             <template v-if="galleryStore.filter === 'all'">
-              <div v-for="(column, columnIndex) in galleryColumns" :key="`gallery-column-${columnIndex}`" class="gallery-column">
-                <div
-                  v-for="item in column"
-                  :key="`${item.jobId}:${item.slot}`"
-                  :class="['gallery-item', 'is-loaded', { 'is-selected': isSelected(item) }]"
-                  :data-gallery-key="`${item.jobId}:${item.slot}`"
-                  :data-open-lightbox="itemIndex(item)"
-                  :data-job-id="item.jobId"
-                  :data-image-slot="item.slot"
-                  @click="runtime.openLightbox(itemIndex(item))"
-                >
-                  <button type="button" class="gallery-select-btn" :aria-label="isSelected(item) ? '取消选择图片' : '选择图片'" @click.stop="runtime.toggleSelection(item)"></button>
-                  <img :src="item.src" :alt="item.prompt" loading="lazy">
-                  <div class="gallery-overlay">
-                    <div class="prompt-preview">{{ item.prompt }}</div>
-                    <div class="meta-row">
-                      <span class="meta-actions">
-                        <button type="button" @click.stop="copyPrompt(item.prompt)">复制</button>
-                        <button type="button" @click.stop="runtime.addSourceImageFromGallery(item)">参考</button>
-                        <button type="button" @click.stop="runtime.downloadItem(item)">下载</button>
-                        <button type="button" class="gallery-del-btn" @click.stop="runtime.deleteImage(item.jobId, item.slot)">删除</button>
-                      </span>
-                    </div>
-                  </div>
-                </div>
+              <div
+                v-for="record in visibleGalleryRecords"
+                :key="record.key"
+                class="gallery-virtual-item"
+                :style="galleryRecordStyle(record)"
+              >
+                <GalleryImageCard
+                  :item="record.item"
+                  :layout-profile="record.profile"
+                  :open-index="record.index"
+                  :selected="isSelected(record.item)"
+                  @open="runtime.openLightbox(record.index)"
+                  @toggle-select="runtime.toggleSelection(record.item)"
+                  @copy-prompt="copyPrompt(record.item.prompt)"
+                  @add-source="runtime.addSourceImageFromGallery(record.item)"
+                  @download="runtime.downloadItem(record.item)"
+                  @terminal-action="runtime.resolveGalleryTerminalAction(record.item)"
+                />
               </div>
             </template>
             <template v-else>
@@ -94,30 +89,20 @@
                 </div>
                 <div class="gallery-task-section-grid" :style="galleryGridStyle">
                   <div v-for="(column, columnIndex) in distributeColumns(group.items)" :key="`${group.id}-column-${columnIndex}`" class="gallery-column">
-                    <div
+                    <GalleryImageCard
                       v-for="item in column"
                       :key="`${item.jobId}:${item.slot}`"
-                      :class="['gallery-item', 'is-loaded', { 'is-selected': isSelected(item) }]"
-                      :data-gallery-key="`${item.jobId}:${item.slot}`"
-                      :data-open-lightbox="itemIndex(item)"
-                      :data-job-id="item.jobId"
-                      :data-image-slot="item.slot"
-                      @click="runtime.openLightbox(itemIndex(item))"
-                    >
-                      <button type="button" class="gallery-select-btn" :aria-label="isSelected(item) ? '取消选择图片' : '选择图片'" @click.stop="runtime.toggleSelection(item)"></button>
-                      <img :src="item.src" :alt="item.prompt" loading="lazy">
-                      <div class="gallery-overlay">
-                        <div class="prompt-preview">{{ item.prompt }}</div>
-                        <div class="meta-row">
-                          <span class="meta-actions">
-                            <button type="button" @click.stop="copyPrompt(item.prompt)">复制</button>
-                            <button type="button" @click.stop="runtime.addSourceImageFromGallery(item)">参考</button>
-                            <button type="button" @click.stop="runtime.downloadItem(item)">下载</button>
-                            <button type="button" class="gallery-del-btn" @click.stop="runtime.deleteImage(item.jobId, item.slot)">删除</button>
-                          </span>
-                        </div>
-                      </div>
-                    </div>
+                      :item="item"
+                      :layout-profile="groupedProfileByKey.get(imageKey(item))"
+                      :open-index="itemIndex(item)"
+                      :selected="isSelected(item)"
+                      @open="runtime.openLightbox(itemIndex(item))"
+                      @toggle-select="runtime.toggleSelection(item)"
+                      @copy-prompt="copyPrompt(item.prompt)"
+                      @add-source="runtime.addSourceImageFromGallery(item)"
+                      @download="runtime.downloadItem(item)"
+                      @terminal-action="runtime.resolveGalleryTerminalAction(item)"
+                    />
                   </div>
                 </div>
               </section>
@@ -136,7 +121,16 @@ import { ArrowUpDown, Settings } from "lucide-vue-next";
 import { useScimageRuntime } from "../composables/useScimageRuntime";
 import { useGalleryGroups } from "../composables/useGalleryGroups";
 import type { GalleryFlatItem } from "../stores/gallery";
+import { copyTextToClipboard } from "../utils/clipboard";
+import {
+  buildGalleryMasonryLayout,
+  filterVisibleGalleryItems,
+  warmGalleryImages,
+  type GalleryLayoutItem,
+} from "../utils/galleryLayout";
+import { imageKey } from "../utils/galleryKeys";
 import RunningBanner from "./jobs/RunningBanner.vue";
+import GalleryImageCard from "./gallery/GalleryImageCard.vue";
 import IconButton from "./ui/IconButton.vue";
 
 const runtime = useScimageRuntime();
@@ -145,8 +139,12 @@ const jobStore = runtime.jobStore;
 const providerStore = runtime.providerStore;
 const settingsOpen = ref(false);
 const galleryGridRef = ref<HTMLElement | null>(null);
+const galleryWindowRef = ref<HTMLElement | null>(null);
 const galleryGroups = useGalleryGroups(runtime.visibleGalleryItems, computed(() => galleryStore.filter));
 const galleryColumnCount = ref(4);
+const galleryContainerWidth = ref(0);
+const galleryScrollTop = ref(0);
+const galleryViewportHeight = ref(1);
 const selectionStart = reactive({ x: 0, y: 0, active: false });
 const selectionBox = reactive({ visible: false, left: 0, top: 0, width: 0, height: 0 });
 let gridResizeObserver: ResizeObserver | null = null;
@@ -154,8 +152,16 @@ let layoutFrame = 0;
 
 const galleryCountText = computed(() => {
   const count = runtime.visibleGalleryItems.value.length;
+  if (!count) return "";
   const total = Number(galleryStore.pagination.total || count);
-  return total > count ? `${count}/${total} 张图片` : `${count} 张图片`;
+  const loadedText = total > count ? `已加载 ${count}/${total} 张` : `${count} 张图片`;
+  if (galleryStore.filter === "tasks") {
+    return `${galleryGroups.grouped.value.length} 个可见任务 · ${count} 张 · ${loadedText}`;
+  }
+  if (galleryStore.filter === "prompts") {
+    return `${galleryGroups.grouped.value.length} 组提示词 · ${count} 张 · ${loadedText}`;
+  }
+  return total > count ? `${count}/${total} 张图片` : loadedText;
 });
 
 const syncText = computed(() => {
@@ -173,22 +179,71 @@ const selectionBoxStyle = computed(() => ({
 
 const galleryGridStyle = computed(() => ({
   "--gallery-columns": String(galleryColumnCount.value),
+  "--gallery-virtual-height": `${Math.ceil(galleryLayout.value.totalHeight)}px`,
 }));
 
-const galleryColumns = computed(() => distributeColumns(runtime.visibleGalleryItems.value));
+const galleryLayout = computed(() => buildGalleryMasonryLayout(runtime.visibleGalleryItems.value, {
+  containerWidth: galleryContainerWidth.value,
+  targetColumnWidth: 176,
+  minColumns: 1,
+  maxColumns: 8,
+  gapPx: 12,
+  allowFeatured: galleryStore.filter === "all",
+}));
+
+const visibleGalleryRecords = computed(() => (
+  filterVisibleGalleryItems(galleryLayout.value.items, {
+    scrollTop: galleryScrollTop.value,
+    viewportHeight: galleryViewportHeight.value,
+    overscanScreens: 1.25,
+  })
+));
+
+const groupedProfileByKey = computed(() => {
+  const layout = buildGalleryMasonryLayout(runtime.visibleGalleryItems.value, {
+    containerWidth: galleryContainerWidth.value,
+    targetColumnWidth: 176,
+    minColumns: 1,
+    maxColumns: 8,
+    gapPx: 12,
+    allowFeatured: false,
+  });
+  return new Map(layout.items.map((record) => [record.key, record.profile]));
+});
 
 function isSelected(item: GalleryFlatItem) {
-  return galleryStore.selectedKeys.has(`${item.jobId}:${item.slot}`);
+  return galleryStore.selectedKeys.has(imageKey(item));
 }
 
 function itemIndex(item: GalleryFlatItem) {
-  return galleryGroups.itemIndexByKey.value.get(`${item.jobId}:${item.slot}`) ?? 0;
+  return galleryGroups.itemIndexByKey.value.get(imageKey(item)) ?? 0;
+}
+
+function galleryRecordStyle(record: GalleryLayoutItem) {
+  return {
+    transform: `translate3d(${Math.round(record.x)}px, ${Math.round(record.y)}px, 0)`,
+    width: `${Math.round(record.width)}px`,
+    height: `${Math.round(record.height)}px`,
+    "--gallery-column-span": String(record.columnSpan),
+  };
 }
 
 function distributeColumns(items: GalleryFlatItem[]) {
   const columns = Array.from({ length: galleryColumnCount.value }, () => [] as GalleryFlatItem[]);
-  items.forEach((item, index) => {
-    columns[index % galleryColumnCount.value].push(item);
+  const byKey = new Map(groupedProfileByKey.value);
+  const sorted = items.map((item) => {
+    const key = imageKey(item);
+    const profile = byKey.get(key);
+    const ratio = profile?.heightRatio || (item.width && item.height ? item.height / item.width : 1);
+    return { item, ratio };
+  });
+  const heights = Array.from({ length: galleryColumnCount.value }, () => 0);
+  sorted.forEach(({ item, ratio }) => {
+    const columnIndex = heights.reduce((bestIndex, height, index) => (
+      height < heights[bestIndex] ? index : bestIndex
+    ), 0);
+    columns[columnIndex].push(item);
+    heights[columnIndex] += Math.max(0.5, ratio);
   });
   return columns;
 }
@@ -228,19 +283,30 @@ function finishSelection() {
 
 function onGalleryScroll(event: Event) {
   const target = event.currentTarget as HTMLElement;
+  galleryScrollTop.value = target.scrollTop || 0;
+  galleryViewportHeight.value = target.clientHeight || 1;
   const remaining = target.scrollHeight - target.scrollTop - target.clientHeight;
   if (remaining <= 900) void runtime.loadMoreGallery();
 }
 
 async function copyPrompt(prompt: string) {
-  await navigator.clipboard?.writeText(prompt);
+  const copied = await copyTextToClipboard(prompt);
+  runtime.setStatus(copied ? "success" : "error", copied ? "提示词已复制。" : "无法复制到剪贴板。", copied ? 1200 : 2500);
 }
 
-function resetForm() {
-  runtime.currentWorkflowForm.value.prompt = "";
-  runtime.currentWorkflowForm.value.count = "1";
-  runtime.currentWorkflowForm.value.size = "auto";
-  runtime.currentWorkflowForm.value.quality = "auto";
+function closeSettingsPanel() {
+  settingsOpen.value = false;
+}
+
+function onDocumentClick(event: MouseEvent) {
+  if (!settingsOpen.value) return;
+  const target = event.target as HTMLElement;
+  if (target.closest(".settings-wrap")) return;
+  closeSettingsPanel();
+}
+
+function onDocumentKeydown(event: KeyboardEvent) {
+  if (event.key === "Escape") closeSettingsPanel();
 }
 
 function clamp(value: number, min: number, max: number) {
@@ -256,8 +322,14 @@ function updateGalleryColumns() {
   if (!width) return;
   const columns = clamp(Math.floor((width + gapPx) / (targetColumnWidth + gapPx)), 1, 8);
   galleryColumnCount.value = columns;
+  galleryContainerWidth.value = width;
   grid.style.setProperty("--gallery-columns", String(columns));
   grid.style.setProperty("--gallery-grid-gap", `${gapPx}px`);
+  const windowNode = galleryWindowRef.value;
+  if (windowNode) {
+    galleryScrollTop.value = windowNode.scrollTop || 0;
+    galleryViewportHeight.value = windowNode.clientHeight || 1;
+  }
 }
 
 function scheduleGalleryColumnsUpdate() {
@@ -276,6 +348,8 @@ onMounted(() => {
       gridResizeObserver.observe(galleryGridRef.value);
     }
     window.addEventListener("resize", scheduleGalleryColumnsUpdate);
+    document.addEventListener("click", onDocumentClick);
+    document.addEventListener("keydown", onDocumentKeydown);
   });
 });
 
@@ -283,10 +357,13 @@ onBeforeUnmount(() => {
   gridResizeObserver?.disconnect();
   gridResizeObserver = null;
   window.removeEventListener("resize", scheduleGalleryColumnsUpdate);
+  document.removeEventListener("click", onDocumentClick);
+  document.removeEventListener("keydown", onDocumentKeydown);
   if (layoutFrame) cancelAnimationFrame(layoutFrame);
 });
 
 watch(() => runtime.visibleGalleryItems.value.length, () => nextTick(scheduleGalleryColumnsUpdate));
+watch(() => runtime.visibleGalleryItems.value, (items) => warmGalleryImages(items), { immediate: true });
 watch(() => galleryStore.filter, () => nextTick(scheduleGalleryColumnsUpdate));
 watch(() => runtime.workspaceStore.isPanelCollapsed, () => nextTick(scheduleGalleryColumnsUpdate));
 </script>

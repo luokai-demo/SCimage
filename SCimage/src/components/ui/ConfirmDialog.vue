@@ -6,10 +6,10 @@
         <AlertDialogTitle class="confirm-dialog-title">{{ state.title }}</AlertDialogTitle>
         <AlertDialogDescription class="confirm-dialog-description">{{ state.description }}</AlertDialogDescription>
         <div class="confirm-dialog-actions">
-          <AlertDialogCancel class="confirm-dialog-cancel" @click="resolve(false)">{{ state.cancelText }}</AlertDialogCancel>
-          <AlertDialogAction :class="['confirm-dialog-action', { 'is-danger': state.tone === 'danger' }]" @click="resolve(true)">
+          <button type="button" class="confirm-dialog-cancel" @click="resolve(false)">{{ state.cancelText }}</button>
+          <button type="button" :class="['confirm-dialog-action', { 'is-danger': state.tone === 'danger' }]" @click="resolve(true)">
             {{ state.confirmText }}
-          </AlertDialogAction>
+          </button>
         </div>
       </AlertDialogContent>
     </AlertDialogPortal>
@@ -18,8 +18,6 @@
 
 <script setup lang="ts">
 import {
-  AlertDialogAction,
-  AlertDialogCancel,
   AlertDialogContent,
   AlertDialogDescription,
   AlertDialogOverlay,

@@ -1,9 +1,10 @@
-import type { JobSummary } from "../../stores/jobs";
-
-export const ACTIVE_STATUSES = new Set(["queued", "running", "canceling"]);
+import type { JobSummary } from "../stores/jobs";
+import { formatQuality, formatSize, normalizeOutputProfileId } from "../data/outputOptions";
+import { formatJobFailureMessage, normalizeErrorText } from "./jobDiagnostics";
+import { isActiveJobStatus, isRetryableJobStatus } from "./jobStatus";
 
 export function isActiveStatus(status?: string) {
-  return ACTIVE_STATUSES.has(String(status || ""));
+  return isActiveJobStatus(status);
 }
 
 export function getStatusMeta(status?: string) {
@@ -31,6 +32,15 @@ export function getWorkflowLabel(workflow?: string) {
   return workflow === "image-to-image" ? "图生图" : "文生图";
 }
 
+export function formatDateTime(value?: unknown) {
+  if (!value) {
+    return "--";
+  }
+  const text = String(value);
+  const date = new Date(text);
+  return Number.isNaN(date.getTime()) ? text : date.toLocaleString("zh-CN", { hour12: false });
+}
+
 export function truncateText(value: unknown, maxLength = 42) {
   const text = String(value || "");
   if (text.length <= maxLength) {
@@ -48,15 +58,21 @@ export function formatElapsed(value?: string) {
     return "--";
   }
   const seconds = Math.max(0, Math.floor((Date.now() - start.getTime()) / 1000));
+  return formatDurationSeconds(seconds);
+}
+
+export function formatDurationSeconds(secondsValue: number) {
+  const seconds = Math.max(0, Math.floor(secondsValue));
   if (seconds < 60) {
     return `${seconds}秒`;
   }
   if (seconds < 3600) {
-    return `${Math.floor(seconds / 60)}分钟`;
+    return `${Math.floor(seconds / 60)}分钟${seconds % 60}秒`;
   }
   const hours = Math.floor(seconds / 3600);
   const minutes = Math.floor((seconds % 3600) / 60);
-  return `${hours}小时${minutes}分钟`;
+  const remainingSeconds = seconds % 60;
+  return `${hours}小时${minutes}分钟${remainingSeconds}秒`;
 }
 
 export function getJobProgressText(job: JobSummary) {
@@ -77,6 +93,26 @@ export function getJobProgressPercent(job: JobSummary) {
   return Math.max(0, Math.min(100, Math.round((completed / total) * 100)));
 }
 
+export function getOutputProfileIdForItem(item: Record<string, unknown>, fallbackOutputProfileId: string) {
+  return normalizeOutputProfileId(
+    item.outputProfileId || item.output_profile_id || fallbackOutputProfileId,
+    fallbackOutputProfileId,
+  );
+}
+
+export function getOutputOptionSummary(item: Record<string, unknown>, fallbackOutputProfileId: string) {
+  const outputProfileId = getOutputProfileIdForItem(item, fallbackOutputProfileId);
+  const parts = [getWorkflowLabel(String(item.workflow || ""))];
+  const sourceImages = Array.isArray(item.source_images) ? item.source_images.length : 0;
+  if (item.workflow === "image-to-image") {
+    parts.push(`参考图 ${sourceImages} 张`);
+  }
+  parts.push(`尺寸 ${formatSize(item.size, item.quality, outputProfileId)}`);
+  parts.push(`质量 ${formatQuality(item.quality, outputProfileId)}`);
+  parts.push(`数量 ${Number.parseInt(String(item.count || 1), 10) || 1}`);
+  return parts.join(" · ");
+}
+
 export function getJobDurationText(job: JobSummary) {
   const runStartedAt = String(job.run_started_at || job.created_at || "");
   if (!runStartedAt) {
@@ -90,26 +126,25 @@ export function getJobDurationText(job: JobSummary) {
     const finishedAt = new Date(String(job.updated_at));
     if (!Number.isNaN(startedAt.getTime()) && !Number.isNaN(finishedAt.getTime())) {
       const seconds = Math.max(0, Math.floor((finishedAt.getTime() - startedAt.getTime()) / 1000));
-      if (seconds >= 3600) {
-        const hours = Math.floor(seconds / 3600);
-        const minutes = Math.floor((seconds % 3600) / 60);
-        return `${hours}小时${minutes}分钟`;
-      }
-      if (seconds >= 60) {
-        return `${Math.floor(seconds / 60)}分钟${seconds % 60}秒`;
-      }
-      return `${seconds}秒`;
+      return formatDurationSeconds(seconds);
     }
   }
   return "--";
 }
 
 export function isRetryableJob(job: JobSummary) {
-  return ["failed", "canceled", "partial"].includes(String(job.status || ""));
+  return isRetryableJobStatus(job.status);
 }
 
 export function getJobMessage(job: JobSummary) {
-  const message = String(job.message || job.error || "");
+  if (job.status === "failed" || job.status === "partial") {
+    return formatJobFailureMessage(job);
+  }
+  const message = [
+    normalizeErrorText(job.error),
+    ...((Array.isArray(job.warnings) ? job.warnings : []).map(normalizeErrorText).filter(Boolean)),
+    normalizeErrorText(job.message),
+  ].find(Boolean);
   if (message) {
     return message;
   }

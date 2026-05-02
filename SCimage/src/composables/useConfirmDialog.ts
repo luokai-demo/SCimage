@@ -25,7 +25,7 @@ const state = reactive<ConfirmDialogState>({
 
 export function useConfirmDialog() {
   function confirm(options: ConfirmDialogOptions) {
-    state.open = true;
+    state.resolver?.(false);
     state.title = options.title;
     state.description = options.description;
     state.confirmText = options.confirmText || "确定";
@@ -33,6 +33,7 @@ export function useConfirmDialog() {
     state.tone = options.tone || "default";
     return new Promise<boolean>((resolve) => {
       state.resolver = resolve;
+      state.open = true;
     });
   }
 

@@ -12,6 +12,7 @@
       <select
         :id="selectId"
         :aria-describedby="ariaDescribedby"
+        :disabled="disabled"
         :value="modelValue"
         @change="emit('update:modelValue', ($event.target as HTMLSelectElement).value)"
       >
@@ -35,6 +36,7 @@ defineProps<{
   ariaDescribedby?: string;
   labelAction?: boolean;
   modelValue?: string;
+  disabled?: boolean;
 }>();
 
 const emit = defineEmits<{

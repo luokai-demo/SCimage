@@ -42,6 +42,7 @@ onMounted(() => {
   --text-primary: #ededed;
   --text-secondary: #888;
   --text-tertiary: #666;
+  --text-quaternary: #4a4a4a;
   --accent: #ffffff;
   --danger: #e5484d;
   --success: #45a557;
@@ -492,9 +493,6 @@ body {
   gap: 12px;
   animation: galleryHeaderSwap 150ms ease-out both;
 }
-.gallery-header.is-batch-mode {
-  padding: 0;
-}
 @keyframes galleryHeaderSwap {
   from {
     opacity: 0;
@@ -621,8 +619,24 @@ body {
   gap: var(--gallery-grid-gap, 10px);
   align-items: start;
 }
+.gallery-grid.is-virtualized {
+  position: relative;
+  display: block;
+  height: var(--gallery-virtual-height, 0px);
+  min-height: 0;
+}
 .gallery-grid.grouped-by-task {
   display: block;
+}
+.gallery-virtual-item {
+  position: absolute;
+  left: 0;
+  top: 0;
+  will-change: transform;
+  contain: layout paint style;
+}
+.gallery-virtual-item .gallery-item {
+  height: 100%;
 }
 .gallery-task-section {
   margin: 0 0 18px;
@@ -710,15 +724,32 @@ body {
   border: none;
   cursor: pointer;
   transition: background var(--transition), box-shadow 180ms ease;
-  background: var(--gallery-placeholder-color, rgba(255,255,255,0.02));
+  background: rgba(255,255,255,0.02);
   box-shadow:
     0 1px 0 rgba(255,255,255,0.04) inset,
     0 14px 30px rgba(0,0,0,0.18);
 }
-.gallery-item.is-loading {
-  background:
-    linear-gradient(135deg, var(--gallery-placeholder-accent, rgba(255,255,255,0.18)), var(--gallery-placeholder-color, rgba(255,255,255,0.06))),
-    var(--gallery-placeholder-color, rgba(255,255,255,0.08));
+.gallery-item.has-masonry-profile {
+  aspect-ratio: var(--gallery-card-aspect-ratio, auto);
+}
+.gallery-item.has-masonry-profile.is-featured {
+  box-shadow:
+    0 1px 0 rgba(255,255,255,0.08) inset,
+    0 22px 54px rgba(0,0,0,0.28);
+}
+.gallery-item.has-masonry-profile.is-lifted {
+  transform: translateY(-2px);
+}
+.gallery-item.has-masonry-profile.is-compact .gallery-overlay .prompt-preview {
+  -webkit-line-clamp: 1;
+}
+.gallery-item.shape-panorama .gallery-image,
+.gallery-item.shape-landscape .gallery-image,
+.gallery-item.shape-square .gallery-image,
+.gallery-item.shape-portrait .gallery-image,
+.gallery-item.shape-tallPortrait .gallery-image {
+  height: 100%;
+  object-fit: cover;
 }
 .gallery-item:hover,
 .gallery-item:focus-visible {
@@ -740,36 +771,17 @@ body {
   transition: opacity 180ms ease;
   pointer-events: none;
 }
-.gallery-item.is-loading::before {
-  opacity: 1;
-  animation: gallery-shimmer 1.2s ease-in-out infinite;
+.gallery-item.has-preview::before {
+  background: var(--gallery-placeholder-color, rgba(255,255,255,0.06));
 }
-.gallery-item.has-preview.is-loading::before {
-  opacity: 0.16;
-  animation: none;
-  background: rgba(255,255,255,0.08);
-}
-.gallery-item.is-loaded::before,
-.gallery-item.is-error::before { opacity: 0; }
-.gallery-item img,
-.gallery-item img[data-src] {
+.gallery-image {
   display: block;
   width: 100%;
+  height: auto;
   position: relative;
   z-index: 1;
   opacity: 1;
-  background: rgba(255,255,255,0.02);
-  object-fit: cover;
-  will-change: opacity;
-}
-.gallery-item img:not([data-src]) {
-  height: auto;
-}
-.gallery-item.has-preview img[data-src] {
   background: transparent;
-}
-.gallery-item img[data-src].is-loaded {
-  opacity: 1;
 }
 .gallery-preview {
   position: absolute;
@@ -785,16 +797,6 @@ body {
   pointer-events: none;
   background: var(--gallery-placeholder-color, rgba(255,255,255,0.06));
 }
-.gallery-item.is-loaded .gallery-preview {
-  opacity: 0;
-}
-.gallery-preview.is-error {
-  opacity: 0;
-}
-.gallery-item.is-error img[data-src] {
-  opacity: 0.18;
-  clip-path: inset(0 0 0 0);
-}
 .gallery-overlay {
   position: absolute; inset: 0;
   z-index: 3;
@@ -806,7 +808,6 @@ body {
   padding: 11px;
   pointer-events: none;
 }
-.gallery-item.is-hovering .gallery-overlay,
 .gallery-item:hover .gallery-overlay,
 .gallery-item:focus-visible .gallery-overlay,
 .gallery-overlay:hover {
@@ -896,10 +897,6 @@ body {
 .gallery-empty {
   display: flex; align-items: center; justify-content: center;
   height: 100%; color: var(--text-tertiary); font-size: 14px;
-}
-@keyframes gallery-shimmer {
-  0%, 100% { opacity: 0.5; }
-  50% { opacity: 0.9; }
 }
 
 /* Form */
@@ -1611,18 +1608,8 @@ input[type="file"]::file-selector-button:hover { border-color: var(--border-hove
 .drop-zone-preview {
   display: flex; flex-wrap: wrap; gap: 6px; justify-content: center;
 }
-.drop-zone-preview .thumb-wrap {
-  position: relative; display: inline-block;
-}
 .drop-zone-preview img {
   height: 48px; border-radius: 4px; border: 1px solid var(--border);
-}
-.drop-zone-preview .thumb-remove {
-  position: absolute; top: -4px; right: -4px;
-  width: 16px; height: 16px; border-radius: 50%;
-  background: var(--danger); color: #fff; border: none;
-  font-size: 10px; line-height: 16px; text-align: center;
-  cursor: pointer; padding: 0;
 }
 .source-preview-item {
   position: relative;
@@ -1789,13 +1776,11 @@ input[type="file"]::file-selector-button:hover { border-color: var(--border-hove
   box-shadow: 0 6px 18px rgba(0,0,0,0.22);
   transition: opacity var(--transition), background var(--transition), border-color var(--transition);
 }
-.gallery-item.is-hovering .gallery-select-btn,
 .gallery-item:hover .gallery-select-btn,
 .gallery-item.is-selected .gallery-select-btn,
 .gallery-select-btn:hover,
 .gallery-select-btn:focus-visible { opacity: 1; }
 .gallery-select-btn:focus:not(:focus-visible) { opacity: 0; }
-.gallery-item.is-hovering .gallery-select-btn:focus,
 .gallery-item:hover .gallery-select-btn:focus,
 .gallery-item.is-selected .gallery-select-btn:focus { opacity: 1; }
 .gallery-select-btn::before {
@@ -2438,16 +2423,18 @@ input[type="file"]::file-selector-button:hover { border-color: var(--border-hove
 }
 .prompt-library-saved-actions {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  align-items: center;
   gap: 8px;
   margin-bottom: 10px;
+}
+.prompt-bank-count {
+  color: var(--text-tertiary);
+  font-size: 11px;
 }
 @keyframes promptLibraryIn {
   from { opacity: 0; transform: translateX(10px); }
   to { opacity: 1; transform: translateX(0); }
-}
-.gallery-item[data-open-lightbox] img[data-src] {
-  background: #060606;
 }
 .failure-popup {
   position: fixed;

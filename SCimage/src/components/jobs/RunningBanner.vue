@@ -1,6 +1,12 @@
 <template>
-  <section id="runningBanner" :class="['running-banner', { 'is-empty': !runningJobs.length }]" aria-live="polite">
-    <button id="runningBannerToggle" class="running-banner-toggle" type="button" aria-expanded="true">
+  <section id="runningBanner" :class="['running-banner', { 'is-empty': !runningJobs.length, 'is-collapsed': collapsed }]" aria-live="polite">
+    <button
+      id="runningBannerToggle"
+      class="running-banner-toggle"
+      type="button"
+      :aria-expanded="!collapsed"
+      @click="collapsed = !collapsed"
+    >
       <span class="running-banner-title">
         <span class="running-dot"></span>
         <span class="running-title-text">正在运行的任务</span>
@@ -38,7 +44,7 @@
             </div>
             <div class="running-job-stat">
               <div class="running-job-stat-label">耗时</div>
-              <div class="running-job-stat-value">{{ getJobDurationText(job) }}</div>
+              <div class="running-job-stat-value">{{ durationText(job) }}</div>
             </div>
             <div class="running-job-stat">
               <div class="running-job-stat-label">剩余</div>
@@ -56,11 +62,12 @@
 </template>
 
 <script setup lang="ts">
-import { computed } from "vue";
+import { computed, ref, watch } from "vue";
 import { ChevronDown } from "lucide-vue-next";
 import { useScimageRuntime } from "../../composables/useScimageRuntime";
 import type { JobSummary } from "../../stores/jobs";
 import { useJobStore } from "../../stores/jobs";
+import { copyTextToClipboard } from "../../utils/clipboard";
 import {
   getJobDurationText,
   getJobMessage,
@@ -69,11 +76,12 @@ import {
   getStatusMeta,
   getWorkflowLabel,
   truncateText,
-} from "./job-formatters";
+} from "../../utils/jobFormatters";
 
 const jobStore = useJobStore();
 const runtime = useScimageRuntime();
 const runningJobs = computed(() => jobStore.runningJobs);
+const collapsed = ref(false);
 const subtitle = computed(() => {
   if (!runningJobs.value.length) {
     return "暂无运行中任务";
@@ -95,7 +103,17 @@ function progressWidth(job: JobSummary) {
   return progress > 0 ? `${Math.max(progress, 6)}%` : "0%";
 }
 
-async function copyPrompt(job: JobSummary) {
-  await navigator.clipboard?.writeText(String(job.prompt || ""));
+function durationText(job: JobSummary) {
+  runtime.clockTick.value;
+  return getJobDurationText(job);
 }
+
+async function copyPrompt(job: JobSummary) {
+  const copied = await copyTextToClipboard(String(job.prompt || ""));
+  runtime.setStatus(copied ? "success" : "error", copied ? "提示词已复制。" : "无法复制到剪贴板。", copied ? 1200 : 2500);
+}
+
+watch(runningJobs, (jobs) => {
+  if (!jobs.length) collapsed.value = false;
+});
 </script>

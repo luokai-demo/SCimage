@@ -4,9 +4,14 @@ export interface SavedPrompt {
   id: string;
   workflow: string;
   prompt: string;
+  outputProfileId?: string;
+  size?: string;
+  quality?: string;
+  count?: number | string;
   optionSummary?: string;
   savedAtText?: string;
   createdAt?: string;
+  updatedAt?: string;
 }
 
 export const usePromptStore = defineStore("prompts", {

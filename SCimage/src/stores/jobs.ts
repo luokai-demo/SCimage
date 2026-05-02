@@ -1,4 +1,5 @@
 import { defineStore } from "pinia";
+import { isActiveJobStatus } from "../utils/jobStatus";
 
 export interface JobPaginationState {
   total: number;
@@ -17,8 +18,6 @@ export interface JobSummary {
   updated_at?: string;
   [key: string]: unknown;
 }
-
-const ACTIVE_STATUSES = new Set(["queued", "running", "canceling"]);
 
 function sortJobsByCreatedDesc(jobs: JobSummary[]) {
   return [...jobs].sort((left, right) => {
@@ -44,7 +43,7 @@ export const useJobStore = defineStore("jobs", {
   }),
   getters: {
     sortedJobs: (state) => sortJobsByCreatedDesc(state.jobs),
-    runningJobs: (state) => sortJobsByCreatedDesc(state.jobs.filter((job) => ACTIVE_STATUSES.has(String(job.status || "")))),
+    runningJobs: (state) => sortJobsByCreatedDesc(state.jobs.filter((job) => isActiveJobStatus(job.status))),
     runningCount(): number {
       return this.runningJobs.length;
     },
@@ -53,6 +52,11 @@ export const useJobStore = defineStore("jobs", {
   actions: {
     replaceJobs(jobs: JobSummary[]) {
       this.jobs = jobs;
+    },
+    patchJob(jobId: string, patch: Partial<JobSummary>) {
+      this.jobs = this.jobs.map((job) => (
+        String(job.id || "") === String(jobId) ? { ...job, ...patch } : job
+      ));
     },
     patchPagination(pagination: Partial<JobPaginationState>) {
       this.pagination = { ...this.pagination, ...pagination };
