@@ -7,6 +7,7 @@
     "dev": "vite --host 127.0.0.1",
     "build": "vue-tsc --noEmit && vite build",
     "test:browser": "node tests/browser_smoke.mjs",
+    "test:vue-regression": "node tests/vue_interaction_regression.mjs",
     "test:visual": "node tests/visual_regression.mjs",
     "typecheck": "vue-tsc --noEmit",
     "preview": "vite preview --host 127.0.0.1"

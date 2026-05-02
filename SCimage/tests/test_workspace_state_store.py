@@ -87,6 +87,26 @@ class WorkspaceStateStoreTests(unittest.TestCase):
             reloaded = WorkspaceStateStore(path).get_state()
             self.assertEqual(reloaded, state)
 
+    def test_prompt_bank_does_not_truncate_entries(self) -> None:
+        with TemporaryDirectory() as temp_dir:
+            store = WorkspaceStateStore(Path(temp_dir) / "workspace-state.json")
+            prompts = [
+                {
+                    "id": f"prompt-{index}",
+                    "prompt": f"prompt {index}",
+                    "quality": "auto",
+                    "size": "auto",
+                    "count": 1,
+                }
+                for index in range(150)
+            ]
+
+            state = store.replace_state({"prompt_bank": {"generate": prompts}})
+
+            self.assertEqual(len(state["prompt_bank"]["generate"]), 150)
+            self.assertEqual(state["prompt_bank"]["generate"][0]["id"], "prompt-0")
+            self.assertEqual(state["prompt_bank"]["generate"][-1]["id"], "prompt-149")
+
 
 if __name__ == "__main__":
     unittest.main()

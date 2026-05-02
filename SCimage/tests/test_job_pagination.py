@@ -206,12 +206,22 @@ class JobPaginationTests(unittest.TestCase):
                 "url": "/generated/job-0/image-1.png",
             },
         )
+        store.append_image(
+            "job-0",
+            {
+                "slot": 2,
+                "name": "image-2.png",
+                "url": "/generated/job-0/image-2.png",
+            },
+        )
 
         page = store.list_gallery_images(limit=10)
 
-        self.assertEqual(page["total"], 1)
+        self.assertEqual(page["total"], 2)
         self.assertEqual(page["items"][0]["job"]["id"], "job-0")
-        self.assertEqual(page["items"][0]["image"]["name"], "image-1.png")
+        self.assertEqual(page["items"][0]["job"]["image_count"], 2)
+        self.assertEqual(len(page["items"][0]["job"]["images"]), 1)
+        self.assertIn(page["items"][0]["image"]["name"], {"image-1.png", "image-2.png"})
 
     def test_store_lists_gallery_groups_from_index(self) -> None:
         store = self.build_store()
