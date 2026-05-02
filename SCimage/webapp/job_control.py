@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from threading import Event, Lock
+import threading
 import os
 import signal
 import subprocess
@@ -61,6 +62,7 @@ def terminate_process_tree(process_id: int, process_group_id: int | None = None)
 class JobRunner:
     job_id: str
     cancel_event: Event = field(default_factory=Event)
+    terminate_event: Event = field(default_factory=Event)
     process_group_ids: Set[int] = field(default_factory=set)
     process_ids: Set[int] = field(default_factory=set)
     lock: Lock = field(default_factory=Lock)
@@ -70,6 +72,9 @@ class JobRunner:
             self.process_ids.add(process_id)
             if process_group_id:
                 self.process_group_ids.add(process_group_id)
+            should_terminate = self.cancel_event.is_set()
+        if should_terminate:
+            terminate_process_tree(process_id, process_group_id or resolve_process_group_id(process_id))
 
     def unregister_process(self, process_id: int, process_group_id: int | None = None) -> None:
         with self.lock:
@@ -79,7 +84,14 @@ class JobRunner:
 
     def request_cancel(self) -> None:
         self.cancel_event.set()
-        self.terminate_active_processes()
+        if self.terminate_event.is_set():
+            return
+        self.terminate_event.set()
+        threading.Thread(
+            target=self.terminate_active_processes,
+            name=f"scimage-cancel-{self.job_id}",
+            daemon=True,
+        ).start()
 
     def terminate_active_processes(self) -> None:
         with self.lock:

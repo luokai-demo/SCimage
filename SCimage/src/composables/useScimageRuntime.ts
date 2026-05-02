@@ -18,7 +18,7 @@ import {
 import { formatJobFailureMessage } from "../utils/jobDiagnostics";
 import { imageKeyFromParts } from "../utils/galleryKeys";
 import { formatDateTime, getOutputOptionSummary, truncateText } from "../utils/jobFormatters";
-import { isActiveJobStatus, isRetryableJobStatus } from "../utils/jobStatus";
+import { isActiveJobStatus, isRetryableJobStatus, isTerminalJobStatus } from "../utils/jobStatus";
 import { useConfirmDialog } from "./useConfirmDialog";
 import { usePromptLibraryDialog } from "./usePromptLibraryDialog";
 
@@ -101,6 +101,7 @@ const MODEL_READY_HINT_PREFIX = "已加载";
 const MODEL_INVALID_SELECTION_TEXT = "当前已保存模型不在该 API 支持列表中，请重新选择。";
 const MODEL_FETCH_FAILED_TEXT = "拉取模型失败，请重试。";
 const IMAGE_DOWNLOAD_FALLBACK_NAME = "image.png";
+const CANCELED_JOB_MESSAGE = "任务已中断，后台请求已停止，已生成图片会自动保留。";
 
 const forms = reactive<Record<WorkflowName, WorkspaceForm>>({
   generate: { prompt: "", size: getDefaultSizeOption(), quality: getDefaultQuality(), count: "1" },
@@ -168,6 +169,7 @@ let modelPickerRequestId = 0;
 let jobsListGeneration = 0;
 let galleryListGeneration = 0;
 let cleanupGeneratedPromise: Promise<void> | null = null;
+const locallyCanceledJobIds = new Set<string>();
 const busyJobIds = ref(new Set<string>());
 const clockTick = ref(Date.now());
 const isCreatingJob = ref(false);
@@ -297,16 +299,32 @@ function sortJobs(jobs: JobSummary[]) {
 }
 
 function mergeJobsById(currentJobs: JobSummary[], nextJobs: JobSummary[], reset = false) {
+  const currentJobMap = new Map<string, JobSummary>();
+  currentJobs.forEach((job) => {
+    const id = String(job.id || "").trim();
+    if (id) currentJobMap.set(id, job);
+  });
   const jobMap = new Map<string, JobSummary>();
   if (!reset) {
-    currentJobs.forEach((job) => {
-      const id = String(job.id || "").trim();
-      if (id) jobMap.set(id, job);
-    });
+    currentJobMap.forEach((job, id) => jobMap.set(id, job));
   }
   nextJobs.forEach((job) => {
     const id = String(job.id || "").trim();
-    if (id) jobMap.set(id, job);
+    if (!id) return;
+    const currentJob = currentJobMap.get(id);
+    if (
+      currentJob &&
+      locallyCanceledJobIds.has(id) &&
+      isTerminalJobStatus(currentJob.status) &&
+      !isTerminalJobStatus(job.status)
+    ) {
+      jobMap.set(id, currentJob);
+      return;
+    }
+    if (isTerminalJobStatus(job.status)) {
+      locallyCanceledJobIds.delete(id);
+    }
+    jobMap.set(id, job);
   });
   return sortJobs(Array.from(jobMap.values()));
 }
@@ -1131,6 +1149,61 @@ function closeLightboxIfMissing() {
   syncLightboxSelection();
 }
 
+function patchCanceledGalleryItems(jobId: string) {
+  const galleryStore = useGalleryStore();
+  const pageItems = galleryStore.pageItems.map((item: any) => {
+    const job = item?.job || item;
+    if (String(job?.id || item?.job_id || "") !== String(jobId)) return item;
+    if (item?.job) {
+      return { ...item, job: { ...item.job, status: "canceled", message: CANCELED_JOB_MESSAGE } };
+    }
+    return { ...item, status: "canceled", message: CANCELED_JOB_MESSAGE };
+  });
+  const flatItems = galleryStore.flatItems.map((item) => (
+    item.jobId === String(jobId)
+      ? {
+          ...item,
+          jobStatus: "canceled",
+          jobSnapshot: item.jobSnapshot
+            ? { ...item.jobSnapshot, status: "canceled", message: CANCELED_JOB_MESSAGE }
+            : item.jobSnapshot,
+        }
+      : item
+  ));
+  galleryStore.replacePageItems(pageItems);
+  galleryStore.replaceFlatItems(flatItems);
+}
+
+function markJobCanceledLocally(jobId: string, images?: unknown) {
+  locallyCanceledJobIds.add(String(jobId));
+  useJobStore().patchJob(jobId, {
+    status: "canceled",
+    message: CANCELED_JOB_MESSAGE,
+    ...(Array.isArray(images) ? { images } : {}),
+  });
+  patchCanceledGalleryItems(jobId);
+  if (failurePopup.jobId === jobId) closeFailurePopup();
+}
+
+function restoreJobSnapshotLocally(jobId: string, snapshot: JobSummary) {
+  locallyCanceledJobIds.delete(String(jobId));
+  useJobStore().patchJob(jobId, snapshot);
+  const galleryStore = useGalleryStore();
+  const status = String(snapshot.status || "");
+  const message = String(snapshot.message || "");
+  galleryStore.replacePageItems(galleryStore.pageItems.map((item: any) => {
+    const job = item?.job || item;
+    if (String(job?.id || item?.job_id || "") !== String(jobId)) return item;
+    if (item?.job) return { ...item, job: { ...item.job, ...snapshot } };
+    return { ...item, ...snapshot };
+  }));
+  galleryStore.replaceFlatItems(galleryStore.flatItems.map((item) => (
+    item.jobId === String(jobId)
+      ? { ...item, jobStatus: status, jobSnapshot: { ...(item.jobSnapshot || {}), ...snapshot, message } }
+      : item
+  )));
+}
+
 async function jobAction(jobId: string, action: "cancel" | "retry" | "delete") {
   if (!jobId) return;
   const job = getActionJob(jobId);
@@ -1163,16 +1236,28 @@ async function jobAction(jobId: string, action: "cancel" | "retry" | "delete") {
   }
   setJobBusy(jobId, true);
   try {
+    if (action === "retry") {
+      locallyCanceledJobIds.delete(String(jobId));
+    }
     if (action === "cancel") {
-      useJobStore().patchJob(jobId, { status: "canceling", message: "正在中断任务，已启动的图片请求会尽快停止。" });
+      markJobCanceledLocally(jobId);
     }
     if (action === "retry" || action === "delete") clearFailurePopupEntries(jobId);
-    await apiRequest(path, { method, timeoutMs: action === "cancel" ? 8000 : 30000 });
+    const payload = await apiRequest<any>(path, { method, timeoutMs: action === "cancel" ? 8000 : 30000 });
+    if (action === "cancel") {
+      markJobCanceledLocally(jobId, payload?.images);
+      void refreshJobs({ silent: true });
+      setStatus("success", "任务已中断。", 2200);
+      return;
+    }
     if (failurePopup.jobId === jobId) closeFailurePopup();
-    await refreshJobs({ silent: true, reset: action !== "cancel" });
+    await refreshJobs({ silent: true, reset: true });
     if (action === "delete") closeLightboxIfMissing();
-    setStatus("success", action === "cancel" ? "任务已送出中断请求。" : action === "retry" ? "任务已重新加入队列。" : "任务已删除。", 2200);
+    setStatus("success", action === "retry" ? "任务已重新加入队列。" : "任务已删除。", 2200);
   } catch (error) {
+    if (action === "cancel") {
+      restoreJobSnapshotLocally(jobId, job);
+    }
     setStatus("error", error instanceof Error ? error.message : String(error));
   } finally {
     setJobBusy(jobId, false);

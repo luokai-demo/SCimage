@@ -564,7 +564,7 @@ class ImageWorkbenchHandler(BaseHTTPRequestHandler):
             self._send_json(snapshot, HTTPStatus.OK)
             return
 
-        STORE.update_status(job_id, "canceling", "正在中断任务，已启动的图片请求会尽快停止。")
+        STORE.cancel(job_id, snapshot.get("images", []))
         if not RUNNERS.request_cancel(job_id):
             STORE.cancel(job_id, snapshot.get("images", []), warnings=["本地后端进程已结束，任务已按中断处理。"])
         self._send_json(STORE.snapshot(job_id), HTTPStatus.OK)

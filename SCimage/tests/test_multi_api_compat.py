@@ -3,7 +3,10 @@ from __future__ import annotations
 import base64
 from pathlib import Path
 from threading import Event
+import subprocess
 import sys
+import threading
+import time
 from tempfile import TemporaryDirectory
 import unittest
 from unittest.mock import patch
@@ -19,7 +22,9 @@ for candidate in (WEBAPP_DIR, SCRIPTS_DIR):
         sys.path.insert(0, candidate_text)
 
 from gateway_client import GatewayConfig, GatewayFatalError, _is_retryable_message, save_image_item
+from job_control import JobRunner
 from openai_sdk_gateway import OpenAISDKConfig, normalize_openai_sdk_base_url, request_openai_sdk_generation
+from openai_image_sdk import SDK_WORKER_ARG, _sdk_worker_command
 from output_options import (
     OUTPUT_PROFILE_ASPECT_V1,
     OUTPUT_PROFILE_PIXEL_V1,
@@ -202,6 +207,93 @@ class OpenAISDKGatewayTests(unittest.TestCase):
                 )
 
         mocked_execute.assert_not_called()
+
+    def test_frozen_sdk_worker_command_uses_app_executable(self) -> None:
+        with patch.object(sys, "frozen", True, create=True):
+            self.assertEqual(_sdk_worker_command(), [sys.executable, SDK_WORKER_ARG])
+
+    def test_request_generation_uses_runner_managed_subprocess(self) -> None:
+        runner = JobRunner(job_id="sdk-runner")
+
+        with patch(
+            "openai_image_sdk._run_openai_sdk_subprocess",
+            return_value={"data": [{"b64_json": "ZmFrZQ=="}]},
+        ) as mocked_subprocess:
+            payload = request_openai_sdk_generation(
+                base_url="https://example.com",
+                api_key="test-key",
+                model="gpt-image-1",
+                prompt="apple",
+                count=1,
+                quality="low",
+                size="1024x1024",
+                config=OpenAISDKConfig(),
+                cancel_event=runner.cancel_event,
+                runner=runner,
+            )
+
+        self.assertEqual(payload, {"data": [{"b64_json": "ZmFrZQ=="}]})
+        mocked_subprocess.assert_called_once()
+        self.assertIs(mocked_subprocess.call_args.kwargs["runner"], runner)
+
+    def test_runner_cancel_stops_blocked_openai_sdk_subprocess(self) -> None:
+        runner = JobRunner(job_id="sdk-cancel")
+        started = Event()
+        real_popen = subprocess.Popen
+        thread_errors: list[BaseException] = []
+
+        def blocking_popen(*args, **kwargs):
+            process = real_popen(
+                [
+                    sys.executable,
+                    "-c",
+                    (
+                        "import signal, time\n"
+                        "signal.signal(signal.SIGTERM, lambda *_: exit(0))\n"
+                        "time.sleep(30)\n"
+                    ),
+                ],
+                stdin=subprocess.PIPE,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                encoding="utf-8",
+                **{key: value for key, value in kwargs.items() if key in {"start_new_session", "creationflags"}},
+            )
+            started.set()
+            return process
+
+        def run_blocked_request() -> None:
+            try:
+                with self.assertRaisesRegex(RuntimeError, "图像任务已取消"):
+                    request_openai_sdk_generation(
+                        base_url="https://example.com",
+                        api_key="test-key",
+                        model="gpt-image-1",
+                        prompt="apple",
+                        count=1,
+                        quality="low",
+                        size="1024x1024",
+                        config=OpenAISDKConfig(),
+                        cancel_event=runner.cancel_event,
+                        runner=runner,
+                    )
+            except BaseException as exc:
+                thread_errors.append(exc)
+
+        with patch("openai_image_sdk.subprocess.Popen", side_effect=blocking_popen):
+            request_thread = threading.Thread(target=run_blocked_request)
+            request_thread.start()
+            self.assertTrue(started.wait(1))
+            started_at = time.monotonic()
+            runner.request_cancel()
+            request_thread.join(2)
+
+        self.assertFalse(request_thread.is_alive())
+        if thread_errors:
+            raise thread_errors[0]
+        self.assertLess(time.monotonic() - started_at, 1.5)
+        self.assertEqual(runner.process_ids, set())
 
 
 class GatewayPayloadFallbackTests(unittest.TestCase):

@@ -295,7 +295,7 @@ async function main() {
   await page.route("**/api/jobs/job-running/cancel", async (route) => {
     jobs = jobs.map((job) => (
       job.id === "job-running"
-        ? { ...job, status: "canceling", message: "正在中断任务，已启动的图片请求会尽快停止。" }
+        ? { ...job, status: "canceled", message: "任务已中断，当前没有可保留的图片。" }
         : job
     ));
     await new Promise((resolve) => setTimeout(resolve, 1200));
@@ -765,9 +765,22 @@ async function main() {
 
   await page.locator(".running-job-actions button", { hasText: "中断" }).click();
   await page.waitForTimeout(100);
-  const cancelingLabel = await page.locator(".running-job-status").textContent();
-  if (cancelingLabel !== "中断中") {
-    throw new Error(`中断点击后未立即进入中断中：${cancelingLabel || ""}`);
+  const runningCountAfterCancel = await page.locator(".running-job-card").count();
+  if (runningCountAfterCancel !== 0) {
+    throw new Error(`中断点击后运行任务没有立即清空：${runningCountAfterCancel}`);
+  }
+  const canceledBadge = await page.locator(".left-task-card.is-canceled .left-task-badge").first().textContent();
+  if (canceledBadge !== "已中断") {
+    throw new Error(`中断点击后未立即进入已中断：${canceledBadge || ""}`);
+  }
+  await page.waitForTimeout(1400);
+  const runningCountAfterSlowCancelResponse = await page.locator(".running-job-card").count();
+  if (runningCountAfterSlowCancelResponse !== 0) {
+    throw new Error(`中断接口慢返回后运行任务又闪回：${runningCountAfterSlowCancelResponse}`);
+  }
+  const canceledBadgeAfterSlowCancelResponse = await page.locator(".left-task-card.is-canceled .left-task-badge").first().textContent();
+  if (canceledBadgeAfterSlowCancelResponse !== "已中断") {
+    throw new Error(`中断接口慢返回后任务状态被覆盖：${canceledBadgeAfterSlowCancelResponse || ""}`);
   }
 
   providerModels = [

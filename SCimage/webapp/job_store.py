@@ -154,6 +154,8 @@ class JobStore:
     def update_status(self, job_id: str, status: str, message: str) -> None:
         with self._lock:
             job = self._require_unlocked(job_id)
+            if job.status in {"canceled", "completed", "partial", "failed"}:
+                return
             job.status = status
             job.message = message
             job.updated_at = _now()
@@ -165,7 +167,9 @@ class JobStore:
             remaining = [item for item in job.images if item.get("slot") != image.get("slot")]
             remaining.append(image)
             job.images = sorted(remaining, key=lambda item: item.get("slot", 0))
-            if message:
+            if job.status == "canceled":
+                job.message = f"任务已中断，已保留 {len(job.images)}/{job.count} 张图片。"
+            elif message:
                 job.message = message
             job.updated_at = _now()
             self._upsert_unlocked(job)
@@ -173,6 +177,19 @@ class JobStore:
     def complete(self, job_id: str, images: List[dict], warnings: Optional[List[str]] = None) -> None:
         with self._lock:
             job = self._require_unlocked(job_id)
+            if job.status == "canceled":
+                merged = {int(item.get("slot", 0)): item for item in job.images}
+                for image in images:
+                    merged[int(image.get("slot", 0))] = image
+                job.images = sorted(merged.values(), key=lambda item: item.get("slot", 0))
+                job.warnings = warnings or job.warnings
+                if job.images:
+                    job.message = f"任务已中断，已保留 {len(job.images)}/{job.count} 张图片。"
+                else:
+                    job.message = "任务已中断，当前没有可保留的图片。"
+                job.updated_at = _now()
+                self._upsert_unlocked(job)
+                return
             job.images = sorted(images, key=lambda item: item.get("slot", 0))
             job.warnings = warnings or []
             if job.warnings:
@@ -187,9 +204,12 @@ class JobStore:
     def cancel(self, job_id: str, images: List[dict], warnings: Optional[List[str]] = None) -> None:
         with self._lock:
             job = self._require_unlocked(job_id)
+            merged_images = {int(item.get("slot", 0)): item for item in job.images}
+            for image in images:
+                merged_images[int(image.get("slot", 0))] = image
             job.status = "canceled"
-            job.images = sorted(images, key=lambda item: item.get("slot", 0))
-            job.warnings = warnings or []
+            job.images = sorted(merged_images.values(), key=lambda item: item.get("slot", 0))
+            job.warnings = warnings or job.warnings
             if job.images:
                 job.message = f"任务已中断，已保留 {len(job.images)}/{job.count} 张图片。"
             else:
@@ -200,6 +220,12 @@ class JobStore:
     def fail(self, job_id: str, error: str) -> None:
         with self._lock:
             job = self._require_unlocked(job_id)
+            if job.status == "canceled":
+                if error:
+                    job.warnings = [error]
+                job.updated_at = _now()
+                self._upsert_unlocked(job)
+                return
             job.status = "failed"
             job.message = "生成失败。"
             job.error = error

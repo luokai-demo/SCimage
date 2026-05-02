@@ -12,6 +12,11 @@ if str(WEBAPP_DIR) not in sys.path:
 
 def main() -> int:
     multiprocessing.freeze_support()
+    if "--sdk-worker" in sys.argv:
+        from openai_image_sdk import _run_worker_from_stdin
+
+        return _run_worker_from_stdin()
+
     from desktop_shell import run_desktop_app
 
     return run_desktop_app()
