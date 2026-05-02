@@ -11,7 +11,6 @@ from workflows import DEFAULT_WORKFLOW, IMAGE_TO_IMAGE_WORKFLOW, normalize_workf
 
 
 WORKFLOW_IDS = (DEFAULT_WORKFLOW, IMAGE_TO_IMAGE_WORKFLOW)
-PROMPT_BANK_LIMIT = 120
 GALLERY_FILTER_IDS = ("all", "tasks", "prompts")
 DEFAULT_GALLERY_FILTER = "all"
 
@@ -136,8 +135,6 @@ def _normalize_prompt_bank(payload: object, fallback_workflow: str) -> list[dict
             entry["id"] = _create_id()
         seen_ids.add(entry["id"])
         entries.append(entry)
-        if len(entries) >= PROMPT_BANK_LIMIT:
-            break
     return entries
 
 

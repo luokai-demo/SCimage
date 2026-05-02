@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 from dataclasses import dataclass
 from pathlib import Path
 from threading import Event
@@ -221,7 +221,9 @@ def _generate_images_with_parallel_single_requests(
         for slot in range(1, count + 1)
     ]
 
-    with ThreadPoolExecutor(max_workers=count, thread_name_prefix="scimage-count-fanout") as executor:
+    executor = ThreadPoolExecutor(max_workers=count, thread_name_prefix="scimage-count-fanout")
+    cancelled = False
+    try:
         future_to_slot = {
             executor.submit(
                 execute_image_generation,
@@ -232,35 +234,59 @@ def _generate_images_with_parallel_single_requests(
             ): slot
             for slot, request in requests
         }
-        for future in as_completed(future_to_slot):
-            slot = future_to_slot[future]
+        pending_futures = set(future_to_slot)
+        while pending_futures:
             if cancel_event and cancel_event.is_set():
-                for pending_future in future_to_slot:
+                cancelled = True
+                for pending_future in pending_futures:
                     pending_future.cancel()
-                break
+                return GenerationResult(
+                    images=_sort_images_by_slot(images_by_slot),
+                    errors=errors,
+                    cancelled=True,
+                )
 
-            try:
-                response = future.result()
-            except Exception as exc:
+            done_futures, pending_futures = wait(pending_futures, timeout=0.2, return_when=FIRST_COMPLETED)
+            if not done_futures:
+                continue
+
+            for future in done_futures:
+                slot = future_to_slot[future]
                 if cancel_event and cancel_event.is_set():
+                    cancelled = True
+                    for pending_future in pending_futures:
+                        pending_future.cancel()
                     return GenerationResult(
                         images=_sort_images_by_slot(images_by_slot),
                         errors=errors,
                         cancelled=True,
                     )
-                errors.append(f"第 {slot} 张图片生成失败：{normalize_generation_error(str(exc))}")
-                continue
 
-            saved_paths = list(response.saved_paths)
-            if not saved_paths:
-                errors.append(f"第 {slot} 张图片未返回结果。")
-                continue
+                try:
+                    response = future.result()
+                except Exception as exc:
+                    if cancel_event and cancel_event.is_set():
+                        cancelled = True
+                        return GenerationResult(
+                            images=_sort_images_by_slot(images_by_slot),
+                            errors=errors,
+                            cancelled=True,
+                        )
+                    errors.append(f"第 {slot} 张图片生成失败：{normalize_generation_error(str(exc))}")
+                    continue
 
-            image = _build_image_payload(job_id=job_id, file_path=saved_paths[0], slot=slot)
-            images_by_slot[slot] = image
-            completed_count += 1
-            if image_callback:
-                image_callback(image, completed_count, count)
+                saved_paths = list(response.saved_paths)
+                if not saved_paths:
+                    errors.append(f"第 {slot} 张图片未返回结果。")
+                    continue
+
+                image = _build_image_payload(job_id=job_id, file_path=saved_paths[0], slot=slot)
+                images_by_slot[slot] = image
+                completed_count += 1
+                if image_callback:
+                    image_callback(image, completed_count, count)
+    finally:
+        executor.shutdown(wait=not cancelled, cancel_futures=cancelled)
 
     if cancel_event and cancel_event.is_set():
         return GenerationResult(

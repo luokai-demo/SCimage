@@ -184,10 +184,12 @@ def parse_group_cursor(cursor: object) -> tuple[str, str]:
 def _gallery_item_from_row(row: sqlite3.Row, decode_job: Callable[[str | dict], object]) -> dict:
     job = asdict(decode_job(row["job_payload"]))
     image = json.loads(row["image_payload"])
+    all_images = job.get("images") if isinstance(job.get("images"), list) else []
     return {
         "job": {
             **job,
             "images": [image],
+            "image_count": len(all_images) or 1,
         },
         "image": image,
     }
