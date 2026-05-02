@@ -1,13 +1,18 @@
 from __future__ import annotations
 
+import json
+import ssl
+from contextlib import closing
 from dataclasses import dataclass
 from typing import Iterable
-from urllib.parse import urlparse
+from urllib.error import HTTPError, URLError
+from urllib.parse import urljoin, urlparse
+from urllib.request import Request, urlopen
 
 try:
-    from openai import OpenAI
-except ImportError:  # pragma: no cover - handled at runtime
-    OpenAI = None
+    import certifi
+except ImportError:  # pragma: no cover - bundled app should include certifi via openai/httpx
+    certifi = None
 
 
 IMAGE_MODEL_PREFIXES = ("gpt-image-",)
@@ -67,14 +72,13 @@ def discover_provider_models(
     config: ProviderModelCatalogConfig | None = None,
 ) -> tuple[str, list[ProviderModelOption]]:
     runtime_config = config or ProviderModelCatalogConfig()
-    client = _build_openai_client(
-        base_url=base_url,
-        api_key=api_key,
-        config=runtime_config,
-    )
     normalized_base_url = normalize_openai_compatible_base_url(base_url)
-    response = client.models.list()
-    return normalized_base_url, _normalize_provider_models(getattr(response, "data", []))
+    payload = _request_provider_models(
+        base_url=normalized_base_url,
+        api_key=api_key,
+        timeout_seconds=runtime_config.timeout_seconds,
+    )
+    return normalized_base_url, _normalize_provider_models(_read_models_payload(payload))
 
 
 def validate_provider_model_selection(
@@ -99,20 +103,66 @@ def validate_provider_model_selection(
     return normalized_base_url, models
 
 
-def _build_openai_client(
-    *,
-    base_url: str,
-    api_key: str,
-    config: ProviderModelCatalogConfig,
-):
-    if OpenAI is None:
-        raise RuntimeError("Missing dependency: openai. Please install the openai Python package.")
-    return OpenAI(
-        api_key=api_key,
-        base_url=normalize_openai_compatible_base_url(base_url),
-        timeout=float(config.timeout_seconds),
-        max_retries=config.max_retries,
+def _request_provider_models(*, base_url: str, api_key: str, timeout_seconds: int) -> object:
+    request = Request(
+        urljoin(f"{base_url.rstrip('/')}/", "models"),
+        headers={
+            "Accept": "application/json",
+            "Authorization": f"Bearer {api_key}",
+        },
+        method="GET",
     )
+    try:
+        with closing(urlopen(request, timeout=timeout_seconds, context=_build_ssl_context())) as response:
+            raw_body = response.read().decode("utf-8", errors="replace")
+    except HTTPError as exc:
+        message = _extract_error_message(exc.read().decode("utf-8", errors="replace"))
+        detail = f"：{message}" if message else ""
+        raise RuntimeError(f"模型列表请求失败，接口返回 HTTP {exc.code}{detail}") from exc
+    except FileNotFoundError as exc:
+        missing_path = getattr(exc, "filename", "") or str(exc)
+        raise RuntimeError(f"模型列表请求失败，运行时缺少文件：{missing_path}") from exc
+    except URLError as exc:
+        raise RuntimeError(f"模型列表请求失败：{exc.reason}") from exc
+    except OSError as exc:
+        raise RuntimeError(f"模型列表请求失败：{exc}") from exc
+
+    try:
+        return json.loads(raw_body)
+    except json.JSONDecodeError as exc:
+        raise RuntimeError("模型列表返回了非 JSON 内容。") from exc
+
+
+def _build_ssl_context() -> ssl.SSLContext:
+    if certifi is None:
+        return ssl.create_default_context()
+    return ssl.create_default_context(cafile=certifi.where())
+
+
+def _read_models_payload(payload: object) -> Iterable[object]:
+    if isinstance(payload, dict):
+        data = payload.get("data", [])
+        return data if isinstance(data, list) else []
+    if isinstance(payload, list):
+        return payload
+    return []
+
+
+def _extract_error_message(body: str) -> str:
+    try:
+        payload = json.loads(body)
+    except json.JSONDecodeError:
+        return " ".join(body.split()).strip()
+    if isinstance(payload, dict):
+        error = payload.get("error")
+        if isinstance(error, dict):
+            return str(error.get("message") or error.get("code") or "").strip()
+        if isinstance(error, str):
+            return error.strip()
+        message = payload.get("message")
+        if isinstance(message, str):
+            return message.strip()
+    return ""
 
 
 def _normalize_provider_models(raw_models: Iterable[object]) -> list[ProviderModelOption]:

@@ -1,11 +1,12 @@
 from __future__ import annotations
 
+import io
 from pathlib import Path
 from tempfile import TemporaryDirectory
-from types import SimpleNamespace
 import sys
 import unittest
 from unittest.mock import patch
+from urllib.error import HTTPError
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -48,16 +49,10 @@ class ProviderModelCatalogTests(unittest.TestCase):
         self.assertEqual(categorize_provider_model("dall-e-3"), MODEL_CATEGORY_IMAGE)
         self.assertEqual(categorize_provider_model("gpt-5.4"), MODEL_CATEGORY_OTHER)
 
-    @patch("provider_model_catalog.OpenAI")
-    def test_discover_provider_models_groups_images_first(self, mock_openai) -> None:
-        client = mock_openai.return_value
-        client.models.list.return_value = SimpleNamespace(
-            data=[
-                SimpleNamespace(id="gpt-5.4"),
-                SimpleNamespace(id="gpt-image-2"),
-                SimpleNamespace(id="dall-e-3"),
-                SimpleNamespace(id="gpt-5.5"),
-            ]
+    @patch("provider_model_catalog.urlopen")
+    def test_discover_provider_models_groups_images_first(self, mock_urlopen) -> None:
+        mock_urlopen.return_value = FakeResponse(
+            b'{"data":[{"id":"gpt-5.4"},{"id":"gpt-image-2"},{"id":"dall-e-3"},{"id":"gpt-5.5"}]}'
         )
 
         normalized_base_url, models = discover_provider_models(
@@ -75,6 +70,34 @@ class ProviderModelCatalogTests(unittest.TestCase):
                 ("gpt-5.5", MODEL_CATEGORY_OTHER),
             ],
         )
+        request = mock_urlopen.call_args.args[0]
+        self.assertEqual(request.full_url, "https://example.com/v1/models")
+        self.assertEqual(request.get_header("Authorization"), "Bearer secret-key")
+
+    @patch("provider_model_catalog.urlopen", side_effect=FileNotFoundError("missing-runtime-file"))
+    def test_discover_provider_models_reports_missing_runtime_file(self, mock_urlopen) -> None:
+        with self.assertRaisesRegex(RuntimeError, "运行时缺少文件"):
+            discover_provider_models(
+                base_url="https://example.com",
+                api_key="secret-key",
+            )
+
+    @patch(
+        "provider_model_catalog.urlopen",
+        side_effect=HTTPError(
+            "https://example.com/v1/models",
+            401,
+            "Unauthorized",
+            None,
+            io.BytesIO(b'{"error":{"message":"bad key"}}'),
+        ),
+    )
+    def test_discover_provider_models_reports_http_error(self, mock_urlopen) -> None:
+        with self.assertRaisesRegex(RuntimeError, "HTTP 401"):
+            discover_provider_models(
+                base_url="https://example.com",
+                api_key="secret-key",
+            )
 
     @patch("provider_model_catalog.discover_provider_models")
     def test_validate_provider_model_selection_rejects_unsupported_model(self, mock_discover_provider_models) -> None:
@@ -146,6 +169,17 @@ class ProviderModelRequestHelpersTests(unittest.TestCase):
             base_url="https://example.com",
             api_key="secret-key",
         )
+
+
+class FakeResponse:
+    def __init__(self, body: bytes) -> None:
+        self.body = body
+
+    def read(self) -> bytes:
+        return self.body
+
+    def close(self) -> None:
+        pass
 
 
 if __name__ == "__main__":
