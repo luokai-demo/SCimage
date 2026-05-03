@@ -9,7 +9,7 @@ import zipfile
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from urllib.parse import parse_qs, urlparse, urlunsplit
+from urllib.parse import parse_qs, unquote, urlparse, urlunsplit
 from uuid import uuid4
 
 from config import (
@@ -353,6 +353,13 @@ class ImageWorkbenchHandler(BaseHTTPRequestHandler):
                 return
             self._send_json(STORE.maintain_database(vacuum=bool(payload.get("vacuum"))), HTTPStatus.OK)
             return
+        if parsed.path.startswith("/api/genealogy/nodes/") and parsed.path.endswith("/position"):
+            node_id = parsed.path.removeprefix("/api/genealogy/nodes/").removesuffix("/position").strip("/")
+            if not node_id:
+                self.send_error(HTTPStatus.NOT_FOUND, "Unknown API path.")
+                return
+            self._handle_update_genealogy_node_position(unquote(node_id))
+            return
         if parsed.path == "/api/gallery/batch/delete":
             self._handle_batch_delete_images()
             return
@@ -423,7 +430,7 @@ class ImageWorkbenchHandler(BaseHTTPRequestHandler):
             self._send_json(_build_gallery_groups_payload(parse_qs(parsed.query)), HTTPStatus.OK)
             return
         if parsed.path == "/api/genealogy/graph":
-            self._send_json(build_genealogy_graph(STORE.list_all()), HTTPStatus.OK)
+            self._send_json(build_genealogy_graph(STORE.list_all(), STORE.list_genealogy_positions()), HTTPStatus.OK)
             return
         if parsed.path == "/api/maintenance/database":
             self._send_json(STORE.maintain_database(vacuum=False), HTTPStatus.OK)
@@ -681,6 +688,26 @@ class ImageWorkbenchHandler(BaseHTTPRequestHandler):
             },
             HTTPStatus.OK,
         )
+
+    def _handle_update_genealogy_node_position(self, node_id: str) -> None:
+        payload = self._read_json_body()
+        if payload is None:
+            return
+        try:
+            position = STORE.update_genealogy_node_position(
+                node_id,
+                {
+                    "x": payload.get("x"),
+                    "y": payload.get("y"),
+                },
+            )
+        except ValueError as exc:
+            self._send_json({"error": str(exc)}, HTTPStatus.BAD_REQUEST)
+            return
+        if not position:
+            self._send_json({"error": "族谱节点不存在。"}, HTTPStatus.NOT_FOUND)
+            return
+        self._send_json({"ok": True, "position": position}, HTTPStatus.OK)
 
     def _handle_batch_delete_images(self) -> None:
         payload = self._read_json_body()

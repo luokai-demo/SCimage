@@ -5,8 +5,9 @@ from datetime import datetime
 from typing import Any, Iterable
 
 
-def build_genealogy_graph(jobs: Iterable[dict]) -> dict:
+def build_genealogy_graph(jobs: Iterable[dict], positions: dict | None = None) -> dict:
     normalized_jobs = [job for job in jobs if isinstance(job, dict)]
+    normalized_positions = _normalize_positions_map(positions)
     nodes: dict[str, dict] = {}
     edges: dict[tuple[str, str], dict] = {}
 
@@ -50,6 +51,7 @@ def build_genealogy_graph(jobs: Iterable[dict]) -> dict:
         "families": families,
         "nodes": sorted(nodes.values(), key=lambda item: (_timestamp(item.get("updated_at")), item["id"]), reverse=True),
         "edges": sorted(edges.values(), key=lambda item: (item["from"], item["to"])),
+        "positions": _filter_positions_for_graph(normalized_positions, nodes),
     }
 
 
@@ -201,3 +203,37 @@ def _to_positive_int(value: object, default: int) -> int:
     except (TypeError, ValueError):
         return default
     return normalized if normalized > 0 else default
+
+
+def _normalize_positions_map(value: object) -> dict[str, dict]:
+    if not isinstance(value, dict):
+        return {}
+    positions: dict[str, dict] = {}
+    for node_id, position in value.items():
+        normalized_node_id = str(node_id or "").strip()
+        normalized_position = _normalize_position(position)
+        if not normalized_node_id or normalized_position is None:
+            continue
+        positions[normalized_node_id] = normalized_position
+    return positions
+
+
+def _filter_positions_for_graph(
+    positions: dict[str, dict],
+    nodes: dict[str, dict],
+) -> dict[str, dict]:
+    node_ids = set(nodes)
+    return {node_id: position for node_id, position in positions.items() if node_id in node_ids}
+
+
+def _normalize_position(value: object) -> dict | None:
+    if not isinstance(value, dict):
+        return None
+    try:
+        x = round(float(value.get("x")))
+        y = round(float(value.get("y")))
+    except (TypeError, ValueError):
+        return None
+    if x < 0 or y < 0:
+        return None
+    return {"x": x, "y": y}

@@ -3,7 +3,7 @@ from __future__ import annotations
 import sqlite3
 
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 4
 
 
 def initialize_database(connection: sqlite3.Connection) -> None:
@@ -14,6 +14,7 @@ def initialize_database(connection: sqlite3.Connection) -> None:
     _initialize_meta(connection)
     _initialize_jobs(connection)
     _initialize_images(connection)
+    _initialize_genealogy_positions(connection)
     _set_schema_version(connection, SCHEMA_VERSION)
     connection.commit()
 
@@ -84,8 +85,64 @@ def _initialize_images(connection: sqlite3.Connection) -> None:
     connection.execute("CREATE INDEX IF NOT EXISTS idx_job_images_created_at ON job_images(created_at DESC, job_id, slot)")
 
 
+def _initialize_genealogy_positions(connection: sqlite3.Connection) -> None:
+    columns = _table_columns(connection, "genealogy_node_positions")
+    if "root_id" in columns:
+        _migrate_root_scoped_genealogy_positions(connection)
+    connection.execute(
+        """
+        CREATE TABLE IF NOT EXISTS genealogy_node_positions (
+            node_id TEXT PRIMARY KEY,
+            x INTEGER NOT NULL,
+            y INTEGER NOT NULL,
+            updated_at TEXT NOT NULL
+        )
+        """
+    )
+    connection.execute(
+        "CREATE INDEX IF NOT EXISTS idx_genealogy_node_positions_updated_at ON genealogy_node_positions(updated_at DESC)"
+    )
+
+
+def _migrate_root_scoped_genealogy_positions(connection: sqlite3.Connection) -> None:
+    rows = connection.execute(
+        """
+        SELECT node_id, x, y, updated_at
+        FROM genealogy_node_positions
+        ORDER BY updated_at ASC, root_id ASC, node_id ASC
+        """
+    ).fetchall()
+    connection.execute("DROP TABLE genealogy_node_positions")
+    connection.execute(
+        """
+        CREATE TABLE genealogy_node_positions (
+            node_id TEXT PRIMARY KEY,
+            x INTEGER NOT NULL,
+            y INTEGER NOT NULL,
+            updated_at TEXT NOT NULL
+        )
+        """
+    )
+    for row in rows:
+        connection.execute(
+            """
+            INSERT INTO genealogy_node_positions (node_id, x, y, updated_at)
+            VALUES (?, ?, ?, ?)
+            ON CONFLICT(node_id) DO UPDATE SET
+                x = excluded.x,
+                y = excluded.y,
+                updated_at = excluded.updated_at
+            """,
+            (row["node_id"], row["x"], row["y"], row["updated_at"]),
+        )
+
+
+def _table_columns(connection: sqlite3.Connection, table: str) -> set[str]:
+    return {row["name"] for row in connection.execute(f"PRAGMA table_info({table})").fetchall()}
+
+
 def _add_column_if_missing(connection: sqlite3.Connection, table: str, column: str, definition: str) -> None:
-    columns = {row["name"] for row in connection.execute(f"PRAGMA table_info({table})").fetchall()}
+    columns = _table_columns(connection, table)
     if column not in columns:
         connection.execute(f"ALTER TABLE {table} ADD COLUMN {column} {definition}")
 

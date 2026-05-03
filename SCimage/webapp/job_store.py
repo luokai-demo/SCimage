@@ -13,6 +13,13 @@ from config import JOB_DATABASE_PATH, LOCAL_STATE_DIR
 from database_maintenance import check_database_consistency, maintain_database
 from database_migrations import initialize_database
 from gallery_repository import list_gallery_groups, list_gallery_images
+from genealogy_layout_repository import (
+    image_node_id,
+    list_genealogy_positions,
+    remove_genealogy_position_for_node,
+    remove_genealogy_positions_for_job,
+    update_genealogy_node_position,
+)
 from job_persistence import JOB_RECORDS_PATH
 from job_repository import encode_job_payload, list_jobs_page
 from legacy_job_migration import migrate_legacy_job_records
@@ -264,6 +271,7 @@ class JobStore:
             removed = self._get_unlocked(job_id)
             if removed is not None:
                 self._connection.execute("DELETE FROM jobs WHERE id = ?", (job_id,))
+                remove_genealogy_positions_for_job(self._connection, job_id)
                 self._connection.commit()
             return removed
 
@@ -288,13 +296,32 @@ class JobStore:
             deleted_job = len(job.images) == 0
             if deleted_job:
                 self._connection.execute("DELETE FROM jobs WHERE id = ?", (job_id,))
+                remove_genealogy_position_for_node(self._connection, image_node_id(job_id, slot))
+                remove_genealogy_positions_for_job(self._connection, job_id)
                 self._connection.commit()
                 return None, removed_image, True
 
+            remove_genealogy_position_for_node(self._connection, image_node_id(job_id, slot))
             job.message = f"已删除 1 张图片，当前保留 {len(job.images)} 张。"
             job.updated_at = _now()
             self._upsert_unlocked(job)
             return asdict(job), removed_image, False
+
+    def list_genealogy_positions(self) -> dict[str, dict]:
+        with self._lock:
+            return list_genealogy_positions(self._connection)
+
+    def update_genealogy_node_position(self, node_id: str, position: dict) -> dict:
+        with self._lock:
+            normalized_position = update_genealogy_node_position(
+                self._connection,
+                node_id=node_id,
+                position=position,
+                updated_at=_now(),
+                decode_job=_job_from_payload,
+            )
+            self._connection.commit()
+            return normalized_position
 
     def remove_images(self, selections: list[dict]) -> dict:
         removed: list[dict] = []
@@ -321,8 +348,11 @@ class JobStore:
                 removed.append({"job_id": job_id, "image": removed_image})
                 if not remaining:
                     self._connection.execute("DELETE FROM jobs WHERE id = ?", (job_id,))
+                    remove_genealogy_position_for_node(self._connection, image_node_id(job_id, slot))
+                    remove_genealogy_positions_for_job(self._connection, job_id)
                     deleted_jobs.add(job_id)
                     continue
+                remove_genealogy_position_for_node(self._connection, image_node_id(job_id, slot))
                 job.images = sorted(remaining, key=lambda item: item.get("slot", 0))
                 job.message = f"已批量删除图片，当前保留 {len(job.images)} 张。"
                 job.updated_at = _now()
