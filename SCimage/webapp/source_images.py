@@ -3,7 +3,7 @@ from __future__ import annotations
 import shutil
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Iterable
+from typing import Any, Iterable
 
 from config import MAX_SOURCE_IMAGE_BYTES, MAX_SOURCE_IMAGE_COUNT
 from generated_assets import job_output_dir
@@ -29,6 +29,7 @@ class SourceImageFile:
     filename: str
     content_type: str
     data: bytes
+    origin: dict[str, Any] | None = None
 
 
 def job_source_dir(job_id: str) -> Path:
@@ -48,7 +49,7 @@ def save_source_images(job_id: str, uploads: Iterable[SourceImageFile]) -> list[
         for index, upload in enumerate(normalized_uploads, start=1):
             target_path = source_dir / f"source-{index}{_resolve_extension(upload.filename, upload.content_type)}"
             target_path.write_bytes(upload.data)
-            saved_images.append(_build_source_image_payload(job_id, target_path, index))
+            saved_images.append(_build_source_image_payload(job_id, target_path, index, origin=upload.origin))
     except Exception:
         shutil.rmtree(source_dir, ignore_errors=True)
         raise
@@ -134,6 +135,7 @@ def _normalize_uploads(uploads: Iterable[SourceImageFile]) -> list[SourceImageFi
                 filename=filename,
                 content_type=content_type,
                 data=data,
+                origin=_normalize_origin(upload.origin),
             )
         )
 
@@ -153,13 +155,17 @@ def _resolve_extension(filename: str, content_type: str) -> str:
     raise ValueError(f"仅支持这些参考图格式：{allowed}。")
 
 
-def _build_source_image_payload(job_id: str, file_path: Path, slot: int) -> dict:
-    return {
+def _build_source_image_payload(job_id: str, file_path: Path, slot: int, *, origin: dict[str, Any] | None = None) -> dict:
+    payload = {
         "slot": slot,
         "name": file_path.name,
         "path": str(file_path),
         "url": f"/generated/{job_id}/source-images/{file_path.name}",
     }
+    normalized_origin = _normalize_origin(origin)
+    if normalized_origin:
+        payload["origin"] = normalized_origin
+    return payload
 
 
 def _normalize_source_image_entry(job_id: str, raw_image: object, fallback_slot: int) -> dict | None:
@@ -182,12 +188,39 @@ def _normalize_source_image_entry(job_id: str, raw_image: object, fallback_slot:
     if existing_path is None or not file_name:
         return None
 
-    return {
+    payload = {
         "slot": _to_positive_int(raw_image.get("slot"), fallback_slot),
         "name": file_name,
         "path": str(existing_path),
         "url": f"/generated/{job_id}/source-images/{file_name}",
     }
+    normalized_origin = _normalize_origin(raw_image.get("origin"))
+    if normalized_origin:
+        payload["origin"] = normalized_origin
+    return payload
+
+
+def _normalize_origin(raw_origin: object) -> dict[str, Any] | None:
+    if not isinstance(raw_origin, dict):
+        return None
+
+    job_id = str(raw_origin.get("job_id") or raw_origin.get("origin_job_id") or "").strip()
+    slot = _to_positive_int(raw_origin.get("slot") or raw_origin.get("origin_slot"), 0)
+    url = str(raw_origin.get("url") or raw_origin.get("origin_url") or "").strip()
+    filename = str(raw_origin.get("filename") or raw_origin.get("name") or "").strip()
+    prompt = str(raw_origin.get("prompt") or "").strip()
+
+    origin: dict[str, Any] = {}
+    if job_id and slot:
+        origin["job_id"] = job_id
+        origin["slot"] = slot
+    if url:
+        origin["url"] = url
+    if filename:
+        origin["filename"] = filename
+    if prompt:
+        origin["prompt"] = prompt
+    return origin or None
 
 
 def _parse_slot(stem: str, fallback_slot: int) -> int:

@@ -29,6 +29,7 @@ from generated_assets import (
     remove_job_preview_file,
     job_output_dir,
 )
+from genealogy import build_genealogy_graph
 from image_service import generate_images
 from job_control import JobRegistry
 from job_store import JobStore
@@ -421,6 +422,9 @@ class ImageWorkbenchHandler(BaseHTTPRequestHandler):
         if parsed.path == "/api/gallery/groups":
             self._send_json(_build_gallery_groups_payload(parse_qs(parsed.query)), HTTPStatus.OK)
             return
+        if parsed.path == "/api/genealogy/graph":
+            self._send_json(build_genealogy_graph(STORE.list_all()), HTTPStatus.OK)
+            return
         if parsed.path == "/api/maintenance/database":
             self._send_json(STORE.maintain_database(vacuum=False), HTTPStatus.OK)
             return
@@ -523,6 +527,7 @@ class ImageWorkbenchHandler(BaseHTTPRequestHandler):
                             filename=item.filename,
                             content_type=item.content_type,
                             data=item.data,
+                            origin=item.origin,
                         )
                         for item in request.source_images
                     ],
@@ -539,6 +544,7 @@ class ImageWorkbenchHandler(BaseHTTPRequestHandler):
             count=count,
             quality=quality,
             size=size,
+            model=provider_profile.model,
             compat_profile_id=compat_profile.id,
             output_profile_id=output_profile_id,
             workflow=workflow,

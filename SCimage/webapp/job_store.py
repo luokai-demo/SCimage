@@ -32,6 +32,7 @@ class JobRecord:
     count: int
     quality: str
     size: str = DEFAULT_SIZE_OPTION
+    model: str = ""
     compat_profile_id: str = DEFAULT_COMPAT_PROFILE_ID
     output_profile_id: str = DEFAULT_OUTPUT_PROFILE_ID
     workflow: str = DEFAULT_WORKFLOW
@@ -77,6 +78,7 @@ class JobStore:
         quality: str,
         size: str = DEFAULT_SIZE_OPTION,
         *,
+        model: str = "",
         compat_profile_id: str = DEFAULT_COMPAT_PROFILE_ID,
         output_profile_id: str = DEFAULT_OUTPUT_PROFILE_ID,
         workflow: str = DEFAULT_WORKFLOW,
@@ -91,6 +93,7 @@ class JobStore:
             count=count,
             quality=quality,
             size=size,
+            model=str(model or ""),
             compat_profile_id=compat_profile_id,
             output_profile_id=output_profile_id,
             created_at=created_time,
@@ -113,6 +116,13 @@ class JobStore:
 
     def list_recent(self, limit: int) -> List[dict]:
         return self.list_page(offset=0, limit=limit)["jobs"]
+
+    def list_all(self) -> List[dict]:
+        with self._lock:
+            rows = self._connection.execute(
+                "SELECT payload FROM jobs ORDER BY updated_at DESC, id DESC"
+            ).fetchall()
+            return [asdict(_job_from_payload(row["payload"])) for row in rows]
 
     def list_page(self, *, offset: int = 0, limit: int, cursor: str = "") -> dict:
         with self._lock:
