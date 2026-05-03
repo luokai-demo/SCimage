@@ -27,6 +27,7 @@ let cleanupGeneratedRequestCount = 0;
 let failNextWorkspaceStateSave = false;
 let workspaceStateSaveAttempts = 0;
 let workspaceStatePayload = {};
+let genealogyImageSlots = [1, 2];
 
 async function waitForCondition(predicate, message, timeoutMs = 3000) {
   const startedAt = Date.now();
@@ -188,6 +189,53 @@ function galleryPayload() {
   };
 }
 
+function genealogyPayload() {
+  const nodes = genealogyImageSlots.map((slot) => ({
+    id: `genealogy-job:${slot}`,
+    type: "generated",
+    job_id: "genealogy-job",
+    slot,
+    url: slot === 1 ? portraitImageDataUrl : imageDataUrl,
+    preview_url: slot === 1 ? portraitPreviewDataUrl : imageDataUrl,
+    filename: `genealogy-${slot}.png`,
+    prompt: slot === 1 ? "族谱根图" : `族谱第 ${slot} 张`,
+    workflow: "image-to-image",
+    status: "completed",
+    model: "supported-model",
+    compat_profile_id: "openai",
+    output_profile_id: "aspect_v1",
+    quality: "auto",
+    size: "auto",
+    created_at: new Date(now - 260000 + slot * 1000).toISOString(),
+    updated_at: new Date(now - 180000 + slot * 1000).toISOString(),
+  }));
+  const root = nodes.find((node) => node.slot === 1) || nodes[0];
+  const edges = root
+    ? nodes
+      .filter((node) => node.id !== root.id)
+      .map((node) => ({ from: root.id, to: node.id, job_id: "genealogy-job" }))
+    : [];
+  if (!root) return { families: [], nodes: [], edges: [] };
+  return {
+    families: [
+      {
+        root_id: root.id,
+        title: "族谱删除回归",
+        prompt: root.prompt,
+        cover_url: root.preview_url,
+        image_count: nodes.length,
+        node_count: nodes.length,
+        generation_count: nodes.length > 1 ? 2 : 1,
+        latest_updated_at: nodes.at(-1)?.updated_at || root.updated_at,
+        has_multi_source: false,
+        root_type: "generated",
+      },
+    ],
+    nodes,
+    edges,
+  };
+}
+
 function sortedGalleryPayload(sortDirection) {
   const payload = galleryPayload();
   payload.items = [...payload.items].sort((left, right) => {
@@ -244,6 +292,7 @@ async function main() {
     }
     return route.fulfill({ json: payload });
   });
+  await page.route("**/api/genealogy/graph", (route) => route.fulfill({ json: genealogyPayload() }));
   await page.route("**/missing-reference.png", (route) => {
     expectedMissingReferenceLoads += 1;
     return route.fulfill({ status: 404, body: "missing" });
@@ -320,6 +369,10 @@ async function main() {
     return route.fulfill({
       json: { ok: true, deleted_job: false, job: jobs.find((job) => job.id === "job-gallery-only") },
     });
+  });
+  await page.route("**/api/jobs/genealogy-job/images/2", (route) => {
+    genealogyImageSlots = genealogyImageSlots.filter((slot) => slot !== 2);
+    return route.fulfill({ json: { ok: true, deleted_job: false } });
   });
   await page.route("**/api/jobs/job-completed", (route) => {
     jobs = jobs.filter((job) => job.id !== "job-completed");
@@ -416,6 +469,34 @@ async function main() {
   }
   await page.locator("[data-workflow='generate']").click();
   await page.locator("#togglePromptBankBtn").click();
+
+  await page.locator("[data-workflow='image-to-image']").click();
+  await page.getByRole("tab", { name: "当前族谱" }).click();
+  await page.waitForSelector('[data-genealogy-node-id="genealogy-job:2"]');
+  await page.locator('[data-genealogy-node-id="genealogy-job:2"]').click();
+  const genealogyDeleteButton = page.locator(".node-inspector .genealogy-tool-btn.is-danger");
+  await genealogyDeleteButton.click();
+  await page.waitForFunction(() => document.querySelector(".confirm-dialog-action")?.textContent?.trim() === "删除图片");
+  const genealogyDeleteDescription = await page.locator(".confirm-dialog-description").textContent();
+  if (!genealogyDeleteDescription?.includes("本次任务的其余 1 张图片会保留")) {
+    throw new Error(`族谱删除图片确认没有使用节点快照图片数：${genealogyDeleteDescription || ""}`);
+  }
+  await page.locator(".confirm-dialog-action", { hasText: "删除图片" }).click();
+  await page.waitForFunction(() => !document.querySelector('[data-genealogy-node-id="genealogy-job:2"]'));
+
+  genealogyImageSlots = Array.from({ length: 160 }, (_, index) => index + 1);
+  await page.locator(".genealogy-icon-btn").click();
+  await page.waitForFunction(() => document.querySelectorAll("[data-minimap-node-id]").length > 40);
+  const minimapBudgetState = await page.evaluate(() => ({
+    nodeCount: document.querySelectorAll("[data-minimap-node-id]").length,
+    edgeCount: document.querySelectorAll("[data-minimap-edge]").length,
+    stats: document.querySelector(".minimap-stats")?.textContent?.trim() || "",
+  }));
+  if (minimapBudgetState.nodeCount > 100 || minimapBudgetState.edgeCount > 140 || !minimapBudgetState.stats.includes("/160")) {
+    throw new Error(`族谱导航地图没有按大图谱抽样渲染：${JSON.stringify(minimapBudgetState)}`);
+  }
+  genealogyImageSlots = [1, 2];
+  await page.locator("[data-workflow='generate']").click();
 
   await page.fill("#prompt", "重复保存检查");
   await page.locator("#togglePromptBankBtn").click();
