@@ -2,7 +2,8 @@
   <TooltipProvider>
     <div class="app">
       <WorkspacePanel />
-      <GalleryPanel />
+      <GalleryPanel v-if="workspaceStore.activeWorkflow === 'generate'" />
+      <GenealogyGalleryPanel v-else />
     </div>
     <FeedbackOverlays />
     <PromptLibraryDialog />
@@ -17,12 +18,14 @@ import { useUiStore } from "../stores/ui";
 import { useScimageRuntime } from "../composables/useScimageRuntime";
 import WorkspacePanel from "./WorkspacePanel.vue";
 import GalleryPanel from "./GalleryPanel.vue";
+import GenealogyGalleryPanel from "./genealogy/GenealogyGalleryPanel.vue";
 import FeedbackOverlays from "./FeedbackOverlays.vue";
 import PromptLibraryDialog from "./PromptLibraryDialog.vue";
 import ConfirmDialog from "./ui/ConfirmDialog.vue";
 
 const uiStore = useUiStore();
 const runtime = useScimageRuntime();
+const workspaceStore = runtime.workspaceStore;
 
 onMounted(() => {
   uiStore.markMounted();

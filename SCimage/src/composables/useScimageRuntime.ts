@@ -44,6 +44,22 @@ interface SourceImageItem {
   file: File;
   url: string;
   name: string;
+  origin?: SourceImageOrigin;
+}
+
+interface SourceImageOrigin {
+  job_id: string;
+  slot: number;
+  url?: string;
+  filename?: string;
+  prompt?: string;
+}
+
+interface SourceImageReference {
+  url: string;
+  filename?: string;
+  prompt?: string;
+  origin?: SourceImageOrigin;
 }
 
 interface LightboxState {
@@ -174,6 +190,7 @@ const busyJobIds = ref(new Set<string>());
 const clockTick = ref(Date.now());
 const isCreatingJob = ref(false);
 const isCleaningGeneratedDirs = ref(false);
+const lightboxItemsOverride = ref<GalleryFlatItem[] | null>(null);
 const selectedProviderProfile = computed(() => {
   const providerStore = useProviderStore();
   return providerStore.selectedProfile;
@@ -821,7 +838,8 @@ function addSourceFiles(files: Iterable<File>) {
     if (!file || (file.type && !file.type.startsWith("image/"))) return;
     const key = (file as any).__imageWorkbenchSourceKey || `${file.name}:${file.size}:${file.lastModified}`;
     if (next.some((item) => item.key === key)) return;
-    next.push({ key, file, name: file.name, url: URL.createObjectURL(file) });
+    const origin = (file as any).__imageWorkbenchSourceOrigin as SourceImageOrigin | undefined;
+    next.push({ key, file, name: file.name, url: URL.createObjectURL(file), origin });
   });
   sourceImages.value = next;
   useWorkspaceStore().setSourceFileCount(next.length);
@@ -841,29 +859,61 @@ function clearSourceImages() {
 }
 
 async function addSourceImageFromGallery(item: GalleryFlatItem) {
+  return addSourceImageFromUrl({
+    url: item.src,
+    filename: item.filename || "reference.png",
+    prompt: item.prompt,
+    origin: buildSourceOriginFromGalleryItem(item),
+  }, "已加入图生图参考图。", "这张图片已经在图生图参考图中。");
+}
+
+async function addSourceImageFromUrl(
+  source: SourceImageReference,
+  successMessage = "已加入图生图参考图。",
+  duplicateMessage = "这张图片已经在图生图参考图中。",
+) {
   if (!providerWorkflowAvailability.value["image-to-image"]) {
     setStatus("error", "当前提供方配置不支持图生图。", 2400);
     return;
   }
   try {
-    const imageUrl = normalizeImageUrl(item.src);
+    const imageUrl = normalizeImageUrl(source.url);
     const response = await fetch(imageUrl);
     if (!response.ok) {
       throw new Error(`图片读取失败：${response.status}`);
     }
     const blob = await response.blob();
-    const file = new File([blob], item.filename || "reference.png", { type: blob.type || "image/png", lastModified: Date.now() });
+    const file = new File([blob], source.filename || "reference.png", { type: blob.type || "image/png", lastModified: Date.now() });
     Object.defineProperty(file, "__imageWorkbenchSourceKey", {
       value: `gallery:${imageUrl}`,
       configurable: true,
     });
+    if (source.origin) {
+      Object.defineProperty(file, "__imageWorkbenchSourceOrigin", {
+        value: source.origin,
+        configurable: true,
+      });
+    }
     const beforeCount = sourceImages.value.length;
     if (!setWorkflow("image-to-image")) return;
     addSourceFiles([file]);
-    setStatus("success", sourceImages.value.length > beforeCount ? "已加入图生图参考图。" : "这张图片已经在图生图参考图中。", 2200);
+    setStatus("success", sourceImages.value.length > beforeCount ? successMessage : duplicateMessage, 2200);
   } catch (error) {
     setStatus("error", error instanceof Error ? error.message : String(error || "加入参考图失败。"), 2600);
   }
+}
+
+function buildSourceOriginFromGalleryItem(item: GalleryFlatItem): SourceImageOrigin | undefined {
+  const jobId = String(item.jobId || "").trim();
+  const slot = Number(item.slot || 0);
+  if (!jobId || !slot) return undefined;
+  return {
+    job_id: jobId,
+    slot,
+    url: item.src,
+    filename: item.filename,
+    prompt: item.prompt,
+  };
 }
 
 function applyJobsPage(payload: any, append = false) {
@@ -1083,7 +1133,10 @@ async function generate() {
     }
     const formData = new FormData();
     Object.entries(base).forEach(([key, value]) => formData.append(key, String(value)));
-    sourceImages.value.forEach((item) => formData.append("source_image", item.file, item.name));
+    sourceImages.value.forEach((item) => {
+      formData.append("source_image", item.file, item.name);
+      formData.append("source_image_origin", JSON.stringify(item.origin || null));
+    });
     body = formData;
   } else {
     body = base;
@@ -1265,7 +1318,19 @@ async function jobAction(jobId: string, action: "cancel" | "retry" | "delete") {
 }
 
 async function deleteImage(jobId: string, slot: number, context: GalleryActionContext = {}) {
-  const job = getActionJob(jobId);
+  const contextItem = context.item?.jobId === jobId ? context.item : null;
+  const job = getActionJob(jobId) || contextItem?.jobSnapshot || (
+    contextItem
+      ? {
+          id: jobId,
+          status: contextItem.jobStatus,
+          prompt: contextItem.prompt,
+          created_at: contextItem.createdAt,
+          updated_at: contextItem.updatedAt,
+          images: [{ slot, url: contextItem.src, name: contextItem.filename }],
+        }
+      : null
+  );
   if (!job) {
     setStatus("error", "任务不存在。", 2200);
     return;
@@ -1430,6 +1495,19 @@ async function downloadItem(item: GalleryFlatItem) {
 function openLightbox(index: number) {
   const item = useGalleryStore().flatItems[index];
   if (!item) return;
+  lightboxItemsOverride.value = null;
+  openLightboxAt(index, item);
+}
+
+function openLightboxFromItems(items: GalleryFlatItem[], index: number) {
+  const normalizedItems = items.filter((item) => item.src);
+  const item = normalizedItems[index];
+  if (!item) return;
+  lightboxItemsOverride.value = normalizedItems;
+  openLightboxAt(index, item);
+}
+
+function openLightboxAt(index: number, item: GalleryFlatItem) {
   lightbox.index = index;
   lightbox.selectionKey = imageKeyFromParts(item.jobId, item.slot);
   lightbox.open = true;
@@ -1443,6 +1521,7 @@ function closeLightbox() {
   lightbox.open = false;
   lightbox.selectionKey = "";
   lightbox.index = 0;
+  lightboxItemsOverride.value = null;
   lightbox.zoom = 1;
   lightbox.panX = 0;
   lightbox.panY = 0;
@@ -1452,7 +1531,7 @@ function closeLightbox() {
 
 function syncLightboxSelection() {
   if (!lightbox.open) return;
-  const items = useGalleryStore().flatItems;
+  const items = lightboxItemsOverride.value || useGalleryStore().flatItems;
   if (!items.length) {
     closeLightbox();
     return;
@@ -1468,7 +1547,7 @@ function syncLightboxSelection() {
 }
 
 function navLightbox(delta: number) {
-  const items = useGalleryStore().flatItems;
+  const items = lightboxItemsOverride.value || useGalleryStore().flatItems;
   const total = items.length;
   if (!total) return;
   const nextIndex = lightbox.index + delta;
@@ -1682,12 +1761,14 @@ export function useScimageRuntime() {
   const workspaceStore = useWorkspaceStore();
 
   const visibleGalleryItems = computed(() => galleryStore.flatItems);
-  const currentLightboxItem = computed(() => galleryStore.flatItems[lightbox.index] || null);
+  const lightboxItems = computed(() => lightboxItemsOverride.value || galleryStore.flatItems);
+  const currentLightboxItem = computed(() => lightboxItems.value[lightbox.index] || null);
   const currentWorkflowForm = computed(() => forms[workspaceStore.activeWorkflow]);
 
   return {
     addSourceFiles,
     addSourceImageFromGallery,
+    addSourceImageFromUrl,
     activateProviderProfile,
     applyPrompt,
     appendPromptToken,
@@ -1723,12 +1804,14 @@ export function useScimageRuntime() {
     jobAction,
     jobStore,
     lightbox,
+    lightboxItems,
     loadModels,
     loadMoreGallery,
     loadMoreJobs,
     modelPicker,
     navLightbox,
     openLightbox,
+    openLightboxFromItems,
     providerForm,
     providerCanLoadModels,
     providerCanSaveAs,

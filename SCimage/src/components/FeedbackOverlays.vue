@@ -46,7 +46,7 @@
   <IconButton id="lightboxPrev" class-name="lightbox-nav prev" label="上一张" :disabled="runtime.lightbox.index <= 0" @click="runtime.navLightbox(-1)">
     <ChevronLeft aria-hidden="true" />
   </IconButton>
-  <IconButton id="lightboxNext" class-name="lightbox-nav next" label="下一张" :disabled="runtime.lightbox.index >= runtime.galleryStore.flatItems.length - 1" @click="runtime.navLightbox(1)">
+  <IconButton id="lightboxNext" class-name="lightbox-nav next" label="下一张" :disabled="runtime.lightbox.index >= runtime.lightboxItems.value.length - 1" @click="runtime.navLightbox(1)">
     <ChevronRight aria-hidden="true" />
   </IconButton>
   <div :class="['lightbox-wrap', { 'is-zoomed': runtime.lightbox.zoom > 1, 'is-dragging': runtime.lightbox.dragging }]">
@@ -66,7 +66,7 @@
     <div class="lightbox-overlay">
       <div :class="['prompt-full', { expanded: promptExpanded }]" id="lightboxPrompt" @click.stop="promptExpanded = !promptExpanded">{{ runtime.currentLightboxItem.value?.prompt || "" }}</div>
       <div class="lightbox-meta">
-        <span class="lightbox-counter" id="lightboxCounter">{{ runtime.lightbox.index + 1 }} / {{ runtime.galleryStore.flatItems.length }}</span>
+        <span class="lightbox-counter" id="lightboxCounter">{{ runtime.lightbox.index + 1 }} / {{ runtime.lightboxItems.value.length }}</span>
         <div class="lightbox-actions">
           <button id="lightboxCopy" @click.stop="copyPrompt">{{ copyLabel }}</button>
           <button id="lightboxAddSource" :disabled="sourceBusy" @click.stop="addSource">作参考图</button>
