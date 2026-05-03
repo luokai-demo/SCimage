@@ -9,6 +9,9 @@ import subprocess
 from typing import Dict, Optional, Set
 
 
+_ORIGINAL_SUBPROCESS_POPEN = subprocess.Popen
+
+
 def build_subprocess_spawn_kwargs() -> dict[str, object]:
     if os.name == "nt":
         return {
@@ -33,12 +36,12 @@ def terminate_process_tree(process_id: int, process_group_id: int | None = None)
         return
 
     if os.name == "nt":
-        subprocess.run(
+        taskkill_process = _ORIGINAL_SUBPROCESS_POPEN(
             ["taskkill", "/T", "/F", "/PID", str(process_id)],
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
-            check=False,
         )
+        taskkill_process.communicate()
         return
 
     if process_group_id:
