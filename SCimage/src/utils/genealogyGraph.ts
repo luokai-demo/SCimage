@@ -1,8 +1,9 @@
-import type { GenealogyEdge, GenealogyFamily, GenealogyNode } from "../stores/genealogy";
+import type { GenealogyEdge, GenealogyFamily, GenealogyNode, GenealogyNodePosition } from "../stores/genealogy";
+import { genealogyEdgeAnchors } from "./genealogyWire";
 
 export interface GenealogyLayoutNode extends GenealogyNode {
   generation: number;
-  row: number;
+  order: number;
   x: number;
   y: number;
 }
@@ -14,19 +15,9 @@ export interface GenealogyLayoutEdge extends GenealogyEdge {
   toY: number;
 }
 
-export interface GenealogyLayoutColumn {
-  generation: number;
-  x: number;
-  y: number;
-  width: number;
-  height: number;
-  count: number;
-}
-
 export interface GenealogyLayout {
   nodes: GenealogyLayoutNode[];
   edges: GenealogyLayoutEdge[];
-  columns: GenealogyLayoutColumn[];
   generationCount: number;
   width: number;
   height: number;
@@ -34,11 +25,12 @@ export interface GenealogyLayout {
 
 export const GENEALOGY_CARD_WIDTH = 168;
 export const GENEALOGY_CARD_HEIGHT = 208;
-const COLUMN_GAP = 78;
-const ROW_GAP = 18;
-const PADDING_X = 18;
-const PADDING_TOP = 58;
-const PADDING_BOTTOM = 18;
+const ROOT_X = 48;
+const ROOT_Y = 92;
+const BRANCH_X_GAP = 108;
+const GENERATION_Y_GAP = 40;
+const CANVAS_PADDING = 72;
+const FREE_CANVAS_TRAILING_SPACE = 520;
 
 export function filterGenealogyFamilies(
   families: GenealogyFamily[],
@@ -62,95 +54,153 @@ export function buildGenealogyLayout(
   rootId: string,
   nodes: GenealogyNode[],
   edges: GenealogyEdge[],
+  positions: Record<string, GenealogyNodePosition> = {},
 ): GenealogyLayout {
   const nodeById = new Map(nodes.map((node) => [node.id, node]));
-  const childrenById = new Map<string, string[]>();
-  edges.forEach((edge) => {
-    if (!nodeById.has(edge.from) || !nodeById.has(edge.to)) return;
-    const children = childrenById.get(edge.from) || [];
-    children.push(edge.to);
-    childrenById.set(edge.from, children);
-  });
+  const childrenById = buildChildrenMap(nodeById, edges);
+  const depths = computeDepths(rootId, childrenById);
+  const layoutNodes = placeNodesOnFreeCanvas(nodeById, depths, positions);
+  const layoutNodeById = new Map(layoutNodes.map((node) => [node.id, node]));
+  const layoutEdges = buildLayoutEdges(edges, layoutNodeById);
+  const maxGeneration = Math.max(0, ...layoutNodes.map((node) => node.generation));
+  const maxRight = Math.max(...layoutNodes.map((node) => node.x + GENEALOGY_CARD_WIDTH), ROOT_X + GENEALOGY_CARD_WIDTH);
+  const maxBottom = Math.max(...layoutNodes.map((node) => node.y + GENEALOGY_CARD_HEIGHT), ROOT_Y + GENEALOGY_CARD_HEIGHT);
 
+  return {
+    nodes: layoutNodes,
+    edges: layoutEdges,
+    generationCount: maxGeneration + 1,
+    width: maxRight + CANVAS_PADDING + FREE_CANVAS_TRAILING_SPACE,
+    height: maxBottom + CANVAS_PADDING + FREE_CANVAS_TRAILING_SPACE,
+  };
+}
+
+function buildChildrenMap(
+  nodeById: Map<string, GenealogyNode>,
+  edges: GenealogyEdge[],
+) {
+  const childrenById = new Map<string, GenealogyNode[]>();
+  edges.forEach((edge) => {
+    const parent = nodeById.get(edge.from);
+    const child = nodeById.get(edge.to);
+    if (!parent || !child) return;
+    const children = childrenById.get(parent.id) || [];
+    children.push(child);
+    childrenById.set(parent.id, children);
+  });
+  childrenById.forEach((children) => children.sort(sortGenealogyNodes));
+  return childrenById;
+}
+
+function computeDepths(
+  rootId: string,
+  childrenById: Map<string, GenealogyNode[]>,
+) {
   const depths = new Map<string, number>();
   const queue = [rootId];
   depths.set(rootId, 0);
   while (queue.length) {
     const current = queue.shift() || "";
     const currentDepth = depths.get(current) || 0;
-    (childrenById.get(current) || []).forEach((childId) => {
+    (childrenById.get(current) || []).forEach((child) => {
       const nextDepth = currentDepth + 1;
-      if (!depths.has(childId) || nextDepth < (depths.get(childId) || 0)) {
-        depths.set(childId, nextDepth);
-        queue.push(childId);
+      if (!depths.has(child.id) || nextDepth < (depths.get(child.id) || 0)) {
+        depths.set(child.id, nextDepth);
+        queue.push(child.id);
       }
     });
   }
+  return depths;
+}
 
-  const generationGroups = new Map<number, GenealogyNode[]>();
+function placeNodesOnFreeCanvas(
+  nodeById: Map<string, GenealogyNode>,
+  depths: Map<string, number>,
+  positions: Record<string, GenealogyNodePosition>,
+) {
+  const layoutNodes: GenealogyLayoutNode[] = [];
+  const generationGroups = buildGenerationGroups(nodeById, depths);
+
+  generationGroups.forEach((group) => {
+    group.nodes.forEach((node, index) => {
+      const savedPosition = normalizeSavedPosition(positions[node.id]);
+      const initialPosition = savedPosition || initialFreeCanvasPosition(group.generation, index);
+      const layoutNode = {
+        ...node,
+        generation: group.generation,
+        order: index,
+        x: initialPosition.x,
+        y: initialPosition.y,
+      };
+      layoutNodes.push(layoutNode);
+    });
+  });
+  return layoutNodes;
+}
+
+function buildGenerationGroups(
+  nodeById: Map<string, GenealogyNode>,
+  depths: Map<string, number>,
+) {
+  const groups = new Map<number, GenealogyNode[]>();
   depths.forEach((generation, nodeId) => {
     const node = nodeById.get(nodeId);
     if (!node) return;
-    const group = generationGroups.get(generation) || [];
+    const group = groups.get(generation) || [];
     group.push(node);
-    generationGroups.set(generation, group);
+    groups.set(generation, group);
   });
+  return [...groups.entries()]
+    .map(([generation, groupNodes]) => ({
+      generation,
+      nodes: groupNodes.sort(sortGenealogyNodes),
+    }))
+    .sort((left, right) => left.generation - right.generation);
+}
 
-  generationGroups.forEach((group) => {
-    group.sort((left, right) => {
-      const timeDelta = new Date(left.updated_at || 0).getTime() - new Date(right.updated_at || 0).getTime();
-      if (timeDelta) return timeDelta;
-      return left.id.localeCompare(right.id);
-    });
-  });
+function initialFreeCanvasPosition(generation: number, index: number) {
+  return {
+    x: ROOT_X + generation * (GENEALOGY_CARD_WIDTH + BRANCH_X_GAP),
+    y: ROOT_Y + index * (GENEALOGY_CARD_HEIGHT + GENERATION_Y_GAP),
+  };
+}
 
-  const layoutNodes: GenealogyLayoutNode[] = [];
-  generationGroups.forEach((group, generation) => {
-    group.forEach((node, row) => {
-      layoutNodes.push({
-        ...node,
-        generation,
-        row,
-        x: PADDING_X + generation * (GENEALOGY_CARD_WIDTH + COLUMN_GAP),
-        y: PADDING_TOP + row * (GENEALOGY_CARD_HEIGHT + ROW_GAP),
-      });
-    });
-  });
-
-  const layoutNodeById = new Map(layoutNodes.map((node) => [node.id, node]));
-  const layoutEdges = edges
+function buildLayoutEdges(
+  edges: GenealogyEdge[],
+  layoutNodeById: Map<string, GenealogyLayoutNode>,
+) {
+  return edges
     .map((edge) => {
       const from = layoutNodeById.get(edge.from);
       const to = layoutNodeById.get(edge.to);
       if (!from || !to) return null;
       return {
         ...edge,
-        fromX: from.x + GENEALOGY_CARD_WIDTH,
-        fromY: from.y + GENEALOGY_CARD_HEIGHT * 0.46,
-        toX: to.x,
-        toY: to.y + GENEALOGY_CARD_HEIGHT * 0.46,
+        ...edgeAnchors(from, to),
       };
     })
     .filter(Boolean) as GenealogyLayoutEdge[];
+}
 
-  const maxGeneration = Math.max(0, ...layoutNodes.map((node) => node.generation));
-  const maxRows = Math.max(1, ...[...generationGroups.values()].map((group) => group.length));
-  const height = PADDING_TOP + PADDING_BOTTOM + maxRows * GENEALOGY_CARD_HEIGHT + (maxRows - 1) * ROW_GAP;
-  const columns: GenealogyLayoutColumn[] = Array.from({ length: maxGeneration + 1 }, (_, generation) => ({
-    generation,
-    x: PADDING_X + generation * (GENEALOGY_CARD_WIDTH + COLUMN_GAP),
-    y: 14,
-    width: GENEALOGY_CARD_WIDTH,
-    height: Math.max(0, height - 28),
-    count: generationGroups.get(generation)?.length || 0,
-  }));
+function edgeAnchors(from: GenealogyLayoutNode, to: GenealogyLayoutNode) {
+  return genealogyEdgeAnchors(from, to, GENEALOGY_CARD_WIDTH);
+}
+
+function sortGenealogyNodes(left: GenealogyNode, right: GenealogyNode) {
+  const timeDelta = new Date(left.updated_at || 0).getTime() - new Date(right.updated_at || 0).getTime();
+  if (timeDelta) return timeDelta;
+  return left.id.localeCompare(right.id);
+}
+
+function normalizeSavedPosition(position: unknown) {
+  if (!position || typeof position !== "object") return null;
+  const candidate = position as { x?: unknown; y?: unknown };
+  const x = Number(candidate.x);
+  const y = Number(candidate.y);
+  if (!Number.isFinite(x) || !Number.isFinite(y)) return null;
   return {
-    nodes: layoutNodes,
-    edges: layoutEdges,
-    columns,
-    generationCount: maxGeneration + 1,
-    width: PADDING_X * 2 + (maxGeneration + 1) * GENEALOGY_CARD_WIDTH + maxGeneration * COLUMN_GAP,
-    height,
+    x: Math.max(0, Math.round(x)),
+    y: Math.max(0, Math.round(y)),
   };
 }
 

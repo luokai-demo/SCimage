@@ -28,24 +28,13 @@
         preserveAspectRatio="xMidYMid meet"
         role="img"
         aria-label="当前族谱缩略导航"
-        @pointerdown="onMapPointerDown"
       >
         <rect class="minimap-plane" x="0" y="0" :width="Math.max(layout.width, 1)" :height="Math.max(layout.height, 1)" rx="18" />
-        <rect
-          v-for="column in layout.columns"
-          :key="`column-${column.generation}`"
-          class="minimap-column"
-          :x="column.x - 8"
-          :y="column.y"
-          :width="column.width + 16"
-          :height="column.height"
-          rx="16"
-        />
         <path
           v-for="edge in miniMapModel.edges"
           :key="`${edge.from}-${edge.to}`"
           data-minimap-edge="true"
-          :d="edgePath(edge)"
+          :d="genealogyEdgePath(edge)"
           :class="['minimap-edge', { 'is-bloodline': bloodlineNodeIds.has(edge.from) && bloodlineNodeIds.has(edge.to) }]"
         />
         <rect
@@ -67,10 +56,8 @@
           ]"
           role="button"
           tabindex="0"
-          @pointerdown.stop
-          @click.stop="$emit('focus-node', node.id)"
-          @keydown.enter.prevent="$emit('focus-node', node.id)"
-          @keydown.space.prevent="$emit('focus-node', node.id)"
+          @keydown.enter.prevent="emit('focus-node', node.id)"
+          @keydown.space.prevent="emit('focus-node', node.id)"
         />
         <rect
           v-if="viewportRect.width && viewportRect.height"
@@ -80,12 +67,19 @@
           :width="viewportRect.width"
           :height="viewportRect.height"
           rx="14"
-          tabindex="0"
-          role="button"
           aria-label="拖动当前视口"
-          @pointerdown.stop="onViewportPointerDown"
         />
       </svg>
+      <div
+        class="minimap-interaction-overlay"
+        data-minimap-interaction-overlay="true"
+        aria-label="族谱导航交互层"
+        @pointerdown="onOverlayPointerDown"
+        @pointermove="onOverlayPointerMove"
+        @pointerup="stopOverlayDrag"
+        @pointerleave="stopOverlayDrag"
+        @pointercancel="stopOverlayDrag"
+      ></div>
     </div>
   </section>
 </template>
@@ -102,8 +96,14 @@ import {
   PanelTopClose,
   PanelTopOpen,
 } from "lucide-vue-next";
-import type { GenealogyLayout, GenealogyLayoutEdge } from "../../utils/genealogyGraph";
+import {
+  GENEALOGY_CARD_HEIGHT,
+  GENEALOGY_CARD_WIDTH,
+  type GenealogyLayout,
+  type GenealogyLayoutNode,
+} from "../../utils/genealogyGraph";
 import { buildGenealogyMiniMapModel } from "../../utils/genealogyMiniMap";
+import { genealogyEdgePath } from "../../utils/genealogyWire";
 import IconButton from "../ui/IconButton.vue";
 
 const props = defineProps<{
@@ -127,7 +127,10 @@ const emit = defineEmits<{
 
 const svgEl = ref<SVGSVGElement | null>(null);
 const isCollapsed = ref(false);
-let dragOffset = { x: 0, y: 0 };
+const isOverlayDragging = ref(false);
+let overlayDragPointerId = 0;
+let startPointerPoint = { x: 0, y: 0 };
+let dragStartedOnNodeId = "";
 
 const viewBox = computed(() => `0 0 ${Math.max(props.layout.width, 1)} ${Math.max(props.layout.height, 1)}`);
 const miniMapModel = computed(() => buildGenealogyMiniMapModel(
@@ -136,43 +139,78 @@ const miniMapModel = computed(() => buildGenealogyMiniMapModel(
   props.bloodlineNodeIds,
 ));
 
-function edgePath(edge: GenealogyLayoutEdge) {
-  const middle = edge.fromX + Math.max(34, (edge.toX - edge.fromX) * 0.5);
-  return `M ${edge.fromX} ${edge.fromY} C ${middle} ${edge.fromY}, ${middle} ${edge.toY}, ${edge.toX} ${edge.toY}`;
-}
-
-function onMapPointerDown(event: PointerEvent) {
+function onOverlayPointerDown(event: PointerEvent) {
   if (event.button !== 0) return;
   const point = eventToSvgPoint(event);
   if (!point) return;
+
+  event.preventDefault();
+  dragStartedOnNodeId = findNodeAtPoint(point)?.id || "";
+  startPointerPoint = point;
+  isOverlayDragging.value = false;
+  overlayDragPointerId = event.pointerId;
+  if (event.currentTarget instanceof HTMLElement) {
+    event.currentTarget.setPointerCapture?.(event.pointerId);
+  }
+  if (!dragStartedOnNodeId) emit("pan-to", point);
+}
+
+function onOverlayPointerMove(event: PointerEvent) {
+  if (event.pointerId !== overlayDragPointerId) return;
+  const point = eventToSvgPoint(event);
+  if (!point) return;
+
+  if (
+    !isOverlayDragging.value &&
+    Math.hypot(point.x - startPointerPoint.x, point.y - startPointerPoint.y) < 4
+  ) {
+    return;
+  }
+  isOverlayDragging.value = true;
   emit("pan-to", point);
 }
 
-function onViewportPointerDown(event: PointerEvent) {
-  if (event.button !== 0) return;
-  const point = eventToSvgPoint(event);
-  if (!point) return;
-  dragOffset = {
-    x: point.x - (props.viewportRect.left + props.viewportRect.width / 2),
-    y: point.y - (props.viewportRect.top + props.viewportRect.height / 2),
-  };
-  window.addEventListener("pointermove", onViewportPointerMove);
-  window.addEventListener("pointerup", stopViewportDrag, { once: true });
-  window.addEventListener("pointercancel", stopViewportDrag, { once: true });
+function stopOverlayDrag(event?: PointerEvent) {
+  if (!overlayDragPointerId) return;
+  if (event && event.pointerId !== overlayDragPointerId) return;
+
+  const point = event ? eventToSvgPoint(event) : null;
+  const shouldSelectNode = !isOverlayDragging.value && dragStartedOnNodeId;
+  releaseOverlayPointer(event);
+  overlayDragPointerId = 0;
+  isOverlayDragging.value = false;
+
+  if (shouldSelectNode) {
+    const hitNode = point ? findNodeAtPoint(point) : null;
+    emit("focus-node", hitNode?.id || dragStartedOnNodeId);
+  }
+  dragStartedOnNodeId = "";
 }
 
-function onViewportPointerMove(event: PointerEvent) {
-  const point = eventToSvgPoint(event);
-  if (!point) return;
-  emit("pan-to", {
-    x: point.x - dragOffset.x,
-    y: point.y - dragOffset.y,
-  });
+function findNodeAtPoint(point: { x: number; y: number }) {
+  return [...miniMapModel.value.nodes]
+    .reverse()
+    .find((node) => pointInsideNode(point, node)) || null;
 }
 
-function stopViewportDrag() {
-  window.removeEventListener("pointermove", onViewportPointerMove);
-  window.removeEventListener("pointercancel", stopViewportDrag);
+function pointInsideNode(point: { x: number; y: number }, node: GenealogyLayoutNode) {
+  return (
+    point.x >= node.x &&
+    point.x <= node.x + GENEALOGY_CARD_WIDTH &&
+    point.y >= node.y &&
+    point.y <= node.y + GENEALOGY_CARD_HEIGHT
+  );
+}
+
+function releaseOverlayPointer(event?: PointerEvent) {
+  if (!event) return;
+  const target = event.currentTarget;
+  if (
+    target instanceof HTMLElement &&
+    target.hasPointerCapture?.(event.pointerId)
+  ) {
+    target.releasePointerCapture(event.pointerId);
+  }
 }
 
 function eventToSvgPoint(event: PointerEvent) {
@@ -194,7 +232,7 @@ function clamp(value: number, min: number, max: number) {
   return Math.min(max, Math.max(min, value));
 }
 
-onBeforeUnmount(stopViewportDrag);
+onBeforeUnmount(() => stopOverlayDrag());
 </script>
 
 <style scoped>
@@ -208,8 +246,8 @@ onBeforeUnmount(stopViewportDrag);
   border: 1px solid rgba(255,255,255,.12);
   border-radius: 10px;
   background:
-    linear-gradient(180deg, rgba(255,255,255,.045), rgba(255,255,255,.018)),
-    rgba(7,8,10,.84);
+    linear-gradient(180deg, rgba(255,255,255,.052), rgba(255,255,255,.018)),
+    rgba(11,12,14,.9);
   box-shadow: 0 16px 38px rgba(0,0,0,.32);
   backdrop-filter: blur(10px);
 }
@@ -265,6 +303,7 @@ onBeforeUnmount(stopViewportDrag);
 }
 .minimap-body {
   margin-top: 8px;
+  position: relative;
 }
 .minimap-stats {
   display: flex;
@@ -297,47 +336,53 @@ onBeforeUnmount(stopViewportDrag);
   border: 1px solid rgba(255,255,255,.09);
   border-radius: 9px;
   background:
-    linear-gradient(rgba(255,255,255,.025) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(255,255,255,.025) 1px, transparent 1px),
+    linear-gradient(rgba(255,255,255,.032) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255,255,255,.032) 1px, transparent 1px),
     rgba(255,255,255,.014);
-  background-size: 18px 18px;
-  cursor: crosshair;
+  background-size: 16px 16px;
+  pointer-events: none;
+}
+.minimap-interaction-overlay {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 124px;
+  border-radius: 9px;
+  touch-action: none;
+  cursor: grab;
+}
+.minimap-interaction-overlay:active {
+  cursor: grabbing;
 }
 .minimap-plane {
   fill: transparent;
 }
-.minimap-column {
-  fill: rgba(255,255,255,.018);
-  stroke: rgba(255,255,255,.055);
-  stroke-width: 1;
-  vector-effect: non-scaling-stroke;
-}
 .minimap-edge {
   fill: none;
-  stroke: rgba(175,187,205,.32);
+  stroke: rgba(175,187,205,.36);
   stroke-width: 1.15;
   vector-effect: non-scaling-stroke;
   stroke-linecap: round;
 }
 .minimap-edge.is-bloodline {
-  stroke: rgba(143,184,255,.76);
+  stroke: rgba(220,226,238,.78);
   stroke-width: 1.7;
 }
 .minimap-node {
-  fill: rgba(238,242,248,.24);
-  stroke: rgba(255,255,255,.34);
+  fill: rgba(238,242,248,.22);
+  stroke: rgba(255,255,255,.32);
   stroke-width: 1.1;
   vector-effect: non-scaling-stroke;
-  cursor: pointer;
   transition: fill var(--transition), stroke var(--transition), opacity var(--transition);
 }
 .minimap-node.is-source {
-  fill: rgba(245,215,110,.44);
-  stroke: rgba(245,215,110,.7);
+  fill: rgba(220,206,156,.44);
+  stroke: rgba(220,206,156,.7);
 }
 .minimap-node.is-bloodline {
-  fill: rgba(143,184,255,.54);
-  stroke: rgba(143,184,255,.86);
+  fill: rgba(220,226,238,.54);
+  stroke: rgba(220,226,238,.86);
 }
 .minimap-node.is-selected {
   fill: rgba(255,255,255,.9);
@@ -348,21 +393,17 @@ onBeforeUnmount(stopViewportDrag);
   opacity: .7;
 }
 .minimap-viewport {
-  fill: rgba(143,184,255,.07);
+  fill: rgba(255,255,255,.08);
   stroke: rgba(255,255,255,.72);
   stroke-width: 1.6;
   vector-effect: non-scaling-stroke;
-  cursor: grab;
   transition: fill var(--transition), stroke var(--transition);
 }
 .minimap-viewport:hover,
 .minimap-viewport:focus-visible {
-  fill: rgba(143,184,255,.08);
-  stroke: rgba(143,184,255,.78);
+  fill: rgba(255,255,255,.1);
+  stroke: rgba(255,255,255,.82);
   outline: none;
-}
-.minimap-viewport:active {
-  cursor: grabbing;
 }
 @media (max-width: 1040px) {
   .genealogy-minimap {

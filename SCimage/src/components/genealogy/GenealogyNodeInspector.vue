@@ -1,17 +1,18 @@
 <template>
   <aside v-if="node" :class="['node-inspector', { 'is-source': node.type === 'source' }]">
+    <div class="node-inspector-strip" aria-hidden="true"></div>
     <div class="node-inspector-preview">
       <img v-if="imageUrl" :src="imageUrl" alt="" loading="lazy" decoding="async">
       <div v-else class="genealogy-node-placeholder">无预览</div>
     </div>
     <div class="node-inspector-copy">
+      <span class="node-inspector-kicker">{{ node.type === 'source' ? 'Load Image' : 'Image to Image' }} · {{ formattedTime }}</span>
       <strong>{{ node.prompt || node.filename || node.id }}</strong>
-      <span class="node-inspector-type">{{ node.type === 'source' ? '外部参考图' : '生成图片' }} · {{ formattedTime }}</span>
       <span class="node-inspector-meta">
-        <span><GitBranch aria-hidden="true" />{{ layoutNode ? generationLabel(layoutNode.generation) : '当前节点' }}</span>
+        <span><GitBranch aria-hidden="true" />{{ layoutNode ? formatGenealogyGeneration(layoutNode.generation) : '当前节点' }}</span>
         <span><ImageIcon aria-hidden="true" />{{ node.size || 'auto' }}</span>
         <span v-if="node.quality"><SlidersHorizontal aria-hidden="true" />{{ node.quality }}</span>
-        <span v-if="node.model"><Cpu aria-hidden="true" />{{ shortText(node.model, 22) }}</span>
+        <span v-if="node.model"><Cpu aria-hidden="true" />{{ shortGenealogyText(node.model, 22) }}</span>
         <span><GitMerge aria-hidden="true" />{{ parentCount }} 来源</span>
         <span><Activity aria-hidden="true" />{{ statusLabel }}</span>
       </span>
@@ -50,6 +51,11 @@ import {
 } from "lucide-vue-next";
 import type { GenealogyNode } from "../../stores/genealogy";
 import type { GenealogyLayoutNode } from "../../utils/genealogyGraph";
+import {
+  formatGenealogyGeneration,
+  formatGenealogyNodeStatus,
+  shortGenealogyText,
+} from "../../utils/genealogyFormat";
 import { formatGenealogyTime } from "../../utils/genealogyGraph";
 
 const props = defineProps<{
@@ -68,45 +74,30 @@ defineEmits<{
 }>();
 
 const formattedTime = computed(() => formatGenealogyTime(props.node?.updated_at || ""));
-const statusLabel = computed(() => {
-  const status = String(props.node?.status || "");
-  if (status === "completed") return "完成";
-  if (status === "partial") return "部分";
-  if (status === "failed") return "失败";
-  if (status === "canceled") return "中断";
-  if (status === "source") return "来源";
-  return status || "未知";
-});
-
-function generationLabel(generation: number) {
-  return generation === 0 ? "Gen 0" : `Gen ${generation}`;
-}
-
-function shortText(value: string, maxLength: number) {
-  const text = String(value || "").trim();
-  if (text.length <= maxLength) return text;
-  return `${text.slice(0, maxLength - 1)}…`;
-}
+const statusLabel = computed(() => formatGenealogyNodeStatus(props.node?.status));
 </script>
 
 <style scoped>
 .node-inspector {
+  position: relative;
   flex-shrink: 0;
   display: grid;
   grid-template-columns: 64px minmax(0, 1fr) auto;
   gap: 12px;
   align-items: center;
   padding: 10px;
-  border: 1px solid var(--border);
+  overflow: hidden;
+  border: 1px solid rgba(255,255,255,.09);
   border-radius: 10px;
   background:
-    linear-gradient(90deg, rgba(143,184,255,.045), transparent 42%),
-    rgba(255,255,255,.025);
+    linear-gradient(180deg, rgba(255,255,255,.04), rgba(255,255,255,.016)),
+    rgba(11,12,14,.92);
 }
-.node-inspector.is-source {
-  background:
-    linear-gradient(90deg, rgba(245,215,110,.05), transparent 42%),
-    rgba(255,255,255,.025);
+.node-inspector-strip {
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 3px;
+  background: rgba(212,216,224,.75);
 }
 .node-inspector-preview {
   width: 64px;
@@ -137,6 +128,10 @@ function shortText(value: string, maxLength: number) {
   flex-direction: column;
   gap: 5px;
 }
+.node-inspector-kicker {
+  color: var(--text-tertiary);
+  font-size: 11px;
+}
 .node-inspector-copy strong {
   color: var(--text-primary);
   font-size: 13px;
@@ -144,10 +139,6 @@ function shortText(value: string, maxLength: number) {
   overflow: hidden;
   white-space: nowrap;
   text-overflow: ellipsis;
-}
-.node-inspector-type {
-  color: var(--text-tertiary);
-  font-size: 11px;
 }
 .node-inspector-meta {
   display: flex;
@@ -161,7 +152,7 @@ function shortText(value: string, maxLength: number) {
   gap: 5px;
   padding: 0 7px;
   border: 1px solid rgba(255,255,255,.075);
-  border-radius: 999px;
+  border-radius: 6px;
   background: rgba(255,255,255,.035);
   color: var(--text-secondary);
   font-size: 10px;
@@ -186,7 +177,7 @@ function shortText(value: string, maxLength: number) {
   justify-content: center;
   gap: 5px;
   border: 1px solid var(--border);
-  border-radius: var(--radius);
+  border-radius: 7px;
   background: rgba(255,255,255,.03);
   color: var(--text-tertiary);
   font-family: inherit;

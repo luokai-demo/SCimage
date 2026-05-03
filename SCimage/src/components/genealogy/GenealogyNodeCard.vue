@@ -9,31 +9,43 @@
         'is-bloodline': bloodline,
         'is-dimmed': dimmed,
         'is-multi-source': parentCount > 1,
+        'is-draggable': draggable,
+        'is-dragging': dragging,
       },
     ]"
     :data-genealogy-node-id="node.id"
-    :style="{ transform: `translate3d(${node.x}px, ${node.y}px, 0)` }"
+    :data-genealogy-x="node.x"
+    :data-genealogy-y="node.y"
+    :style="nodeStyle"
     role="button"
     tabindex="0"
     @click="$emit('select', node.id)"
+    @pointerdown="$emit('node-pointerdown', $event, node.id)"
+    @dragstart.prevent
     @keydown="$emit('node-keydown', $event, node.id)"
   >
+    <span class="node-port node-port-in" aria-hidden="true"></span>
+    <span class="node-port node-port-out" aria-hidden="true"></span>
     <span class="node-status-rail" aria-hidden="true"></span>
+    <div class="genealogy-node-titlebar">
+      <span>{{ node.type === 'source' ? 'Load Image' : 'Image to Image' }}</span>
+      <small>{{ node.type === 'source' ? 'source' : formatGenealogyGeneration(node.generation) }}</small>
+    </div>
     <div class="genealogy-node-media">
-      <img v-if="imageUrl" :src="imageUrl" :alt="node.prompt || node.filename" loading="lazy" decoding="async">
+      <img v-if="imageUrl" :src="imageUrl" :alt="node.prompt || node.filename" loading="lazy" decoding="async" draggable="false" @dragstart.prevent>
       <div v-else class="genealogy-node-placeholder">无预览</div>
-      <span class="node-badge">{{ node.type === 'source' ? '根图' : generationLabel(node.generation) }}</span>
+      <span class="node-badge">{{ node.type === 'source' ? '根图' : formatGenealogyGeneration(node.generation) }}</span>
       <span v-if="parentCount > 1" class="node-multi-badge"><Combine aria-hidden="true" />多参考</span>
     </div>
     <div class="genealogy-node-copy">
-      <strong>{{ shortText(node.prompt || node.filename || node.id, 34) }}</strong>
+      <strong>{{ shortGenealogyText(node.prompt || node.filename || node.id, 34) }}</strong>
       <span class="genealogy-node-meta">
         <span><ImageIcon aria-hidden="true" />{{ node.type === 'source' ? '外部参考图' : node.size || 'auto' }}</span>
         <span><Clock3 aria-hidden="true" />{{ compactTime(node.updated_at) }}</span>
       </span>
       <span class="node-detail-chips">
         <span><Workflow aria-hidden="true" />{{ workflowLabel }}</span>
-        <span v-if="node.model"><Cpu aria-hidden="true" />{{ shortText(node.model, 18) }}</span>
+        <span v-if="node.model"><Cpu aria-hidden="true" />{{ shortGenealogyText(node.model, 18) }}</span>
         <span><SlidersHorizontal aria-hidden="true" />{{ node.quality || 'auto' }}</span>
         <span><GitMerge aria-hidden="true" />{{ Math.max(parentCount, node.type === 'source' ? 0 : 1) }} 来源</span>
         <span><Activity aria-hidden="true" />{{ statusLabel }}</span>
@@ -55,6 +67,16 @@ import {
   Workflow,
 } from "lucide-vue-next";
 import type { GenealogyLayoutNode } from "../../utils/genealogyGraph";
+import {
+  formatGenealogyGeneration,
+  formatGenealogyNodeStatus,
+  shortGenealogyText,
+} from "../../utils/genealogyFormat";
+import {
+  GENEALOGY_NODE_PORT_OFFSET,
+  GENEALOGY_NODE_PORT_SIZE,
+  GENEALOGY_NODE_PORT_TOP,
+} from "../../utils/genealogyWire";
 
 const props = defineProps<{
   node: GenealogyLayoutNode;
@@ -64,11 +86,14 @@ const props = defineProps<{
   bloodline: boolean;
   dimmed: boolean;
   parentCount: number;
+  draggable?: boolean;
+  dragging?: boolean;
 }>();
 
 defineEmits<{
   select: [nodeId: string];
   "node-keydown": [event: KeyboardEvent, nodeId: string];
+  "node-pointerdown": [event: PointerEvent, nodeId: string];
 }>();
 
 const workflowLabel = computed(() => {
@@ -76,19 +101,13 @@ const workflowLabel = computed(() => {
   return props.node.workflow === "image-to-image" ? "图生图" : "文生图";
 });
 
-const statusLabel = computed(() => {
-  const status = String(props.node.status || "");
-  if (status === "completed") return "完成";
-  if (status === "partial") return "部分";
-  if (status === "failed") return "失败";
-  if (status === "canceled") return "中断";
-  if (status === "source") return "来源";
-  return status || "未知";
-});
-
-function generationLabel(generation: number) {
-  return generation === 0 ? "Gen 0" : `Gen ${generation}`;
-}
+const statusLabel = computed(() => formatGenealogyNodeStatus(props.node.status));
+const nodeStyle = computed<Record<string, string>>(() => ({
+  transform: `translate3d(${props.node.x}px, ${props.node.y}px, 0)`,
+  "--genealogy-node-port-offset": `${GENEALOGY_NODE_PORT_OFFSET}px`,
+  "--genealogy-node-port-size": `${GENEALOGY_NODE_PORT_SIZE}px`,
+  "--genealogy-node-port-top": `${GENEALOGY_NODE_PORT_TOP}px`,
+}));
 
 function compactTime(value: string) {
   if (!value) return "--";
@@ -97,11 +116,6 @@ function compactTime(value: string) {
   return date.toLocaleString("zh-CN", { hour: "2-digit", minute: "2-digit", hour12: false });
 }
 
-function shortText(value: string, maxLength: number) {
-  const text = String(value || "").trim();
-  if (text.length <= maxLength) return text;
-  return `${text.slice(0, maxLength - 1)}…`;
-}
 </script>
 
 <style scoped>
@@ -113,34 +127,47 @@ function shortText(value: string, maxLength: number) {
   width: 168px;
   height: 208px;
   overflow: hidden;
-  border: 1px solid var(--border);
+  border: 1px solid rgba(255,255,255,.1);
   border-radius: 8px;
   background:
-    linear-gradient(180deg, rgba(255,255,255,.045), rgba(255,255,255,.012)),
-    #080808;
-  box-shadow: 0 16px 34px rgba(0,0,0,.32);
+    linear-gradient(180deg, rgba(255,255,255,.06), rgba(255,255,255,.018)),
+    #111214;
+  box-shadow: 0 18px 38px rgba(0,0,0,.38);
   cursor: pointer;
   contain: layout paint style;
+  user-select: none;
+  touch-action: none;
   will-change: transform, opacity;
   outline: none;
   transition: border-color var(--transition), box-shadow var(--transition), opacity var(--transition), background var(--transition);
 }
+.genealogy-node.is-draggable {
+  cursor: grab;
+}
+.genealogy-node.is-dragging {
+  z-index: 5;
+  cursor: grabbing;
+  opacity: .92;
+  border-color: rgba(255,255,255,.62);
+  box-shadow: 0 0 0 1px rgba(255,255,255,.14), 0 22px 52px rgba(0,0,0,.48);
+  transition: border-color var(--transition), box-shadow var(--transition), opacity var(--transition), background var(--transition);
+}
 .genealogy-node:hover,
 .genealogy-node:focus-visible {
-  border-color: rgba(255,255,255,.28);
+  border-color: rgba(255,255,255,.3);
   background:
-    linear-gradient(180deg, rgba(255,255,255,.06), rgba(255,255,255,.018)),
-    #080808;
+    linear-gradient(180deg, rgba(255,255,255,.075), rgba(255,255,255,.024)),
+    #121315;
 }
 .genealogy-node.active {
-  border-color: rgba(255,255,255,.5);
-  box-shadow: 0 0 0 1px rgba(255,255,255,.12), 0 18px 42px rgba(0,0,0,.42);
+  border-color: rgba(255,255,255,.58);
+  box-shadow: 0 0 0 1px rgba(255,255,255,.13), 0 18px 46px rgba(0,0,0,.48);
 }
 .genealogy-node.is-related {
-  border-color: rgba(143,184,255,.34);
+  border-color: rgba(212,216,224,.34);
 }
 .genealogy-node.is-bloodline:not(.active) {
-  border-color: rgba(143,184,255,.24);
+  border-color: rgba(212,216,224,.24);
 }
 .genealogy-node.is-dimmed {
   opacity: .34;
@@ -148,19 +175,63 @@ function shortText(value: string, maxLength: number) {
 .genealogy-node.is-source {
   border-style: dashed;
 }
+.node-port {
+  position: absolute;
+  z-index: 6;
+  width: var(--genealogy-node-port-size);
+  height: var(--genealogy-node-port-size);
+  border: 2px solid #050607;
+  border-radius: 50%;
+  background: #9aa4b2;
+  box-shadow: 0 0 0 1px rgba(255,255,255,.36);
+}
+.node-port-in {
+  left: var(--genealogy-node-port-offset);
+  top: var(--genealogy-node-port-top);
+}
+.node-port-out {
+  right: var(--genealogy-node-port-offset);
+  top: var(--genealogy-node-port-top);
+  background: #d4d8e0;
+}
 .node-status-rail {
   position: absolute;
   inset: 0 auto 0 0;
   z-index: 3;
-  width: 3px;
+  width: 2px;
   background: var(--genealogy-generated);
 }
 .genealogy-node.is-source .node-status-rail {
   background: var(--genealogy-source);
 }
+.genealogy-node-titlebar {
+  height: 28px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 6px;
+  padding: 0 8px 0 11px;
+  border-bottom: 1px solid rgba(255,255,255,.07);
+  background: rgba(255,255,255,.045);
+  color: var(--text-primary);
+}
+.genealogy-node-titlebar span,
+.genealogy-node-titlebar small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.genealogy-node-titlebar span {
+  font-size: 11px;
+  font-weight: 650;
+}
+.genealogy-node-titlebar small {
+  color: var(--text-tertiary);
+  font-size: 9px;
+}
 .genealogy-node-media {
   position: relative;
-  height: 118px;
+  height: 96px;
   overflow: hidden;
   background: rgba(255,255,255,.06);
 }
@@ -218,10 +289,10 @@ function shortText(value: string, maxLength: number) {
 }
 .genealogy-node-copy {
   position: relative;
-  padding: 9px 9px 8px 11px;
+  padding: 8px 9px 8px 11px;
   display: flex;
   flex-direction: column;
-  gap: 7px;
+  gap: 6px;
 }
 .genealogy-node-copy strong {
   color: var(--text-primary);
