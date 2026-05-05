@@ -18,7 +18,7 @@ from genealogy_layout_repository import (
     list_genealogy_positions,
     remove_genealogy_position_for_node,
     remove_genealogy_positions_for_job,
-    update_genealogy_node_position,
+    update_genealogy_node_positions,
 )
 from job_persistence import JOB_RECORDS_PATH
 from job_repository import encode_job_payload, list_jobs_page
@@ -311,17 +311,16 @@ class JobStore:
         with self._lock:
             return list_genealogy_positions(self._connection)
 
-    def update_genealogy_node_position(self, node_id: str, position: dict) -> dict:
+    def update_genealogy_node_positions(self, positions: dict) -> dict[str, dict]:
         with self._lock:
-            normalized_position = update_genealogy_node_position(
+            normalized_positions = update_genealogy_node_positions(
                 self._connection,
-                node_id=node_id,
-                position=position,
+                positions=positions,
                 updated_at=_now(),
                 decode_job=_job_from_payload,
             )
             self._connection.commit()
-            return normalized_position
+            return normalized_positions
 
     def remove_images(self, selections: list[dict]) -> dict:
         removed: list[dict] = []

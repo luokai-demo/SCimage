@@ -24,15 +24,14 @@ def build_genealogy_graph(jobs: Iterable[dict], positions: dict | None = None) -
             for image in _list_payload(job.get("images"))
         ]
         output_ids = [node_id for node_id in output_ids if node_id]
-        if not output_ids:
-            continue
-
         for source in _list_payload(job.get("source_images")):
             source_id = _source_node_id(job, source)
             if not source_id:
                 continue
             if source_id not in nodes:
                 nodes[source_id] = _source_node(source_id, job, source)
+            if not output_ids:
+                continue
             for output_id in output_ids:
                 edges[(source_id, output_id)] = {
                     "from": source_id,

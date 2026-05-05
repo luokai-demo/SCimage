@@ -24,23 +24,32 @@ def list_genealogy_positions(connection: sqlite3.Connection) -> dict[str, dict]:
     return positions
 
 
-def update_genealogy_node_position(
+def update_genealogy_node_positions(
     connection: sqlite3.Connection,
     *,
-    node_id: str,
-    position: dict,
+    positions: dict,
     updated_at: str,
     decode_job: JobDecoder,
-) -> dict:
-    normalized_node_id = str(node_id or "").strip()
-    if not normalized_node_id:
-        raise ValueError("族谱节点不能为空。")
+) -> dict[str, dict]:
+    if not isinstance(positions, dict):
+        raise ValueError("节点位置列表格式错误。")
 
-    normalized_position = normalize_genealogy_position(position)
-    if not genealogy_node_exists(connection, normalized_node_id, decode_job=decode_job):
-        return {}
+    normalized_positions: dict[str, dict] = {}
+    missing_node_ids: list[str] = []
+    for node_id, position in positions.items():
+        normalized_node_id = str(node_id or "").strip()
+        if not normalized_node_id:
+            raise ValueError("族谱节点不能为空。")
+        normalized_position = normalize_genealogy_position(position)
+        if not genealogy_node_exists(connection, normalized_node_id, decode_job=decode_job):
+            missing_node_ids.append(normalized_node_id)
+            continue
+        normalized_positions[normalized_node_id] = normalized_position
 
-    connection.execute(
+    if missing_node_ids:
+        raise KeyError("族谱节点不存在：" + "、".join(missing_node_ids))
+
+    connection.executemany(
         """
         INSERT INTO genealogy_node_positions (node_id, x, y, updated_at)
         VALUES (?, ?, ?, ?)
@@ -49,14 +58,17 @@ def update_genealogy_node_position(
             y = excluded.y,
             updated_at = excluded.updated_at
         """,
-        (
-            normalized_node_id,
-            normalized_position["x"],
-            normalized_position["y"],
-            updated_at,
-        ),
+        [
+            (
+                node_id,
+                position["x"],
+                position["y"],
+                updated_at,
+            )
+            for node_id, position in normalized_positions.items()
+        ],
     )
-    return normalized_position
+    return normalized_positions
 
 
 def remove_genealogy_position_for_node(connection: sqlite3.Connection, node_id: str) -> None:
