@@ -17,7 +17,7 @@ if candidate_text not in sys.path:
 
 import job_store  # noqa: E402
 import job_persistence  # noqa: E402
-import server  # noqa: E402
+import api_pagination  # noqa: E402
 
 
 class JobPaginationTests(unittest.TestCase):
@@ -75,10 +75,9 @@ class JobPaginationTests(unittest.TestCase):
     def test_jobs_payload_clamps_large_limit(self) -> None:
         store = self.build_store()
 
-        with patch.object(server, "STORE", store):
-            payload = server._build_jobs_page_payload({"offset": ["0"], "limit": ["9999"]})
+        payload = api_pagination.build_jobs_page_payload(store, {"offset": ["0"], "limit": ["9999"]})
 
-        self.assertEqual(payload["limit"], server.MAX_JOBS_PAGE_SIZE)
+        self.assertEqual(payload["limit"], api_pagination.MAX_JOBS_PAGE_SIZE)
         self.assertEqual(payload["total"], 5)
 
     def test_store_migrates_legacy_json_into_sqlite(self) -> None:

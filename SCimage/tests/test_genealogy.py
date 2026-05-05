@@ -118,13 +118,86 @@ class GenealogyGraphTests(unittest.TestCase):
             {"slot": 1, "name": "drag.png", "url": "/generated/drag-job/drag.png"},
         )
 
-        position = store.update_genealogy_node_position("drag-job:1", {"x": 345.4, "y": 267.6})
+        positions = store.update_genealogy_node_positions({"drag-job:1": {"x": 345.4, "y": 267.6}})
         graph = build_genealogy_graph(store.list_all(), store.list_genealogy_positions())
 
-        self.assertEqual(position, {"x": 345, "y": 268})
+        self.assertEqual(positions["drag-job:1"], {"x": 345, "y": 268})
         node = next(item for item in graph["nodes"] if item["id"] == "drag-job:1")
         self.assertNotIn("position", node)
         self.assertEqual(graph["positions"]["drag-job:1"], {"x": 345, "y": 268})
+
+    def test_batch_updates_genealogy_node_positions_atomically(self) -> None:
+        store = self.build_store()
+        root = store.create(
+            prompt="根图",
+            count=1,
+            quality="auto",
+            workflow="generate",
+            job_id="batch-root",
+        )
+        store.append_image(
+            root.id,
+            {"slot": 1, "name": "root.png", "url": "/generated/batch-root/root.png"},
+        )
+        child = store.create(
+            prompt="子图",
+            count=1,
+            quality="auto",
+            workflow="image-to-image",
+            job_id="batch-child",
+            source_images=[
+                {
+                    "slot": 1,
+                    "name": "source-1.png",
+                    "url": "/generated/batch-child/source-images/source-1.png",
+                    "origin": {
+                        "job_id": "batch-root",
+                        "slot": 1,
+                        "url": "/generated/batch-root/root.png",
+                    },
+                }
+            ],
+        )
+        store.append_image(
+            child.id,
+            {"slot": 1, "name": "child.png", "url": "/generated/batch-child/child.png"},
+        )
+
+        positions = store.update_genealogy_node_positions({
+            "batch-root:1": {"x": 10.2, "y": 20.8},
+            "batch-child:1": {"x": 240.6, "y": 132.2},
+        })
+
+        self.assertEqual(
+            positions,
+            {
+                "batch-root:1": {"x": 10, "y": 21},
+                "batch-child:1": {"x": 241, "y": 132},
+            },
+        )
+        self.assertEqual(store.list_genealogy_positions(), positions)
+
+    def test_batch_position_update_rejects_missing_node_without_partial_write(self) -> None:
+        store = self.build_store()
+        job = store.create(
+            prompt="已有节点",
+            count=1,
+            quality="auto",
+            workflow="image-to-image",
+            job_id="batch-existing",
+        )
+        store.append_image(
+            job.id,
+            {"slot": 1, "name": "existing.png", "url": "/generated/batch-existing/existing.png"},
+        )
+
+        with self.assertRaises(KeyError):
+            store.update_genealogy_node_positions({
+                "batch-existing:1": {"x": 12, "y": 18},
+                "missing-node:1": {"x": 40, "y": 52},
+            })
+
+        self.assertEqual(store.list_genealogy_positions(), {})
 
     def test_rejects_invalid_node_position(self) -> None:
         store = self.build_store()
@@ -141,14 +214,13 @@ class GenealogyGraphTests(unittest.TestCase):
         )
 
         with self.assertRaises(ValueError):
-            store.update_genealogy_node_position("bad-position-job:1", {"x": -1, "y": 20})
+            store.update_genealogy_node_positions({"bad-position-job:1": {"x": -1, "y": 20}})
 
     def test_rejects_missing_genealogy_node_position(self) -> None:
         store = self.build_store()
 
-        position = store.update_genealogy_node_position("missing-node:1", {"x": 12, "y": 20})
-
-        self.assertEqual(position, {})
+        with self.assertRaises(KeyError):
+            store.update_genealogy_node_positions({"missing-node:1": {"x": 12, "y": 20}})
 
     def test_persists_position_for_existing_independent_node(self) -> None:
         store = self.build_store()
@@ -164,9 +236,9 @@ class GenealogyGraphTests(unittest.TestCase):
             {"slot": 1, "name": "orphan.png", "url": "/generated/orphan-job/orphan.png"},
         )
 
-        position = store.update_genealogy_node_position("orphan-job:1", {"x": 12, "y": 20})
+        positions = store.update_genealogy_node_positions({"orphan-job:1": {"x": 12, "y": 20}})
 
-        self.assertEqual(position, {"x": 12, "y": 20})
+        self.assertEqual(positions["orphan-job:1"], {"x": 12, "y": 20})
 
     def test_migrates_root_scoped_positions_to_comfyui_node_positions(self) -> None:
         store = self.build_store()
@@ -235,9 +307,9 @@ class GenealogyGraphTests(unittest.TestCase):
         store._connection.execute("DELETE FROM job_images WHERE job_id = ?", ("payload-child",))
         store._connection.commit()
 
-        position = store.update_genealogy_node_position("payload-child:1", {"x": 88, "y": 144})
+        positions = store.update_genealogy_node_positions({"payload-child:1": {"x": 88, "y": 144}})
 
-        self.assertEqual(position, {"x": 88, "y": 144})
+        self.assertEqual(positions["payload-child:1"], {"x": 88, "y": 144})
         self.assertEqual(store.list_genealogy_positions()["payload-child:1"], {"x": 88, "y": 144})
 
     def test_graph_uses_external_source_as_independent_root(self) -> None:
@@ -270,6 +342,35 @@ class GenealogyGraphTests(unittest.TestCase):
         )
         family = next(item for item in graph["families"] if item["root_id"] == "source:external-child:1")
         self.assertEqual(family["root_type"], "source")
+
+    def test_graph_keeps_source_root_for_running_image_to_image_job_without_outputs(self) -> None:
+        store = self.build_store()
+        store.create(
+            prompt="正在生成下一代",
+            count=2,
+            quality="auto",
+            workflow="image-to-image",
+            job_id="pending-child",
+            source_images=[
+                {
+                    "slot": 1,
+                    "name": "source-1.png",
+                    "path": "/tmp/source-1.png",
+                    "url": "/generated/pending-child/source-images/source-1.png",
+                }
+            ],
+        )
+
+        graph = build_genealogy_graph(store.list_all(), store.list_genealogy_positions())
+
+        self.assertIn("source:pending-child:1", [item["id"] for item in graph["nodes"]])
+        family = next(item for item in graph["families"] if item["root_id"] == "source:pending-child:1")
+        self.assertEqual(family["image_count"], 0)
+        self.assertEqual(family["root_type"], "source")
+        self.assertEqual(
+            [edge for edge in graph["edges"] if edge["job_id"] == "pending-child"],
+            [],
+        )
 
     def test_multipart_request_preserves_source_image_origin(self) -> None:
         boundary = "----scimage-test-boundary"

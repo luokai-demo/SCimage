@@ -18,7 +18,7 @@ for candidate in (WEBAPP_DIR, SCRIPTS_DIR):
     if candidate_text not in sys.path:
         sys.path.insert(0, candidate_text)
 
-import server  # noqa: E402
+import api_provider_profiles  # noqa: E402
 from provider_model_catalog import (  # noqa: E402
     MODEL_CATEGORY_IMAGE,
     MODEL_CATEGORY_OTHER,
@@ -128,11 +128,11 @@ class ProviderModelRequestHelpersTests(unittest.TestCase):
                 api_key="secret-key",
             )
 
-            with patch.object(server, "PROVIDER_PROFILES", store):
-                resolved_api_key = server._resolve_provider_api_key(
-                    api_key="",
-                    source_profile_id=state["active_profile_id"],
-                )
+            resolved_api_key = api_provider_profiles.resolve_provider_api_key(
+                store,
+                api_key="",
+                source_profile_id=state["active_profile_id"],
+            )
 
         self.assertEqual(resolved_api_key, "secret-key")
 
@@ -146,22 +146,22 @@ class ProviderModelRequestHelpersTests(unittest.TestCase):
                 api_key="secret-key",
             )
 
-            with patch.object(server, "PROVIDER_PROFILES", store):
-                with patch.object(
-                    server,
-                    "discover_provider_models",
-                    return_value=(
-                        "https://example.com/v1",
-                        [ProviderModelOption(id="gpt-image-2", category=MODEL_CATEGORY_IMAGE)],
-                    ),
-                ) as mocked_discover:
-                    normalized_base_url, models = server._discover_models_from_payload(
-                        {
-                            "base_url": "https://example.com",
-                            "api_key": "",
-                            "source_profile_id": state["active_profile_id"],
-                        }
-                    )
+            with patch.object(
+                api_provider_profiles,
+                "discover_provider_models",
+                return_value=(
+                    "https://example.com/v1",
+                    [ProviderModelOption(id="gpt-image-2", category=MODEL_CATEGORY_IMAGE)],
+                ),
+            ) as mocked_discover:
+                normalized_base_url, models = api_provider_profiles.discover_models_from_payload(
+                    store,
+                    {
+                        "base_url": "https://example.com",
+                        "api_key": "",
+                        "source_profile_id": state["active_profile_id"],
+                    },
+                )
 
         self.assertEqual(normalized_base_url, "https://example.com/v1")
         self.assertEqual(models, [{"id": "gpt-image-2", "category": MODEL_CATEGORY_IMAGE}])

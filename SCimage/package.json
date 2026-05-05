@@ -6,10 +6,16 @@
   "scripts": {
     "dev": "vite --host 127.0.0.1",
     "build": "vue-tsc --noEmit && vite build",
+    "build:check": "node scripts/check_static_assets.mjs",
+    "format:check": "node scripts/check_format.mjs",
+    "lint": "npm run typecheck && npm run format:check",
     "test:browser": "node tests/browser_smoke.mjs",
-    "test:vue-regression": "node tests/vue_interaction_regression.mjs",
+    "test:perf": "node scripts/run_with_vite.mjs node tests/frontend_scale_benchmark.mjs",
+    "test:python": "python3 scripts/run_python_tests.py",
+    "test:vue-regression": "node scripts/run_with_vite.mjs node tests/vue_interaction_regression.mjs",
     "test:visual": "node tests/visual_regression.mjs",
     "typecheck": "vue-tsc --noEmit",
+    "verify": "npm run lint && npm run build && npm run build:check && npm run test:python && npm run test:vue-regression && npm run test:perf",
     "preview": "vite preview --host 127.0.0.1"
   },
   "dependencies": {
