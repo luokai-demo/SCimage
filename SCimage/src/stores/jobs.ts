@@ -1,5 +1,6 @@
 import { defineStore } from "pinia";
 import { isActiveJobStatus } from "../utils/jobStatus";
+import type { ApiJobSummary } from "../contracts/api";
 
 export interface JobPaginationState {
   total: number;
@@ -10,14 +11,7 @@ export interface JobPaginationState {
   isLoadingMore: boolean;
 }
 
-export interface JobSummary {
-  id?: string;
-  status?: string;
-  prompt?: string;
-  created_at?: string;
-  updated_at?: string;
-  [key: string]: unknown;
-}
+export type JobSummary = ApiJobSummary;
 
 function sortJobsByCreatedDesc(jobs: JobSummary[]) {
   return [...jobs].sort((left, right) => {

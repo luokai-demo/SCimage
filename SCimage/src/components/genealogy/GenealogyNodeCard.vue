@@ -5,6 +5,7 @@
       {
         active,
         'is-source': node.type === 'source',
+        'is-pending': node.type === 'pending',
         'is-related': related,
         'is-bloodline': bloodline,
         'is-dimmed': dimmed,
@@ -29,12 +30,16 @@
     <span class="node-status-rail" aria-hidden="true"></span>
     <div class="genealogy-node-titlebar">
       <span>{{ node.type === 'source' ? 'Load Image' : 'Image to Image' }}</span>
-      <small>{{ node.type === 'source' ? 'source' : formatGenealogyGeneration(node.generation) }}</small>
+      <small>{{ node.type === 'source' ? 'source' : node.type === 'pending' ? 'reserved' : formatGenealogyGeneration(node.generation) }}</small>
     </div>
     <div class="genealogy-node-media">
       <img v-if="imageUrl" :src="imageUrl" :alt="node.prompt || node.filename" loading="lazy" decoding="async" draggable="false" @dragstart.prevent>
+      <div v-else-if="node.type === 'pending'" class="genealogy-node-placeholder is-pending">
+        <LoaderCircle aria-hidden="true" />
+        <span>预定位置</span>
+      </div>
       <div v-else class="genealogy-node-placeholder">无预览</div>
-      <span class="node-badge">{{ node.type === 'source' ? '根图' : formatGenealogyGeneration(node.generation) }}</span>
+      <span class="node-badge">{{ node.type === 'source' ? '根图' : node.type === 'pending' ? pendingBadgeText : formatGenealogyGeneration(node.generation) }}</span>
       <span v-if="parentCount > 1" class="node-multi-badge"><Combine aria-hidden="true" />多参考</span>
     </div>
     <div class="genealogy-node-copy">
@@ -63,6 +68,7 @@ import {
   Cpu,
   GitMerge,
   ImageIcon,
+  LoaderCircle,
   SlidersHorizontal,
   Workflow,
 } from "lucide-vue-next";
@@ -98,10 +104,12 @@ defineEmits<{
 
 const workflowLabel = computed(() => {
   if (props.node.type === "source") return "来源";
+  if (props.node.type === "pending") return "预定";
   return props.node.workflow === "image-to-image" ? "图生图" : "文生图";
 });
 
 const statusLabel = computed(() => formatGenealogyNodeStatus(props.node.status));
+const pendingBadgeText = computed(() => props.node.status === "queued" ? "排队中" : "生成中");
 const nodeStyle = computed<Record<string, string>>(() => ({
   transform: `translate3d(${props.node.x}px, ${props.node.y}px, 0)`,
   "--genealogy-node-port-offset": `${GENEALOGY_NODE_PORT_OFFSET}px`,
@@ -175,6 +183,16 @@ function compactTime(value: string) {
 .genealogy-node.is-source {
   border-style: dashed;
 }
+.genealogy-node.is-pending {
+  border-style: dashed;
+  border-color: rgba(143,200,255,.34);
+  background:
+    linear-gradient(180deg, rgba(143,200,255,.08), rgba(255,255,255,.018)),
+    #0d1115;
+}
+.genealogy-node.is-pending.active {
+  border-color: rgba(176,216,255,.62);
+}
 .node-port {
   position: absolute;
   z-index: 6;
@@ -203,6 +221,9 @@ function compactTime(value: string) {
 }
 .genealogy-node.is-source .node-status-rail {
   background: var(--genealogy-source);
+}
+.genealogy-node.is-pending .node-status-rail {
+  background: #8fc8ff;
 }
 .genealogy-node-titlebar {
   height: 28px;
@@ -255,8 +276,36 @@ function compactTime(value: string) {
   display: flex;
   align-items: center;
   justify-content: center;
+  gap: 6px;
   color: var(--text-tertiary);
   font-size: 12px;
+}
+.genealogy-node-placeholder.is-pending {
+  flex-direction: column;
+  color: #cfe6ff;
+  background:
+    linear-gradient(135deg, rgba(143,200,255,.08), rgba(255,255,255,.025)),
+    rgba(255,255,255,.04);
+}
+.genealogy-node-placeholder.is-pending svg {
+  width: 18px;
+  height: 18px;
+  stroke-width: 1.8;
+}
+@media (prefers-reduced-motion: no-preference) {
+  .genealogy-node.is-pending {
+    animation: pending-node-pulse 1200ms ease-in-out infinite;
+  }
+  .genealogy-node-placeholder.is-pending svg {
+    animation: pending-node-spin 900ms linear infinite;
+  }
+}
+@keyframes pending-node-pulse {
+  0%, 100% { opacity: .74; }
+  50% { opacity: 1; }
+}
+@keyframes pending-node-spin {
+  to { transform: rotate(360deg); }
 }
 .node-badge,
 .node-multi-badge {

@@ -244,8 +244,6 @@
               </section>
             </div>
           </section>
-
-          <TaskPanel />
         </section>
       </div>
     </div>
@@ -259,7 +257,6 @@ import { useScimageRuntime } from "../composables/useScimageRuntime";
 import { usePromptLibraryDialog } from "../composables/usePromptLibraryDialog";
 import type { OutputOption } from "../data/outputOptions";
 import IconButton from "./ui/IconButton.vue";
-import TaskPanel from "./jobs/TaskPanel.vue";
 import UiSelectField from "./ui/UiSelectField.vue";
 
 const runtime = useScimageRuntime();

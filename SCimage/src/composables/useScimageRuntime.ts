@@ -4,6 +4,35 @@ import { useJobStore, type JobSummary } from "../stores/jobs";
 import { usePromptStore, type SavedPrompt } from "../stores/prompts";
 import { useProviderStore, type ProviderProfilesState } from "../stores/provider";
 import { useWorkspaceStore, type WorkflowName } from "../stores/workspace";
+import type {
+  ApiJobImage,
+  CreateJobResponse,
+  GalleryImagesPagePayload,
+  JobActionResponse,
+  JobsPagePayload,
+  MaintenanceCleanupPayload,
+  ProviderModelsPayload,
+  WorkspaceOutputFormPayload,
+  WorkspaceStatePayload,
+} from "../contracts/api";
+import { apiRequest } from "./runtime/apiClient";
+import { createFailurePopupController } from "./runtime/failurePopup";
+import { patchGalleryPageJobStatus } from "./runtime/galleryJobPatches";
+import { mergeGalleryPageItems } from "./runtime/galleryPages";
+import { mergeJobsById } from "./runtime/jobs";
+import { useRuntimeLightbox } from "./runtime/lightbox";
+import { buildPromptBankPayload, flattenPromptBank } from "./runtime/promptBank";
+import { normalizeBaseUrlForSignature, normalizeProviderState } from "./runtime/providerProfiles";
+import {
+  attachSourceImageMetadata,
+  buildSourceOriginFromGalleryItem,
+  sourceImageKey,
+  sourceImageOrigin,
+  type SourceImageItem,
+  type SourceImageOrigin,
+  type SourceImageReference,
+} from "./runtime/sourceImages";
+import { createStatusController, type StatusTone } from "./runtime/status";
 import {
   DEFAULT_OUTPUT_PROFILE_ID,
   getDefaultQuality,
@@ -15,14 +44,17 @@ import {
   normalizeQuality,
   normalizeSizeOption,
 } from "../data/outputOptions";
-import { formatJobFailureMessage } from "../utils/jobDiagnostics";
 import { imageKeyFromParts } from "../utils/galleryKeys";
 import { formatDateTime, getOutputOptionSummary, truncateText } from "../utils/jobFormatters";
-import { isActiveJobStatus, isRetryableJobStatus, isTerminalJobStatus } from "../utils/jobStatus";
+import { isActiveJobStatus, isRetryableJobStatus } from "../utils/jobStatus";
+import {
+  downloadImageFromUrl,
+  galleryItemFromPayload,
+  normalizeImageUrl,
+} from "../services/imageActions";
 import { useConfirmDialog } from "./useConfirmDialog";
 import { usePromptLibraryDialog } from "./usePromptLibraryDialog";
 
-type StatusTone = "loading" | "success" | "error" | "";
 type ModelPickerStatus = "idle" | "loading" | "ready" | "stale" | "error";
 type ModelPickerTone = "loading" | "success" | "warning" | "error" | "";
 
@@ -37,59 +69,6 @@ interface WorkspaceForm {
   size: string;
   quality: string;
   count: string;
-}
-
-interface SourceImageItem {
-  key: string;
-  file: File;
-  url: string;
-  name: string;
-  origin?: SourceImageOrigin;
-}
-
-interface SourceImageOrigin {
-  job_id: string;
-  slot: number;
-  url?: string;
-  filename?: string;
-  prompt?: string;
-}
-
-interface SourceImageReference {
-  url: string;
-  filename?: string;
-  prompt?: string;
-  origin?: SourceImageOrigin;
-}
-
-interface LightboxState {
-  open: boolean;
-  index: number;
-  selectionKey: string;
-  zoom: number;
-  panX: number;
-  panY: number;
-  dragging: boolean;
-  dragStartX: number;
-  dragStartY: number;
-  startPanX: number;
-  startPanY: number;
-}
-
-interface FailurePopupState {
-  open: boolean;
-  jobId: string;
-  prompt: string;
-  message: string;
-  retryable: boolean;
-  queue: Array<{
-    jobId: string;
-    prompt: string;
-    message: string;
-    retryable: boolean;
-  }>;
-  seenKeys: Set<string>;
-  ready: boolean;
 }
 
 interface LoadModelsOptions {
@@ -116,7 +95,6 @@ const MODEL_STALE_TEXT = "连接信息已变化，请先拉取模型";
 const MODEL_READY_HINT_PREFIX = "已加载";
 const MODEL_INVALID_SELECTION_TEXT = "当前已保存模型不在该 API 支持列表中，请重新选择。";
 const MODEL_FETCH_FAILED_TEXT = "拉取模型失败，请重试。";
-const IMAGE_DOWNLOAD_FALLBACK_NAME = "image.png";
 const CANCELED_JOB_MESSAGE = "任务已中断，后台请求已停止，已生成图片会自动保留。";
 
 const forms = reactive<Record<WorkflowName, WorkspaceForm>>({
@@ -143,35 +121,29 @@ const modelPicker = reactive({
   status: "idle" as ModelPickerStatus,
   loadedSignature: "",
 });
-const lightbox = reactive<LightboxState>({
-  open: false,
-  index: 0,
-  selectionKey: "",
-  zoom: 1,
-  panX: 0,
-  panY: 0,
-  dragging: false,
-  dragStartX: 0,
-  dragStartY: 0,
-  startPanX: 0,
-  startPanY: 0,
-});
-const failurePopup = reactive<FailurePopupState>({
-  open: false,
-  jobId: "",
-  prompt: "",
-  message: "",
-  retryable: false,
-  queue: [],
-  seenKeys: new Set(),
-  ready: false,
-});
+const statusController = createStatusController(status);
+const galleryFlatItems = computed(() => useGalleryStore().flatItems);
+const {
+  lightbox,
+  lightboxItems,
+  currentLightboxItem,
+  openLightbox,
+  openLightboxFromItems,
+  closeLightbox,
+  syncLightboxSelection,
+  navLightbox,
+} = useRuntimeLightbox({ galleryItems: galleryFlatItems });
+const {
+  failurePopup,
+  syncProblemPopups,
+  closeFailurePopup,
+  clearFailurePopupEntries,
+} = createFailurePopupController();
 
 let initialized = false;
 let watchersInitialized = false;
 let pollTimer = 0;
 let clockTimer = 0;
-let statusTimer = 0;
 let workspacePersistTimer = 0;
 let workspacePersistRetryTimer = 0;
 let workspacePersistInFlight: Promise<void> | null = null;
@@ -190,7 +162,6 @@ const busyJobIds = ref(new Set<string>());
 const clockTick = ref(Date.now());
 const isCreatingJob = ref(false);
 const isCleaningGeneratedDirs = ref(false);
-const lightboxItemsOverride = ref<GalleryFlatItem[] | null>(null);
 const selectedProviderProfile = computed(() => {
   const providerStore = useProviderStore();
   return providerStore.selectedProfile;
@@ -248,145 +219,8 @@ const canGenerate = computed(() => {
   return true;
 });
 
-type ApiRequestOptions = Omit<RequestInit, "body"> & { body?: unknown; timeoutMs?: number };
-
-async function apiRequest<T>(path: string, options: ApiRequestOptions = {}): Promise<T> {
-  const controller = new AbortController();
-  const timeoutId = window.setTimeout(() => controller.abort(), options.timeoutMs || 30000);
-  const headers = new Headers(options.headers || {});
-  let body = options.body as BodyInit | null | undefined;
-  if (body && !(body instanceof FormData)) {
-    headers.set("Content-Type", "application/json");
-    body = JSON.stringify(body);
-  }
-  try {
-    const { timeoutMs: _timeoutMs, ...fetchOptions } = options;
-    try {
-      const response = await fetch(path, { ...fetchOptions, headers, body, signal: controller.signal });
-      const contentType = response.headers.get("Content-Type") || "";
-      const payload = contentType.includes("application/json") ? await response.json() : await response.text();
-      if (!response.ok) {
-        throw new Error((payload && typeof payload === "object" && "error" in payload ? String(payload.error) : "") || response.statusText);
-      }
-      return payload as T;
-    } catch (error) {
-      if (error instanceof DOMException && error.name === "AbortError") {
-        throw new Error("本地服务响应超时，请确认服务仍在运行。");
-      }
-      throw error;
-    }
-  } finally {
-    window.clearTimeout(timeoutId);
-  }
-}
-
 function setStatus(tone: StatusTone, message: string, timeoutMs = 0) {
-  window.clearTimeout(statusTimer);
-  status.tone = tone;
-  status.message = message;
-  if (timeoutMs) {
-    statusTimer = window.setTimeout(() => {
-      status.tone = "";
-      status.message = "";
-    }, timeoutMs);
-  }
-}
-
-function normalizeDownloadFilename(value: unknown, fallback = IMAGE_DOWNLOAD_FALLBACK_NAME) {
-  const filename = String(value || "").trim();
-  if (!filename) return fallback;
-  const sanitized = filename.replace(/[\\/:*?"<>|]+/g, "-").trim();
-  return sanitized || fallback;
-}
-
-function normalizeImageUrl(url = "") {
-  try {
-    return new URL(url, window.location.origin).toString();
-  } catch {
-    return url;
-  }
-}
-
-function sortJobs(jobs: JobSummary[]) {
-  return [...jobs].sort((left, right) => {
-    const leftTime = new Date(String(left.created_at || left.updated_at || 0)).getTime();
-    const rightTime = new Date(String(right.created_at || right.updated_at || 0)).getTime();
-    return rightTime - leftTime;
-  });
-}
-
-function mergeJobsById(currentJobs: JobSummary[], nextJobs: JobSummary[], reset = false) {
-  const currentJobMap = new Map<string, JobSummary>();
-  currentJobs.forEach((job) => {
-    const id = String(job.id || "").trim();
-    if (id) currentJobMap.set(id, job);
-  });
-  const jobMap = new Map<string, JobSummary>();
-  if (!reset) {
-    currentJobMap.forEach((job, id) => jobMap.set(id, job));
-  }
-  nextJobs.forEach((job) => {
-    const id = String(job.id || "").trim();
-    if (!id) return;
-    const currentJob = currentJobMap.get(id);
-    if (
-      currentJob &&
-      locallyCanceledJobIds.has(id) &&
-      isTerminalJobStatus(currentJob.status) &&
-      !isTerminalJobStatus(job.status)
-    ) {
-      jobMap.set(id, currentJob);
-      return;
-    }
-    if (isTerminalJobStatus(job.status)) {
-      locallyCanceledJobIds.delete(id);
-    }
-    jobMap.set(id, job);
-  });
-  return sortJobs(Array.from(jobMap.values()));
-}
-
-function galleryPageItemKey(item: any) {
-  const job = item?.job || item || {};
-  const image = item?.image || item || {};
-  const jobId = String(job.id || item?.job_id || "").trim();
-  const slot = Number(image.slot || item?.slot || 0);
-  return jobId && slot ? `${jobId}:${slot}` : "";
-}
-
-function mergeGalleryPageItems(currentItems: any[], nextItems: any[], reset = false) {
-  const itemMap = new Map<string, any>();
-  if (!reset) {
-    currentItems.forEach((item) => {
-      const key = galleryPageItemKey(item);
-      if (key) itemMap.set(key, item);
-    });
-  }
-  nextItems.forEach((item) => {
-    const key = galleryPageItemKey(item);
-    if (key) itemMap.set(key, item);
-  });
-  return Array.from(itemMap.values()).sort((left, right) => {
-    const leftJob = left?.job || left || {};
-    const rightJob = right?.job || right || {};
-    const leftTime = new Date(String(leftJob.updated_at || leftJob.created_at || 0)).getTime();
-    const rightTime = new Date(String(rightJob.updated_at || rightJob.created_at || 0)).getTime();
-    return useGalleryStore().sortAsc ? leftTime - rightTime : rightTime - leftTime;
-  });
-}
-
-function normalizeBaseUrlForSignature(value: string) {
-  const normalized = String(value || "").trim().replace(/\/+$/, "");
-  if (!normalized) return "";
-  try {
-    const url = new URL(normalized);
-    if (!url.pathname || url.pathname === "/") {
-      url.pathname = "/v1";
-    }
-    return url.toString().replace(/\/+$/, "");
-  } catch {
-    return normalized;
-  }
+  statusController.setStatus(tone, message, timeoutMs);
 }
 
 function currentModelSignature(sourceProfileId = selectedProviderSourceId.value) {
@@ -447,16 +281,6 @@ function syncWorkflowAvailability() {
     syncPromptWorkflowLabel("generate");
     void persistWorkspaceState();
   }
-}
-
-function normalizeProviderState(payload: ProviderProfilesState): ProviderProfilesState {
-  return {
-    active_profile_id: payload?.active_profile_id || null,
-    compat_profiles: Array.isArray(payload?.compat_profiles) ? payload.compat_profiles : [],
-    profiles: Array.isArray(payload?.profiles) ? payload.profiles : [],
-    active_profile: payload?.active_profile || null,
-    is_ready: Boolean(payload?.is_ready),
-  };
 }
 
 async function loadProviderProfiles() {
@@ -585,7 +409,7 @@ async function loadModels(options: LoadModelsOptions = {}) {
   modelPicker.hasLoaded = false;
   setModelPickerMessage(MODEL_LOADING_TEXT, "loading");
   try {
-    const payload = await apiRequest<{ normalized_base_url?: string; models?: Array<{ id?: string; label?: string; category?: string }>; data?: Array<{ id?: string; label?: string; category?: string }> }>("/api/provider-profiles/models", {
+    const payload = await apiRequest<ProviderModelsPayload>("/api/provider-profiles/models", {
       method: "POST",
       body: { base_url: baseUrl, api_key: apiKey, source_profile_id: sourceProfileId },
       timeoutMs: 30000,
@@ -647,70 +471,15 @@ function getOutputSummary(form: Pick<WorkspaceForm, "size" | "quality" | "count"
   return getOutputOptionSummary(form as Record<string, unknown>, outputProfileId);
 }
 
-function normalizePromptEntry(entry: any, fallbackWorkflow: WorkflowName): SavedPrompt | null {
-  const prompt = String(entry?.prompt || "").trim();
-  if (!prompt) return null;
-  const workflow = entry?.workflow === "image-to-image" ? "image-to-image" : fallbackWorkflow;
-  const outputProfileId = normalizeOutputProfileId(entry?.outputProfileId || entry?.output_profile_id || activeOutputProfileId.value);
-  const normalized = normalizeOutputForm(entry || {}, outputProfileId);
-  const rawSize = String(entry?.size ?? "").trim();
-  const summarySource = { ...normalized, size: rawSize || normalized.size, workflow, outputProfileId };
-  const createdAt = String(entry?.createdAt || entry?.created_at || entry?.updatedAt || entry?.updated_at || new Date().toISOString());
-  const updatedAt = String(entry?.updatedAt || entry?.updated_at || createdAt);
-  return {
-    id: String(entry?.id || crypto.randomUUID?.() || Date.now()),
-    workflow,
-    prompt,
-    outputProfileId,
-    size: normalized.size,
-    quality: normalized.quality,
-    count: Number.parseInt(normalized.count, 10) || 1,
-    optionSummary: getOutputSummary(summarySource, outputProfileId),
-    savedAtText: `保存于 ${formatDateTime(updatedAt)}`,
-    createdAt,
-    updatedAt,
-  };
-}
-
-function flattenPromptBank(promptBank: any): SavedPrompt[] {
-  if (Array.isArray(promptBank)) {
-    return promptBank.map((entry) => normalizePromptEntry(entry, "generate")).filter(Boolean) as SavedPrompt[];
-  }
-  const result: SavedPrompt[] = [];
-  (["generate", "image-to-image"] as WorkflowName[]).forEach((workflow) => {
-    const entries = Array.isArray(promptBank?.[workflow]) ? promptBank[workflow] : [];
-    entries.forEach((entry: any) => {
-      const normalized = normalizePromptEntry(entry, workflow);
-      if (normalized) result.push(normalized);
-    });
-  });
-  return result;
-}
-
 function promptBankPayload() {
   const promptStore = usePromptStore();
-  return (["generate", "image-to-image"] as WorkflowName[]).reduce((payload, workflow) => {
-    payload[workflow] = promptStore.prompts
-      .filter((item) => item.workflow === workflow)
-      .map((item) => ({
-        id: item.id,
-        workflow,
-        prompt: item.prompt,
-        outputProfileId: item.outputProfileId || activeOutputProfileId.value,
-        size: item.size || getDefaultSizeOption(),
-        quality: item.quality || getDefaultQuality(item.outputProfileId || activeOutputProfileId.value),
-        count: Number.parseInt(String(item.count || 1), 10) || 1,
-        createdAt: item.createdAt || new Date().toISOString(),
-        updatedAt: item.updatedAt || item.createdAt || new Date().toISOString(),
-      }));
-    return payload;
-  }, {} as Record<WorkflowName, Array<Record<string, unknown>>>);
+  return buildPromptBankPayload(promptStore.prompts, activeOutputProfileId.value);
 }
 
 async function loadWorkspaceState() {
-  let payload: any;
+  let payload: WorkspaceStatePayload;
   try {
-    payload = await apiRequest<any>("/api/workspace-state", { method: "GET" });
+    payload = await apiRequest<WorkspaceStatePayload>("/api/workspace-state", { method: "GET" });
   } catch {
     // Workspace state is a convenience cache; the app can run without it.
     return;
@@ -723,14 +492,14 @@ async function loadWorkspaceState() {
     workspaceStore.setWorkflow(active);
     syncPromptWorkflowLabel(active);
     (["generate", "image-to-image"] as WorkflowName[]).forEach((workflow) => {
-      const form = payload?.forms?.[workflow] || {};
+      const form: WorkspaceOutputFormPayload = payload?.forms?.[workflow] || {};
       const normalized = normalizeOutputForm(form, activeOutputProfileId.value);
       forms[workflow].prompt = normalized.prompt;
       forms[workflow].size = normalized.size;
       forms[workflow].quality = normalized.quality;
       forms[workflow].count = normalized.count;
     });
-    promptStore.replacePrompts(flattenPromptBank(payload?.prompt_bank || payload?.saved_prompts));
+    promptStore.replacePrompts(flattenPromptBank(payload?.prompt_bank || payload?.saved_prompts, activeOutputProfileId.value));
     const filter = payload?.ui?.gallery?.filter;
     if (filter === "tasks" || filter === "prompts" || filter === "all") {
       useGalleryStore().setFilter(filter);
@@ -836,9 +605,9 @@ function addSourceFiles(files: Iterable<File>) {
   const next = [...sourceImages.value];
   Array.from(files).forEach((file) => {
     if (!file || (file.type && !file.type.startsWith("image/"))) return;
-    const key = (file as any).__imageWorkbenchSourceKey || `${file.name}:${file.size}:${file.lastModified}`;
+    const key = sourceImageKey(file);
     if (next.some((item) => item.key === key)) return;
-    const origin = (file as any).__imageWorkbenchSourceOrigin as SourceImageOrigin | undefined;
+    const origin = sourceImageOrigin(file);
     next.push({ key, file, name: file.name, url: URL.createObjectURL(file), origin });
   });
   sourceImages.value = next;
@@ -884,16 +653,7 @@ async function addSourceImageFromUrl(
     }
     const blob = await response.blob();
     const file = new File([blob], source.filename || "reference.png", { type: blob.type || "image/png", lastModified: Date.now() });
-    Object.defineProperty(file, "__imageWorkbenchSourceKey", {
-      value: `gallery:${imageUrl}`,
-      configurable: true,
-    });
-    if (source.origin) {
-      Object.defineProperty(file, "__imageWorkbenchSourceOrigin", {
-        value: source.origin,
-        configurable: true,
-      });
-    }
+    attachSourceImageMetadata(file, `gallery:${imageUrl}`, source.origin);
     const beforeCount = sourceImages.value.length;
     if (!setWorkflow("image-to-image")) return;
     addSourceFiles([file]);
@@ -903,23 +663,13 @@ async function addSourceImageFromUrl(
   }
 }
 
-function buildSourceOriginFromGalleryItem(item: GalleryFlatItem): SourceImageOrigin | undefined {
-  const jobId = String(item.jobId || "").trim();
-  const slot = Number(item.slot || 0);
-  if (!jobId || !slot) return undefined;
-  return {
-    job_id: jobId,
-    slot,
-    url: item.src,
-    filename: item.filename,
-    prompt: item.prompt,
-  };
-}
-
-function applyJobsPage(payload: any, append = false) {
+function applyJobsPage(payload: JobsPagePayload, append = false) {
   const jobStore = useJobStore();
   const jobs = Array.isArray(payload?.jobs) ? payload.jobs : [];
-  const nextJobs = mergeJobsById(jobStore.jobs, jobs, !append);
+  const nextJobs = mergeJobsById(jobStore.jobs, jobs, {
+    reset: !append,
+    locallyCanceledJobIds,
+  });
   const pageSize = Math.max(1, Number(payload?.limit || payload?.page_size || jobStore.pagination.pageSize || 80));
   const nextOffset = append
     ? Math.max(Number(jobStore.pagination.nextOffset || 0), Number(payload?.next_offset || nextJobs.length))
@@ -935,42 +685,13 @@ function applyJobsPage(payload: any, append = false) {
   jobStore.replaceJobs(nextJobs);
 }
 
-function galleryItemFromPayload(item: any): GalleryFlatItem | null {
-  const job = item.job || item;
-  const image = item.image || item;
-  const jobId = String(job.id || item.job_id || "");
-  const slot = Number(image.slot || item.slot || 0);
-  const url = normalizeImageUrl(String(image.url || item.url || ""));
-  const jobImages = Array.isArray(job.images) ? job.images : [];
-  const imageCount = Number(job.image_count || item.image_count || jobImages.length || 1);
-  if (!jobId || !url) return null;
-  return {
-    src: url,
-    previewSrc: normalizeImageUrl(String(image.preview?.url || image.preview_url || url)),
-    prompt: String(job.prompt || item.prompt || ""),
-    filename: String(image.name || item.name || `image-${slot || 1}.png`),
-    jobId,
-    slot,
-    jobStatus: String(job.status || item.status || ""),
-    workflow: String(job.workflow || item.workflow || ""),
-    imageCount,
-    totalCount: Number(job.count || item.count || 0) || undefined,
-    createdAt: String(job.created_at || item.created_at || ""),
-    updatedAt: String(job.updated_at || item.updated_at || ""),
-    width: Number(image.width || item.width || 0) || undefined,
-    height: Number(image.height || item.height || 0) || undefined,
-    placeholderColor: String(image.placeholder?.color || item.placeholder?.color || ""),
-    size: String(job.size || item.size || ""),
-    quality: String(job.quality || item.quality || ""),
-    outputProfileId: String(job.output_profile_id || job.outputProfileId || item.output_profile_id || item.outputProfileId || ""),
-    jobSnapshot: job,
-  };
-}
-
-function applyGalleryPage(payload: any, append = false) {
+function applyGalleryPage(payload: GalleryImagesPagePayload, append = false) {
   const galleryStore = useGalleryStore();
   const items = Array.isArray(payload?.items) ? payload.items : [];
-  const pageItems = mergeGalleryPageItems(galleryStore.pageItems, items, !append);
+  const pageItems = mergeGalleryPageItems(galleryStore.pageItems, items, {
+    reset: !append,
+    sortAsc: galleryStore.sortAsc,
+  });
   const flatItems = pageItems.map(galleryItemFromPayload).filter(Boolean) as GalleryFlatItem[];
   galleryStore.replacePageItems(pageItems);
   galleryStore.replaceFlatItems(flatItems);
@@ -982,51 +703,6 @@ function applyGalleryPage(payload: any, append = false) {
     isLoadingMore: false,
   });
   syncLightboxSelection();
-}
-
-function syncProblemPopups(jobs: JobSummary[]) {
-  const failed = jobs.filter((job) => String(job.status || "") === "failed");
-  if (!failurePopup.ready) {
-    failed.forEach((job) => failurePopup.seenKeys.add(`${job.id}:${job.updated_at || ""}`));
-    failurePopup.ready = true;
-    return;
-  }
-  failed.forEach((job) => {
-    const key = `${job.id}:${job.updated_at || ""}`;
-    if (failurePopup.seenKeys.has(key)) return;
-    failurePopup.seenKeys.add(key);
-    failurePopup.queue.push({
-      jobId: String(job.id || ""),
-      prompt: String(job.prompt || ""),
-      message: formatJobFailureMessage(job),
-      retryable: isRetryableJob(job),
-    });
-  });
-  showNextFailurePopup();
-}
-
-function showNextFailurePopup() {
-  if (failurePopup.open || !failurePopup.queue.length) return;
-  const next = failurePopup.queue.shift();
-  if (!next) return;
-  failurePopup.jobId = next.jobId;
-  failurePopup.prompt = next.prompt;
-  failurePopup.message = next.message;
-  failurePopup.retryable = next.retryable;
-  failurePopup.open = true;
-}
-
-function closeFailurePopup() {
-  failurePopup.open = false;
-  failurePopup.jobId = "";
-  window.setTimeout(showNextFailurePopup, 120);
-}
-
-function clearFailurePopupEntries(jobId: string) {
-  const normalizedJobId = String(jobId || "");
-  if (!normalizedJobId) return;
-  failurePopup.queue = failurePopup.queue.filter((entry) => entry.jobId !== normalizedJobId);
-  if (failurePopup.jobId === normalizedJobId) closeFailurePopup();
 }
 
 function mergeRefreshOptions(current: RefreshJobsOptions | null, next: RefreshJobsOptions) {
@@ -1050,8 +726,8 @@ async function refreshJobs(options: RefreshJobsOptions = {}) {
   refreshInFlight = (async () => {
     try {
       const [jobsPayload, galleryPayload] = await Promise.all([
-        apiRequest<any>(`/api/jobs?offset=0&limit=${jobStore.pagination.pageSize || 80}`, { method: "GET" }),
-        apiRequest<any>(`/api/gallery/images?limit=${galleryStore.pagination.pageSize || 160}&sort=${requestedSortAsc ? "asc" : "desc"}`, { method: "GET" }),
+        apiRequest<JobsPagePayload>(`/api/jobs?offset=0&limit=${jobStore.pagination.pageSize || 80}`, { method: "GET" }),
+        apiRequest<GalleryImagesPagePayload>(`/api/gallery/images?limit=${galleryStore.pagination.pageSize || 160}&sort=${requestedSortAsc ? "asc" : "desc"}`, { method: "GET" }),
       ]);
       if (refreshJobsGeneration === jobsListGeneration) {
         applyJobsPage(jobsPayload);
@@ -1084,7 +760,7 @@ async function loadMoreJobs() {
   const requestGeneration = jobsListGeneration;
   jobStore.patchPagination({ isLoadingMore: true });
   try {
-    const payload = await apiRequest<any>(`/api/jobs?offset=${jobStore.pagination.nextOffset}&limit=${jobStore.pagination.pageSize}&cursor=${encodeURIComponent(jobStore.pagination.nextCursor)}`, { method: "GET" });
+    const payload = await apiRequest<JobsPagePayload>(`/api/jobs?offset=${jobStore.pagination.nextOffset}&limit=${jobStore.pagination.pageSize}&cursor=${encodeURIComponent(jobStore.pagination.nextCursor)}`, { method: "GET" });
     if (requestGeneration === jobsListGeneration) applyJobsPage(payload, true);
   } catch (error) {
     jobStore.markSyncError(error);
@@ -1102,7 +778,7 @@ async function loadMoreGallery() {
   const requestedSortAsc = galleryStore.sortAsc;
   galleryStore.patchPagination({ isLoadingMore: true });
   try {
-    const payload = await apiRequest<any>(`/api/gallery/images?limit=${galleryStore.pagination.pageSize}&cursor=${encodeURIComponent(galleryStore.pagination.nextCursor)}&sort=${requestedSortAsc ? "asc" : "desc"}`, { method: "GET" });
+    const payload = await apiRequest<GalleryImagesPagePayload>(`/api/gallery/images?limit=${galleryStore.pagination.pageSize}&cursor=${encodeURIComponent(galleryStore.pagination.nextCursor)}&sort=${requestedSortAsc ? "asc" : "desc"}`, { method: "GET" });
     if (requestGeneration === galleryListGeneration && requestedSortAsc === galleryStore.sortAsc) applyGalleryPage(payload, true);
   } catch {
     galleryStore.patchPagination({ isLoadingMore: false });
@@ -1146,7 +822,7 @@ async function generate() {
     setStatus("loading", "正在创建任务...");
     await persistWorkspaceState();
     try {
-      const job = await apiRequest<any>("/api/jobs", { method: "POST", body, timeoutMs: 30000 });
+      const job = await apiRequest<CreateJobResponse>("/api/jobs", { method: "POST", body, timeoutMs: 30000 });
       usePromptLibraryDialog().setOpen(false);
       await refreshJobs({ silent: true, reset: true });
       setStatus("success", `任务已创建，开始请求生成 ${job.count || base.count} 张图片。`, 2600);
@@ -1204,13 +880,9 @@ function closeLightboxIfMissing() {
 
 function patchCanceledGalleryItems(jobId: string) {
   const galleryStore = useGalleryStore();
-  const pageItems = galleryStore.pageItems.map((item: any) => {
-    const job = item?.job || item;
-    if (String(job?.id || item?.job_id || "") !== String(jobId)) return item;
-    if (item?.job) {
-      return { ...item, job: { ...item.job, status: "canceled", message: CANCELED_JOB_MESSAGE } };
-    }
-    return { ...item, status: "canceled", message: CANCELED_JOB_MESSAGE };
+  const pageItems = patchGalleryPageJobStatus(galleryStore.pageItems, jobId, {
+    status: "canceled",
+    message: CANCELED_JOB_MESSAGE,
   });
   const flatItems = galleryStore.flatItems.map((item) => (
     item.jobId === String(jobId)
@@ -1244,12 +916,7 @@ function restoreJobSnapshotLocally(jobId: string, snapshot: JobSummary) {
   const galleryStore = useGalleryStore();
   const status = String(snapshot.status || "");
   const message = String(snapshot.message || "");
-  galleryStore.replacePageItems(galleryStore.pageItems.map((item: any) => {
-    const job = item?.job || item;
-    if (String(job?.id || item?.job_id || "") !== String(jobId)) return item;
-    if (item?.job) return { ...item, job: { ...item.job, ...snapshot } };
-    return { ...item, ...snapshot };
-  }));
+  galleryStore.replacePageItems(patchGalleryPageJobStatus(galleryStore.pageItems, jobId, snapshot));
   galleryStore.replaceFlatItems(galleryStore.flatItems.map((item) => (
     item.jobId === String(jobId)
       ? { ...item, jobStatus: status, jobSnapshot: { ...(item.jobSnapshot || {}), ...snapshot, message } }
@@ -1296,7 +963,7 @@ async function jobAction(jobId: string, action: "cancel" | "retry" | "delete") {
       markJobCanceledLocally(jobId);
     }
     if (action === "retry" || action === "delete") clearFailurePopupEntries(jobId);
-    const payload = await apiRequest<any>(path, { method, timeoutMs: action === "cancel" ? 8000 : 30000 });
+    const payload = await apiRequest<JobActionResponse>(path, { method, timeoutMs: action === "cancel" ? 8000 : 30000 });
     if (action === "cancel") {
       markJobCanceledLocally(jobId, payload?.images);
       void refreshJobs({ silent: true });
@@ -1337,7 +1004,7 @@ async function deleteImage(jobId: string, slot: number, context: GalleryActionCo
   }
   const images = Array.isArray(job.images) ? job.images : [];
   const imageCount = context.imageCount || context.item?.imageCount || images.length || 1;
-  const targetImage = images.find((image: any) => Number(image?.slot || 0) === Number(slot)) || (
+  const targetImage = images.find((image: ApiJobImage) => Number(image?.slot || 0) === Number(slot)) || (
     context.item && context.item.jobId === jobId && Number(context.item.slot || 0) === Number(slot)
       ? { slot, url: context.item.src, name: context.item.filename }
       : null
@@ -1462,103 +1129,14 @@ async function downloadItem(item: GalleryFlatItem) {
     setStatus("error", "图片地址无效，无法下载。", 2200);
     return;
   }
-  const filename = normalizeDownloadFilename(item.filename);
   try {
-    const desktopApi = (window as any).pywebview?.api;
-    if (desktopApi && typeof desktopApi.download_file === "function") {
-      const result = await desktopApi.download_file(imageUrl, filename);
-      if (result?.canceled) return;
-      if (!result?.ok) throw new Error(result?.error || "桌面版保存图片失败。");
+    const result = await downloadImageFromUrl(imageUrl, item.filename);
+    if (result.saved) {
       setStatus("success", "图片已保存。", 1600);
-      return;
     }
-
-    const response = await fetch(imageUrl, { method: "GET" });
-    if (!response.ok) {
-      throw new Error(`下载失败：HTTP ${response.status}`);
-    }
-    const blob = await response.blob();
-    const objectUrl = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.href = objectUrl;
-    link.download = filename;
-    link.style.display = "none";
-    document.body.appendChild(link);
-    link.click();
-    link.remove();
-    window.setTimeout(() => URL.revokeObjectURL(objectUrl), 1000);
   } catch (error) {
     setStatus("error", error instanceof Error ? error.message : String(error || "下载图片失败。"), 2400);
   }
-}
-
-function openLightbox(index: number) {
-  const item = useGalleryStore().flatItems[index];
-  if (!item) return;
-  lightboxItemsOverride.value = null;
-  openLightboxAt(index, item);
-}
-
-function openLightboxFromItems(items: GalleryFlatItem[], index: number) {
-  const normalizedItems = items.filter((item) => item.src);
-  const item = normalizedItems[index];
-  if (!item) return;
-  lightboxItemsOverride.value = normalizedItems;
-  openLightboxAt(index, item);
-}
-
-function openLightboxAt(index: number, item: GalleryFlatItem) {
-  lightbox.index = index;
-  lightbox.selectionKey = imageKeyFromParts(item.jobId, item.slot);
-  lightbox.open = true;
-  lightbox.zoom = 1;
-  lightbox.panX = 0;
-  lightbox.panY = 0;
-  document.body.style.overflow = "hidden";
-}
-
-function closeLightbox() {
-  lightbox.open = false;
-  lightbox.selectionKey = "";
-  lightbox.index = 0;
-  lightboxItemsOverride.value = null;
-  lightbox.zoom = 1;
-  lightbox.panX = 0;
-  lightbox.panY = 0;
-  lightbox.dragging = false;
-  document.body.style.overflow = "";
-}
-
-function syncLightboxSelection() {
-  if (!lightbox.open) return;
-  const items = lightboxItemsOverride.value || useGalleryStore().flatItems;
-  if (!items.length) {
-    closeLightbox();
-    return;
-  }
-  const nextIndex = lightbox.selectionKey
-    ? items.findIndex((item) => imageKeyFromParts(item.jobId, item.slot) === lightbox.selectionKey)
-    : -1;
-  if (nextIndex < 0) {
-    closeLightbox();
-    return;
-  }
-  lightbox.index = nextIndex;
-}
-
-function navLightbox(delta: number) {
-  const items = lightboxItemsOverride.value || useGalleryStore().flatItems;
-  const total = items.length;
-  if (!total) return;
-  const nextIndex = lightbox.index + delta;
-  if (nextIndex < 0 || nextIndex >= total) return;
-  const item = items[nextIndex];
-  if (!item) return;
-  lightbox.index = nextIndex;
-  lightbox.selectionKey = imageKeyFromParts(item.jobId, item.slot);
-  lightbox.zoom = 1;
-  lightbox.panX = 0;
-  lightbox.panY = 0;
 }
 
 async function deleteLightboxItem() {
@@ -1699,7 +1277,7 @@ async function cleanupEmptyGeneratedDirs() {
   cleanupGeneratedPromise = (async () => {
     isCleaningGeneratedDirs.value = true;
     try {
-      const payload = await apiRequest<any>("/api/maintenance/generated/cleanup-empty-dirs", { method: "POST" });
+      const payload = await apiRequest<MaintenanceCleanupPayload>("/api/maintenance/generated/cleanup-empty-dirs", { method: "POST" });
       setStatus("success", payload?.removed_count ? `已清理 ${payload.removed_count} 个空文件夹。` : "没有需要清理的空文件夹。", 2200);
     } catch (error) {
       setStatus("error", error instanceof Error ? error.message : String(error));
@@ -1760,9 +1338,7 @@ export function useScimageRuntime() {
   const promptStore = usePromptStore();
   const workspaceStore = useWorkspaceStore();
 
-  const visibleGalleryItems = computed(() => galleryStore.flatItems);
-  const lightboxItems = computed(() => lightboxItemsOverride.value || galleryStore.flatItems);
-  const currentLightboxItem = computed(() => lightboxItems.value[lightbox.index] || null);
+  const visibleGalleryItems = galleryFlatItems;
   const currentWorkflowForm = computed(() => forms[workspaceStore.activeWorkflow]);
 
   return {

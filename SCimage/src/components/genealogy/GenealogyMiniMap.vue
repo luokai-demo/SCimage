@@ -1,26 +1,15 @@
 <template>
-  <section v-if="layout.nodes.length" :class="['genealogy-minimap', { 'is-sampled': miniMapModel.isSampled }]" aria-label="族谱导航小地图">
+  <section
+    v-if="layout.nodes.length"
+    id="genealogyNavPopover"
+    :class="['genealogy-minimap', { 'is-sampled': miniMapModel.isSampled }]"
+    aria-label="导航小地图"
+  >
     <div class="minimap-head">
-      <span><MapPinned aria-hidden="true" />族谱导航</span>
-      <div class="minimap-actions">
-        <IconButton class-name="minimap-icon-btn" label="定位根图" @click="$emit('focus-root')">
-          <LocateFixed aria-hidden="true" />
-        </IconButton>
-        <IconButton class-name="minimap-icon-btn" label="定位当前节点" :disabled="!selectedNodeId" @click="$emit('focus-selected')">
-          <Crosshair aria-hidden="true" />
-        </IconButton>
-        <IconButton class-name="minimap-icon-btn" :label="isCollapsed ? '展开导航地图' : '收起导航地图'" @click="isCollapsed = !isCollapsed">
-          <PanelTopClose v-if="!isCollapsed" aria-hidden="true" />
-          <PanelTopOpen v-else aria-hidden="true" />
-        </IconButton>
-      </div>
+      <span><MapPinned aria-hidden="true" />导航</span>
+      <small class="minimap-status">{{ miniMapStatusText }}</small>
     </div>
-    <div v-if="!isCollapsed" class="minimap-body">
-      <div class="minimap-stats">
-        <span><GitBranch aria-hidden="true" />{{ layout.generationCount }} 代</span>
-        <span><Images aria-hidden="true" />{{ layout.nodes.length }} 图</span>
-        <span v-if="miniMapModel.isSampled"><Gauge aria-hidden="true" />{{ miniMapModel.visibleNodeCount }}/{{ miniMapModel.totalNodeCount }}</span>
-      </div>
+    <div class="minimap-body">
       <svg
         ref="svgEl"
         class="minimap-svg"
@@ -73,7 +62,7 @@
       <div
         class="minimap-interaction-overlay"
         data-minimap-interaction-overlay="true"
-        aria-label="族谱导航交互层"
+        aria-label="导航交互层"
         @pointerdown="onOverlayPointerDown"
         @pointermove="onOverlayPointerMove"
         @pointerup="stopOverlayDrag"
@@ -86,16 +75,7 @@
 
 <script setup lang="ts">
 import { computed, onBeforeUnmount, ref } from "vue";
-import {
-  Crosshair,
-  Gauge,
-  GitBranch,
-  Images,
-  LocateFixed,
-  MapPinned,
-  PanelTopClose,
-  PanelTopOpen,
-} from "lucide-vue-next";
+import { MapPinned } from "lucide-vue-next";
 import {
   GENEALOGY_CARD_HEIGHT,
   GENEALOGY_CARD_WIDTH,
@@ -104,7 +84,6 @@ import {
 } from "../../utils/genealogyGraph";
 import { buildGenealogyMiniMapModel } from "../../utils/genealogyMiniMap";
 import { genealogyEdgePath } from "../../utils/genealogyWire";
-import IconButton from "../ui/IconButton.vue";
 
 const props = defineProps<{
   layout: GenealogyLayout;
@@ -120,13 +99,10 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   "focus-node": [nodeId: string];
-  "focus-root": [];
-  "focus-selected": [];
   "pan-to": [point: { x: number; y: number }];
 }>();
 
 const svgEl = ref<SVGSVGElement | null>(null);
-const isCollapsed = ref(false);
 const isOverlayDragging = ref(false);
 let overlayDragPointerId = 0;
 let startPointerPoint = { x: 0, y: 0 };
@@ -137,6 +113,11 @@ const miniMapModel = computed(() => buildGenealogyMiniMapModel(
   props.layout,
   props.selectedNodeId,
   props.bloodlineNodeIds,
+));
+const miniMapStatusText = computed(() => (
+  miniMapModel.value.isSampled
+    ? `${miniMapModel.value.visibleNodeCount}/${miniMapModel.value.totalNodeCount} 节点`
+    : `${miniMapModel.value.totalNodeCount} 节点`
 ));
 
 function onOverlayPointerDown(event: PointerEvent) {
@@ -238,18 +219,15 @@ onBeforeUnmount(() => stopOverlayDrag());
 <style scoped>
 .genealogy-minimap {
   position: absolute;
-  top: 12px;
-  right: 12px;
-  z-index: 8;
-  width: 220px;
+  top: calc(100% + 8px);
+  right: 0;
+  z-index: 12;
+  width: 236px;
   padding: 10px;
   border: 1px solid rgba(255,255,255,.12);
   border-radius: 10px;
-  background:
-    linear-gradient(180deg, rgba(255,255,255,.052), rgba(255,255,255,.018)),
-    rgba(11,12,14,.9);
+  background: rgba(11,12,14,.96);
   box-shadow: 0 16px 38px rgba(0,0,0,.32);
-  backdrop-filter: blur(10px);
 }
 .minimap-head {
   display: flex;
@@ -271,75 +249,28 @@ onBeforeUnmount(() => stopOverlayDrag());
   height: 12px;
   stroke-width: 1.9;
 }
-.minimap-actions {
-  display: inline-flex;
-  gap: 4px;
-}
-.minimap-actions :deep(.minimap-icon-btn) {
-  width: 24px;
-  height: 24px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  border: 1px solid rgba(255,255,255,.1);
-  border-radius: var(--radius);
-  background: rgba(255,255,255,.04);
+.minimap-status {
+  min-width: 0;
+  overflow: hidden;
   color: var(--text-tertiary);
-  cursor: pointer;
-}
-.minimap-actions :deep(.minimap-icon-btn:hover) {
-  border-color: rgba(255,255,255,.18);
-  color: var(--text-primary);
-  background: rgba(255,255,255,.08);
-}
-.minimap-actions :deep(.minimap-icon-btn:disabled) {
-  opacity: .45;
-  cursor: not-allowed;
-}
-.minimap-actions :deep(svg) {
-  width: 13px;
-  height: 13px;
-  stroke-width: 1.9;
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .minimap-body {
   margin-top: 8px;
   position: relative;
 }
-.minimap-stats {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 5px;
-  margin-bottom: 8px;
-}
-.minimap-stats span {
-  min-height: 21px;
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  padding: 0 7px;
-  border: 1px solid rgba(255,255,255,.085);
-  border-radius: 999px;
-  background: rgba(255,255,255,.04);
-  color: var(--text-secondary);
-  font-size: 10px;
-}
-.minimap-stats svg {
-  width: 11px;
-  height: 11px;
-  stroke-width: 1.8;
-}
 .minimap-svg {
   width: 100%;
-  height: 124px;
+  height: 116px;
   display: block;
   overflow: hidden;
   border: 1px solid rgba(255,255,255,.09);
   border-radius: 9px;
-  background:
-    linear-gradient(rgba(255,255,255,.032) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(255,255,255,.032) 1px, transparent 1px),
-    rgba(255,255,255,.014);
-  background-size: 16px 16px;
+  background: rgba(255,255,255,.014);
   pointer-events: none;
 }
 .minimap-interaction-overlay {
@@ -347,7 +278,7 @@ onBeforeUnmount(() => stopOverlayDrag());
   left: 0;
   right: 0;
   bottom: 0;
-  height: 124px;
+  height: 116px;
   border-radius: 9px;
   touch-action: none;
   cursor: grab;
@@ -407,7 +338,7 @@ onBeforeUnmount(() => stopOverlayDrag());
 }
 @media (max-width: 1040px) {
   .genealogy-minimap {
-    width: 178px;
+    width: 204px;
   }
 }
 </style>

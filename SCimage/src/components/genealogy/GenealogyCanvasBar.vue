@@ -10,15 +10,25 @@
       <span v-if="activeFamily.has_multi_source"><Combine aria-hidden="true" />多参考</span>
     </div>
     <div class="canvas-actions">
-      <button type="button" class="canvas-tool-btn" :disabled="!activeFamily" title="定位根图" @click="emit('focus-root')">
+      <IconButton class-name="canvas-tool-btn" label="定位根图" :disabled="!activeFamily" @click="emit('focus-root')">
         <LocateFixed aria-hidden="true" />
-      </button>
-      <button type="button" class="canvas-tool-btn" :disabled="!hasSelectedNode" title="定位当前节点" @click="emit('focus-selected')">
-        <Crosshair aria-hidden="true" />
-      </button>
-      <button type="button" class="canvas-tool-btn" :disabled="loading" title="刷新族谱" @click="emit('refresh')">
+      </IconButton>
+      <IconButton class-name="canvas-tool-btn" label="刷新族谱" :disabled="loading" @click="emit('refresh')">
         <RefreshCw aria-hidden="true" />
-      </button>
+      </IconButton>
+      <IconButton
+        id="genealogyNavToggleBtn"
+        :class-name="['canvas-tool-btn', 'is-navigation-toggle', { active: navigationOpen }].filter(Boolean).join(' ')"
+        controls="genealogyNavPopover"
+        :disabled="!hasNavigation"
+        :expanded="navigationOpen"
+        :pressed="navigationOpen"
+        :label="navigationOpen ? '收起导航' : '展开导航'"
+        @click="emit('toggle-navigation')"
+      >
+        <MapPinned aria-hidden="true" />
+      </IconButton>
+      <slot name="navigation-panel"></slot>
     </div>
   </div>
 </template>
@@ -26,24 +36,26 @@
 <script setup lang="ts">
 import {
   Combine,
-  Crosshair,
   GitBranch,
   Images,
   LocateFixed,
+  MapPinned,
   RefreshCw,
 } from "lucide-vue-next";
 import type { GenealogyFamily } from "../../stores/genealogy";
+import IconButton from "../ui/IconButton.vue";
 
 defineProps<{
   activeFamily: GenealogyFamily | null;
-  hasSelectedNode: boolean;
+  hasNavigation: boolean;
+  navigationOpen: boolean;
   loading: boolean;
 }>();
 
 const emit = defineEmits<{
   "focus-root": [];
-  "focus-selected": [];
   refresh: [];
+  "toggle-navigation": [];
 }>();
 </script>
 
@@ -77,6 +89,40 @@ const emit = defineEmits<{
 }
 .tree-stats,
 .canvas-actions {
+  position: relative;
+}
+.canvas-actions :deep(.ui-tooltip-trigger) {
+  display: inline-flex;
+}
+.canvas-actions :deep(.canvas-tool-btn) {
+  width: 32px;
+  height: 32px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid rgba(255,255,255,.09);
+  border-radius: 999px;
+  background: rgba(255,255,255,.03);
+  color: var(--text-tertiary);
+  cursor: pointer;
+  transition: border-color var(--transition), color var(--transition), background var(--transition);
+}
+.canvas-actions :deep(.canvas-tool-btn:hover) {
+  border-color: rgba(255,255,255,.18);
+  color: var(--text-primary);
+  background: rgba(255,255,255,.07);
+}
+.canvas-actions :deep(.canvas-tool-btn:disabled) {
+  opacity: .45;
+  cursor: not-allowed;
+}
+.canvas-actions :deep(.canvas-tool-btn.active) {
+  border-color: rgba(255,255,255,.24);
+  color: var(--text-primary);
+  background: rgba(255,255,255,.09);
+}
+.tree-stats,
+.canvas-actions {
   display: flex;
   align-items: center;
   justify-content: flex-end;
@@ -98,32 +144,10 @@ const emit = defineEmits<{
   font-size: 11px;
 }
 .tree-stats svg,
-.canvas-tool-btn svg {
+.canvas-actions :deep(.canvas-tool-btn svg) {
   width: 13px;
   height: 13px;
   stroke-width: 1.8;
-}
-.canvas-tool-btn {
-  width: 30px;
-  height: 30px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  border: 1px solid rgba(255,255,255,.09);
-  border-radius: 7px;
-  background: rgba(255,255,255,.03);
-  color: var(--text-tertiary);
-  cursor: pointer;
-  transition: border-color var(--transition), color var(--transition), background var(--transition);
-}
-.canvas-tool-btn:hover {
-  border-color: rgba(255,255,255,.18);
-  color: var(--text-primary);
-  background: rgba(255,255,255,.07);
-}
-.canvas-tool-btn:disabled {
-  opacity: .45;
-  cursor: not-allowed;
 }
 @media (max-width: 1040px) {
   .tree-head {

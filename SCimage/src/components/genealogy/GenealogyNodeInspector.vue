@@ -1,12 +1,12 @@
 <template>
-  <aside v-if="node" :class="['node-inspector', { 'is-source': node.type === 'source' }]">
+  <aside v-if="node" :class="['node-inspector', { 'is-source': node.type === 'source', 'is-pending': node.type === 'pending' }]">
     <div class="node-inspector-strip" aria-hidden="true"></div>
     <div class="node-inspector-preview">
       <img v-if="imageUrl" :src="imageUrl" alt="" loading="lazy" decoding="async">
-      <div v-else class="genealogy-node-placeholder">无预览</div>
+      <div v-else class="genealogy-node-placeholder">{{ node.type === 'pending' ? '预定位置' : '无预览' }}</div>
     </div>
     <div class="node-inspector-copy">
-      <span class="node-inspector-kicker">{{ node.type === 'source' ? 'Load Image' : 'Image to Image' }} · {{ formattedTime }}</span>
+      <span class="node-inspector-kicker">{{ node.type === 'source' ? 'Load Image' : node.type === 'pending' ? 'Pending Image' : 'Image to Image' }} · {{ formattedTime }}</span>
       <strong>{{ node.prompt || node.filename || node.id }}</strong>
       <span class="node-inspector-meta">
         <span><GitBranch aria-hidden="true" />{{ layoutNode ? formatGenealogyGeneration(layoutNode.generation) : '当前节点' }}</span>
@@ -98,6 +98,12 @@ const statusLabel = computed(() => formatGenealogyNodeStatus(props.node?.status)
   inset: 0 auto 0 0;
   width: 3px;
   background: rgba(212,216,224,.75);
+}
+.node-inspector.is-source .node-inspector-strip {
+  background: var(--genealogy-source);
+}
+.node-inspector.is-pending .node-inspector-strip {
+  background: #8fc8ff;
 }
 .node-inspector-preview {
   width: 64px;

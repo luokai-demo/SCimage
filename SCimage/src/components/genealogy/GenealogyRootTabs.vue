@@ -1,13 +1,20 @@
 <template>
-  <div class="root-strip" aria-label="根图切换条">
+  <div
+    ref="rootStrip"
+    :class="['root-strip', { 'is-dragging': isDragging }]"
+    aria-label="根图切换条"
+    @pointerdown="handlePointerDown"
+    @dragstart.prevent
+  >
     <button
       v-for="family in families"
       :key="family.root_id"
       type="button"
       :class="['root-chip', { active: family.root_id === activeRootId }]"
-      @click="emit('activate', family.root_id)"
+      :data-genealogy-root-id="family.root_id"
+      @click="activateFamily(family.root_id)"
     >
-      <img v-if="family.cover_url" :src="family.cover_url" alt="" loading="lazy" decoding="async">
+      <img v-if="family.cover_url" :src="family.cover_url" alt="" loading="lazy" decoding="async" draggable="false">
       <span v-else class="root-chip-empty"></span>
       <span class="root-chip-copy">
           <span>{{ shortGenealogyText(family.title, 24) }}</span>
@@ -19,8 +26,10 @@
 </template>
 
 <script setup lang="ts">
+import { ref } from "vue";
 import type { GenealogyFamily } from "../../stores/genealogy";
 import { shortGenealogyText } from "../../utils/genealogyFormat";
+import { useHorizontalDragScroll } from "./useHorizontalDragScroll";
 
 defineProps<{
   families: GenealogyFamily[];
@@ -31,6 +40,17 @@ const emit = defineEmits<{
   activate: [rootId: string];
 }>();
 
+const rootStrip = ref<HTMLElement | null>(null);
+const {
+  isDragging,
+  handlePointerDown,
+  shouldSuppressClick,
+} = useHorizontalDragScroll({ container: rootStrip });
+
+function activateFamily(rootId: string) {
+  if (shouldSuppressClick()) return;
+  emit("activate", rootId);
+}
 </script>
 
 <style scoped>
@@ -41,7 +61,16 @@ const emit = defineEmits<{
   min-height: 74px;
   padding: 2px 0 12px;
   overflow-x: auto;
+  overscroll-behavior-x: contain;
   scrollbar-width: thin;
+  cursor: grab;
+  user-select: none;
+  touch-action: pan-y;
+  -webkit-overflow-scrolling: touch;
+}
+.root-strip.is-dragging {
+  cursor: grabbing;
+  scroll-behavior: auto;
 }
 .root-chip {
   flex: 0 0 176px;
@@ -59,6 +88,9 @@ const emit = defineEmits<{
   text-align: left;
   cursor: pointer;
   transition: border-color var(--transition), background var(--transition), color var(--transition), transform var(--transition);
+}
+.root-strip.is-dragging .root-chip {
+  cursor: grabbing;
 }
 .root-chip:hover {
   transform: translateY(-1px);

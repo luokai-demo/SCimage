@@ -1,4 +1,5 @@
 import { defineStore } from "pinia";
+import type { ApiGalleryImagePageItem } from "../contracts/api";
 import { imageKey } from "../utils/galleryKeys";
 import type { JobSummary } from "./jobs";
 
@@ -34,22 +35,7 @@ export interface GalleryFlatItem {
   jobSnapshot?: JobSummary;
 }
 
-export interface GalleryImagePageItem {
-  job?: {
-    id?: string;
-    prompt?: string;
-    created_at?: string;
-    updated_at?: string;
-    [key: string]: unknown;
-  };
-  image?: {
-    slot?: number;
-    url?: string;
-    name?: string;
-    [key: string]: unknown;
-  };
-  [key: string]: unknown;
-}
+export type GalleryImagePageItem = ApiGalleryImagePageItem;
 
 export const useGalleryStore = defineStore("gallery", {
   state: () => ({

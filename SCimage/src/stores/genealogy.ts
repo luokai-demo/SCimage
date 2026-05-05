@@ -1,7 +1,7 @@
 import { defineStore } from "pinia";
 
 export type GenealogyViewMode = "overview" | "tree";
-export type GenealogyNodeType = "generated" | "source";
+export type GenealogyNodeType = "generated" | "source" | "pending";
 
 export interface GenealogyFamily {
   root_id: string;
@@ -34,6 +34,8 @@ export interface GenealogyNode {
   size: string;
   created_at: string;
   updated_at: string;
+  pending_job_id?: string;
+  pending_slot?: number;
 }
 
 export interface GenealogyNodePosition {

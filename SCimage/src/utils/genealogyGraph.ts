@@ -23,6 +23,11 @@ export interface GenealogyLayout {
   height: number;
 }
 
+interface GenealogyLayoutCacheEntry {
+  key: string;
+  layout: GenealogyLayout;
+}
+
 export const GENEALOGY_CARD_WIDTH = 168;
 export const GENEALOGY_CARD_HEIGHT = 208;
 const ROOT_X = 48;
@@ -31,6 +36,8 @@ const BRANCH_X_GAP = 108;
 const GENERATION_Y_GAP = 40;
 const CANVAS_PADDING = 72;
 const FREE_CANVAS_TRAILING_SPACE = 520;
+const LAYOUT_CACHE_LIMIT = 12;
+const layoutCache = new Map<string, GenealogyLayoutCacheEntry>();
 
 export function filterGenealogyFamilies(
   families: GenealogyFamily[],
@@ -56,6 +63,13 @@ export function buildGenealogyLayout(
   edges: GenealogyEdge[],
   positions: Record<string, GenealogyNodePosition> = {},
 ): GenealogyLayout {
+  const cacheKey = genealogyLayoutCacheKey(rootId, nodes, edges, positions);
+  const cached = layoutCache.get(cacheKey);
+  if (cached) {
+    layoutCache.delete(cacheKey);
+    layoutCache.set(cacheKey, cached);
+    return cached.layout;
+  }
   const nodeById = new Map(nodes.map((node) => [node.id, node]));
   const childrenById = buildChildrenMap(nodeById, edges);
   const depths = computeDepths(rootId, childrenById);
@@ -66,13 +80,50 @@ export function buildGenealogyLayout(
   const maxRight = Math.max(...layoutNodes.map((node) => node.x + GENEALOGY_CARD_WIDTH), ROOT_X + GENEALOGY_CARD_WIDTH);
   const maxBottom = Math.max(...layoutNodes.map((node) => node.y + GENEALOGY_CARD_HEIGHT), ROOT_Y + GENEALOGY_CARD_HEIGHT);
 
-  return {
+  const layout = {
     nodes: layoutNodes,
     edges: layoutEdges,
     generationCount: maxGeneration + 1,
     width: maxRight + CANVAS_PADDING + FREE_CANVAS_TRAILING_SPACE,
     height: maxBottom + CANVAS_PADDING + FREE_CANVAS_TRAILING_SPACE,
   };
+  rememberGenealogyLayout(cacheKey, layout);
+  return layout;
+}
+
+export function clearGenealogyLayoutCache() {
+  layoutCache.clear();
+}
+
+function rememberGenealogyLayout(key: string, layout: GenealogyLayout) {
+  layoutCache.set(key, { key, layout });
+  while (layoutCache.size > LAYOUT_CACHE_LIMIT) {
+    const oldestKey = layoutCache.keys().next().value;
+    if (!oldestKey) break;
+    layoutCache.delete(oldestKey);
+  }
+}
+
+function genealogyLayoutCacheKey(
+  rootId: string,
+  nodes: GenealogyNode[],
+  edges: GenealogyEdge[],
+  positions: Record<string, GenealogyNodePosition>,
+) {
+  const nodeParts = nodes.map((node) => [
+    node.id,
+    node.type,
+    node.job_id,
+    node.slot,
+    node.updated_at,
+    node.pending_job_id,
+    node.pending_slot,
+  ].join(":"));
+  const edgeParts = edges.map((edge) => `${edge.from}>${edge.to}:${edge.job_id}`);
+  const positionParts = Object.entries(positions)
+    .map(([nodeId, position]) => `${nodeId}:${Math.round(Number(position?.x || 0))},${Math.round(Number(position?.y || 0))}`)
+    .sort();
+  return JSON.stringify([rootId, nodeParts, edgeParts, positionParts]);
 }
 
 function buildChildrenMap(
@@ -187,6 +238,14 @@ function edgeAnchors(from: GenealogyLayoutNode, to: GenealogyLayoutNode) {
 }
 
 function sortGenealogyNodes(left: GenealogyNode, right: GenealogyNode) {
+  const leftSlot = Number(left.pending_slot || 0);
+  const rightSlot = Number(right.pending_slot || 0);
+  if (left.type === "pending" || right.type === "pending") {
+    const leftJob = String(left.pending_job_id || left.job_id || "");
+    const rightJob = String(right.pending_job_id || right.job_id || "");
+    if (leftJob !== rightJob) return leftJob.localeCompare(rightJob);
+    if (leftSlot !== rightSlot) return leftSlot - rightSlot;
+  }
   const timeDelta = new Date(left.updated_at || 0).getTime() - new Date(right.updated_at || 0).getTime();
   if (timeDelta) return timeDelta;
   return left.id.localeCompare(right.id);

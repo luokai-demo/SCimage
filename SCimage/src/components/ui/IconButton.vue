@@ -7,6 +7,9 @@
           :class="className"
           :type="type"
           :aria-label="label"
+          :aria-controls="controls"
+          :aria-expanded="expanded"
+          :aria-pressed="pressed"
           :title="label"
           :disabled="disabled"
           @click="onClick"
@@ -32,11 +35,17 @@ withDefaults(defineProps<{
   className?: string;
   type?: "button" | "submit" | "reset";
   disabled?: boolean;
+  controls?: string;
+  expanded?: boolean;
+  pressed?: boolean;
 }>(), {
   id: undefined,
   className: "",
   type: "button",
   disabled: false,
+  controls: undefined,
+  expanded: undefined,
+  pressed: undefined,
 });
 
 const emit = defineEmits<{

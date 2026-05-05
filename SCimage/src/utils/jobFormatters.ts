@@ -1,31 +1,15 @@
 import type { JobSummary } from "../stores/jobs";
 import { formatQuality, formatSize, normalizeOutputProfileId } from "../data/outputOptions";
 import { formatJobFailureMessage, normalizeErrorText } from "./jobDiagnostics";
-import { isActiveJobStatus, isRetryableJobStatus } from "./jobStatus";
+import { isActiveJobStatus, isRetryableJobStatus, jobStatusMeta } from "./jobStatus";
 
 export function isActiveStatus(status?: string) {
   return isActiveJobStatus(status);
 }
 
 export function getStatusMeta(status?: string) {
-  switch (status) {
-    case "queued":
-      return { label: "排队中", className: "queued" };
-    case "running":
-      return { label: "生成中", className: "running" };
-    case "canceling":
-      return { label: "中断中", className: "canceling" };
-    case "completed":
-      return { label: "完成", className: "completed" };
-    case "partial":
-      return { label: "部分完成", className: "partial" };
-    case "failed":
-      return { label: "失败", className: "failed" };
-    case "canceled":
-      return { label: "已中断", className: "canceled" };
-    default:
-      return { label: "未知", className: "unknown" };
-  }
+  const meta = jobStatusMeta(status);
+  return { label: meta.label, className: meta.className };
 }
 
 export function getWorkflowLabel(workflow?: string) {

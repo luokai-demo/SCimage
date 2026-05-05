@@ -7,7 +7,6 @@
       <div class="gallery-header-normal" id="galleryHeaderNormal">
         <div class="gallery-header-left">
           <span class="gallery-count" id="galleryCount">{{ galleryCountText }}</span>
-          <span v-if="jobStore.runningCount" id="fsDirStatus" style="color:var(--text-tertiary); font-size:11px;">{{ jobStore.runningCount }} 个任务进行中</span>
         </div>
         <div class="gallery-actions-right">
           <div class="gallery-filter">
@@ -47,7 +46,6 @@
         </div>
       </div>
     </div>
-    <RunningBanner />
     <div id="galleryWindowShell" class="gallery-window-shell">
       <div id="selectionBox" class="selection-box" :hidden="!selectionBox.visible" :style="selectionBoxStyle"></div>
       <div id="galleryWindow" ref="galleryWindowRef" class="gallery-window" @scroll="onGalleryScroll">
@@ -129,7 +127,6 @@ import {
   type GalleryLayoutItem,
 } from "../utils/galleryLayout";
 import { imageKey } from "../utils/galleryKeys";
-import RunningBanner from "./jobs/RunningBanner.vue";
 import GalleryImageCard from "./gallery/GalleryImageCard.vue";
 import IconButton from "./ui/IconButton.vue";
 

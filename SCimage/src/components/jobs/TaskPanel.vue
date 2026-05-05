@@ -1,6 +1,6 @@
 <template>
-  <details class="task-panel" id="taskPanel">
-    <summary class="task-panel-header">
+  <section :class="['task-panel', `is-${props.variant}`]" id="taskPanel" :open="open ? '' : undefined" aria-labelledby="taskPanelTitle">
+    <button type="button" class="task-panel-header" :aria-expanded="open" aria-controls="taskPanelBody" @click="toggleOpen">
       <span class="task-panel-heading">
         <span id="taskPanelTitle" class="task-panel-title">最近任务</span>
         <span id="taskPanelPreview" class="task-panel-preview">{{ previewText }}</span>
@@ -9,39 +9,21 @@
         <span id="taskPanelCount" class="task-panel-count">{{ countText }}</span>
         <ChevronDown class="task-panel-chevron" aria-hidden="true" />
       </span>
-    </summary>
-    <div class="task-panel-body">
+    </button>
+    <div id="taskPanelBody" class="task-panel-body">
       <div id="taskList" class="task-list" @scroll="onScroll">
         <div v-if="!sortedJobs.length" class="task-empty">暂无任务</div>
         <template v-else>
           <div v-if="startIndex > 0" class="task-list-spacer" :style="{ height: `${startIndex * itemHeight}px` }" />
-          <article
+          <TaskCard
             v-for="job in visibleJobs"
             :key="String(job.id || '')"
-            :class="['left-task-card', `is-${job.status || 'unknown'}`]"
-          >
-            <div class="left-task-top">
-              <span class="left-task-type">{{ getWorkflowLabel(String(job.workflow || '')) }}</span>
-              <span :class="['left-task-badge', getStatusMeta(String(job.status || '')).className]">
-                {{ getStatusMeta(String(job.status || '')).label }}
-              </span>
-            </div>
-            <div class="left-task-prompt">{{ job.prompt || "未提供提示词" }}</div>
-            <div class="left-task-message">{{ getJobMessage(job) }}</div>
-            <div class="left-task-meta">
-              <span>{{ getJobProgressText(job) }}</span>
-              <span>{{ isActiveStatus(String(job.status || "")) ? durationText(job) : `耗时 ${durationText(job)}` }}</span>
-            </div>
-            <div class="left-task-actions">
-              <button type="button" @click="copyPrompt(job)">复制</button>
-              <button v-if="isActiveStatus(String(job.status || ''))" type="button" @click="runtime.jobAction(String(job.id || ''), 'cancel')">中断</button>
-              <template v-else-if="isRetryableJob(job)">
-                <button type="button" @click="runtime.jobAction(String(job.id || ''), 'retry')">重试</button>
-                <button type="button" class="gallery-del-btn" @click="runtime.jobAction(String(job.id || ''), 'delete')">删除</button>
-              </template>
-              <button v-else type="button" class="gallery-del-btn" @click="runtime.jobAction(String(job.id || ''), 'delete')">删除</button>
-            </div>
-          </article>
+            :job="job"
+            :busy="runtime.busyJobIds.value.has(String(job.id || ''))"
+            :clock-tick="runtime.clockTick.value"
+            @copy="copyPrompt"
+            @action="onJobAction"
+          />
           <div v-if="endIndex < sortedJobs.length" class="task-list-spacer" :style="{ height: `${(sortedJobs.length - endIndex) * itemHeight}px` }" />
           <button
             v-if="jobStore.pagination.hasMore"
@@ -55,7 +37,7 @@
         </template>
       </div>
     </div>
-  </details>
+  </section>
 </template>
 
 <script setup lang="ts">
@@ -66,23 +48,26 @@ import { useJobStore } from "../../stores/jobs";
 import type { JobSummary } from "../../stores/jobs";
 import { copyTextToClipboard } from "../../utils/clipboard";
 import {
-  getJobDurationText,
-  getJobMessage,
-  getJobProgressText,
   getStatusMeta,
-  getWorkflowLabel,
   isActiveStatus,
-  isRetryableJob,
   truncateText,
 } from "../../utils/jobFormatters";
+import TaskCard from "./TaskCard.vue";
 
-const itemHeight = 124;
+const itemHeight = 144;
 const maxRendered = 180;
 const overscan = 8;
 const scrollTop = ref(0);
 const viewportHeight = ref(280);
 const jobStore = useJobStore();
 const runtime = useScimageRuntime();
+
+const props = withDefaults(defineProps<{
+  variant?: "inline" | "dock";
+}>(), {
+  variant: "inline",
+});
+const open = ref(true);
 
 const sortedJobs = computed(() => jobStore.sortedJobs);
 const runningCount = computed(() => jobStore.runningCount);
@@ -129,13 +114,194 @@ function requestLoadMore() {
   void runtime.loadMoreJobs();
 }
 
-function durationText(job: JobSummary) {
-  runtime.clockTick.value;
-  return getJobDurationText(job);
+function toggleOpen() {
+  open.value = !open.value;
 }
 
 async function copyPrompt(job: JobSummary) {
   const copied = await copyTextToClipboard(String(job.prompt || ""));
   runtime.setStatus(copied ? "success" : "error", copied ? "提示词已复制。" : "无法复制到剪贴板。", copied ? 1200 : 2500);
 }
+
+function onJobAction(jobId: string, action: "cancel" | "retry" | "delete") {
+  void runtime.jobAction(jobId, action);
+}
 </script>
+
+<style scoped>
+.task-panel {
+  margin-top: 0;
+  flex-shrink: 0;
+  max-height: 100%;
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: #000;
+  overflow: hidden;
+  min-width: 0;
+}
+.task-panel[open] {
+  height: 100%;
+}
+.task-panel.is-dock {
+  flex: 1 1 auto;
+  height: 100%;
+  min-height: 0;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+}
+.task-panel-header {
+  width: 100%;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  min-height: 38px;
+  padding: 8px 9px;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  user-select: none;
+  min-width: 0;
+  transition: background var(--transition);
+}
+.task-panel-header:hover {
+  background: rgba(255,255,255,.035);
+}
+.task-panel-header::-webkit-details-marker {
+  display: none;
+}
+.task-panel-heading {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  overflow: hidden;
+}
+.task-panel-title {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+.task-panel-preview {
+  color: var(--text-tertiary);
+  font-size: 10px;
+  line-height: 1.35;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.task-panel-meta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+  min-width: 0;
+  max-width: 96px;
+  justify-content: flex-end;
+}
+.task-panel-count {
+  min-width: 0;
+  font-size: 10px;
+  color: var(--text-tertiary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.task-panel-chevron {
+  flex: 0 0 auto;
+  width: 13px;
+  height: 13px;
+  color: var(--text-tertiary);
+  transition: transform 180ms ease;
+  stroke-width: 1.8;
+}
+.task-panel[open] .task-panel-chevron {
+  transform: rotate(180deg);
+}
+.task-panel-body {
+  border-top: 1px solid var(--border);
+  flex: 1;
+  min-height: 0;
+  max-height: 0;
+  overflow: hidden;
+  transition: max-height 180ms ease;
+}
+.task-panel:not([open]) .task-panel-body {
+  border-top-color: transparent;
+}
+.task-panel[open] .task-panel-body {
+  max-height: 280px;
+}
+.task-panel.is-dock[open] .task-panel-body {
+  height: auto;
+  max-height: none;
+}
+.task-list {
+  overflow-y: auto;
+  padding: 7px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 279px;
+  min-height: 0;
+}
+.task-panel.is-dock .task-list {
+  height: 100%;
+  max-height: none;
+  overscroll-behavior: contain;
+}
+.task-list-spacer {
+  flex: 0 0 auto;
+  min-height: 0;
+  pointer-events: none;
+}
+.task-empty {
+  flex: 1;
+  min-height: 116px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-tertiary);
+  font-size: 11px;
+  text-align: center;
+}
+.task-load-more-btn {
+  width: 100%;
+  min-height: 30px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: rgba(255,255,255,.02);
+  color: var(--text-secondary);
+  font: inherit;
+  font-size: 11px;
+  cursor: pointer;
+  transition: border-color var(--transition), color var(--transition), background var(--transition), opacity var(--transition);
+}
+.task-load-more-btn:hover {
+  border-color: var(--border-hover);
+  color: var(--text-primary);
+  background: rgba(255,255,255,.05);
+}
+.task-load-more-btn:disabled {
+  cursor: wait;
+  opacity: .62;
+}
+@media (max-width: 1040px) {
+  .task-panel-meta {
+    max-width: 82px;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .task-panel-header,
+  .task-panel-body,
+  .task-panel-chevron,
+  .task-load-more-btn {
+    transition: none;
+  }
+}
+</style>

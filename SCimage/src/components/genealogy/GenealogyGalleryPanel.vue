@@ -29,15 +29,33 @@
     <main v-else class="genealogy-tree-shell" aria-label="当前族谱">
       <GenealogyCanvasBar
         :active-family="activeFamily"
-        :has-selected-node="Boolean(genealogyStore.selectedNodeId)"
+        :has-navigation="Boolean(layout.nodes.length)"
+        :navigation-open="isMiniMapOpen"
         :loading="genealogyStore.loading"
         @focus-root="focusRoot"
-        @focus-selected="focusSelectedNode"
         @refresh="loadGraph({ force: true })"
-      />
+        @toggle-navigation="toggleMiniMap"
+      >
+        <template #navigation-panel>
+          <GenealogyMiniMap
+            v-if="isMiniMapOpen"
+            :layout="layout"
+            :selected-node-id="genealogyStore.selectedNodeId"
+            :bloodline-node-ids="bloodlineNodeIds"
+            :viewport-rect="viewportState"
+            @focus-node="focusNode"
+            @pan-to="panTreeTo"
+          />
+        </template>
+      </GenealogyCanvasBar>
 
       <div class="tree-viewport-wrap">
-        <div ref="treeViewport" class="tree-viewport" @scroll="scheduleViewportUpdate">
+        <div
+          ref="treeViewport"
+          :class="['tree-viewport', { 'is-panning': isViewportPanning, 'is-interacting': isViewportPanning || Boolean(dragState.nodeId) }]"
+          @pointerdown="handleViewportPointerDown"
+          @scroll="scheduleViewportUpdate"
+        >
           <div v-if="genealogyStore.loading && !layout.nodes.length" class="tree-skeleton" aria-live="polite">
             <span></span>
             <span></span>
@@ -57,12 +75,14 @@
               <path
                 v-for="edge in visibleEdges"
                 :key="`track-${edge.from}-${edge.to}`"
+                :data-genealogy-edge-to="edge.to"
                 :d="genealogyEdgePath(edge)"
                 :class="['tree-edge-track', { 'is-active': isEdgeActive(edge), 'is-bloodline': isBloodlineEdge(edge), 'is-dimmed': isDimmedEdge(edge) }]"
               />
               <circle
                 v-for="edge in visibleEdges"
                 :key="`origin-${edge.from}-${edge.to}`"
+                :data-genealogy-edge-to="edge.to"
                 :cx="edge.fromX"
                 :cy="edge.fromY"
                 r="2.7"
@@ -97,16 +117,6 @@
             />
           </div>
         </div>
-        <GenealogyMiniMap
-          :layout="layout"
-          :selected-node-id="genealogyStore.selectedNodeId"
-          :bloodline-node-ids="bloodlineNodeIds"
-          :viewport-rect="viewportState"
-          @focus-node="focusNode"
-          @focus-root="focusRoot"
-          @focus-selected="focusSelectedNode"
-          @pan-to="panTreeTo"
-        />
       </div>
 
       <GenealogyNodeInspector
@@ -125,10 +135,11 @@
 </template>
 
 <script setup lang="ts">
-import { computed, nextTick, onBeforeUnmount, onMounted, ref } from "vue";
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { useScimageRuntime } from "../../composables/useScimageRuntime";
 import type { GalleryFlatItem } from "../../stores/gallery";
-import { useGenealogyStore, type GenealogyGraphPayload, type GenealogyNode } from "../../stores/genealogy";
+import { useGenealogyStore, type GenealogyNode } from "../../stores/genealogy";
+import { useJobStore } from "../../stores/jobs";
 import {
   buildGenealogyLayout,
   filterGenealogyFamilies,
@@ -139,6 +150,7 @@ import {
   type GenealogyLayoutEdge,
   type GenealogyLayoutNode,
 } from "../../utils/genealogyGraph";
+import { projectPendingGenealogyJobs } from "../../utils/genealogyPending";
 import { genealogyEdgePath } from "../../utils/genealogyWire";
 import GenealogyCanvasBar from "./GenealogyCanvasBar.vue";
 import GenealogyMiniMap from "./GenealogyMiniMap.vue";
@@ -147,47 +159,85 @@ import GenealogyNodeInspector from "./GenealogyNodeInspector.vue";
 import GenealogyOverviewGrid from "./GenealogyOverviewGrid.vue";
 import GenealogyRootTabs from "./GenealogyRootTabs.vue";
 import GenealogyWorkspaceToolbar from "./GenealogyWorkspaceToolbar.vue";
+import { useGenealogyGraphData } from "./useGenealogyGraphData";
 import { useGenealogyNodeDrag, type GenealogyNodeDragPosition } from "./useGenealogyNodeDrag";
+import { useGenealogyPositionBatchSave } from "./useGenealogyPositionBatchSave";
+import { useGenealogyViewportPan } from "./useGenealogyViewportPan";
+import { useGenealogyViewportState } from "./useGenealogyViewportState";
 
 const runtime = useScimageRuntime();
 const genealogyStore = useGenealogyStore();
+const jobStore = useJobStore();
 const treeViewport = ref<HTMLElement | null>(null);
-const viewportState = ref({ left: 0, top: 0, width: 0, height: 0 });
 const deletingNodeId = ref("");
+const isMiniMapOpen = ref(false);
 let refreshTimer = 0;
-let graphAbortController: AbortController | null = null;
-let viewportFrame = 0;
-let pendingGraphRefreshAfterDrag = false;
-let savingNodePositionCount = 0;
+let consumePendingGraphRefreshHandler = () => {};
 
 const filteredFamilies = computed(() => filterGenealogyFamilies(
   genealogyStore.families,
   genealogyStore.query,
 ));
 const activeFamily = computed(() => genealogyStore.activeFamily);
-const selectedNode = computed(() => genealogyStore.selectedNode);
-const layout = computed(() => buildGenealogyLayout(
+const baseLayout = computed(() => buildGenealogyLayout(
   genealogyStore.activeRootId,
   genealogyStore.nodes,
   genealogyStore.edges,
   genealogyStore.activePositions,
 ));
+const pendingProjection = computed(() => projectPendingGenealogyJobs(
+  jobStore.jobs,
+  genealogyStore.nodes,
+  genealogyStore.edges,
+  baseLayout.value,
+));
+const graphNodesWithPending = computed(() => [
+  ...genealogyStore.nodes,
+  ...pendingProjection.value.nodes,
+]);
+const graphNodeById = computed(() => new Map(graphNodesWithPending.value.map((node) => [node.id, node])));
+const selectedNode = computed(() => graphNodeById.value.get(genealogyStore.selectedNodeId) || null);
+const graphEdgesWithPending = computed(() => [
+  ...genealogyStore.edges,
+  ...pendingProjection.value.edges,
+]);
+const graphPositionsWithPending = computed(() => ({
+  ...genealogyStore.activePositions,
+  ...pendingProjection.value.positions,
+}));
+const layout = computed(() => buildGenealogyLayout(
+  genealogyStore.activeRootId,
+  graphNodesWithPending.value,
+  graphEdgesWithPending.value,
+  graphPositionsWithPending.value,
+));
 const selectedLayoutNode = computed(() => layout.value.nodes.find((node) => node.id === genealogyStore.selectedNodeId) || null);
 const selectedImageUrl = computed(() => genealogyImageUrl(selectedNode.value));
 const incomingEdgeCounts = computed(() => {
   const counts = new Map<string, number>();
-  genealogyStore.edges.forEach((edge) => counts.set(edge.to, (counts.get(edge.to) || 0) + 1));
+  graphEdgesWithPending.value.forEach((edge) => counts.set(edge.to, (counts.get(edge.to) || 0) + 1));
   return counts;
 });
 const generatedImageCountByJobId = computed(() => {
   const counts = new Map<string, number>();
-  genealogyStore.nodes.forEach((node) => {
+  graphNodesWithPending.value.forEach((node) => {
     if (node.type !== "generated" || !node.job_id) return;
     counts.set(node.job_id, (counts.get(node.job_id) || 0) + 1);
   });
   return counts;
 });
 const layoutNodeById = computed(() => new Map(layout.value.nodes.map((node) => [node.id, node])));
+const viewportCullingRect = computed(() => {
+  const viewport = viewportState.value;
+  if (!viewport.width || !viewport.height) return null;
+  const buffer = 560;
+  return {
+    left: viewport.left - buffer,
+    right: viewport.left + viewport.width + buffer,
+    top: viewport.top - buffer,
+    bottom: viewport.top + viewport.height + buffer,
+  };
+});
 const childrenById = computed(() => {
   const groups = new Map<string, GenealogyLayoutNode[]>();
   layout.value.edges.forEach((edge) => {
@@ -230,30 +280,19 @@ const bloodlineNodeIds = computed(() => {
   return ids;
 });
 const visibleNodes = computed(() => {
-  const viewport = viewportState.value;
   const nodes = layout.value.nodes;
-  if (!viewport.width || !viewport.height) return nodes;
+  const bounds = viewportCullingRect.value;
+  if (!bounds) return nodes;
   const draggingNodeId = dragState.value.nodeId;
-  const buffer = 560;
-  const left = viewport.left - buffer;
-  const right = viewport.left + viewport.width + buffer;
-  const top = viewport.top - buffer;
-  const bottom = viewport.top + viewport.height + buffer;
   return nodes.filter((node) => (
     node.id === draggingNodeId ||
-    bloodlineNodeIds.value.has(node.id) ||
-    (
-      node.x + GENEALOGY_CARD_WIDTH >= left &&
-      node.x <= right &&
-      node.y + GENEALOGY_CARD_HEIGHT >= top &&
-      node.y <= bottom
-    )
+    node.id === genealogyStore.selectedNodeId ||
+    isNodeInsideBounds(node, bounds)
   ));
 });
 const visibleNodeIds = computed(() => new Set(visibleNodes.value.map((node) => node.id)));
 const visibleEdges = computed(() => layout.value.edges.filter((edge) => (
-  isBloodlineEdge(edge) ||
-  (visibleNodeIds.value.has(edge.from) && visibleNodeIds.value.has(edge.to))
+  isEdgeVisible(edge)
 )));
 const selectedCanDelete = computed(() => {
   const node = selectedNode.value;
@@ -271,6 +310,25 @@ const summaryText = computed(() => {
   return `${genealogyStore.families.length} 棵族谱 · ${imageCount} 张图片`;
 });
 const {
+  viewportState,
+  updateViewportState,
+  scheduleViewportUpdate,
+  focusNode,
+  panTreeTo,
+} = useGenealogyViewportState({
+  viewport: treeViewport,
+  getLayoutNode: (nodeId) => layoutNodeById.value.get(nodeId),
+  selectNode: genealogyStore.setSelectedNode,
+});
+const {
+  queueNodePositionSave,
+  hasPendingPositionSave,
+} = useGenealogyPositionBatchSave({
+  genealogyStore,
+  setStatus: runtime.setStatus,
+  onIdle: () => consumePendingGraphRefreshHandler(),
+});
+const {
   dragState,
   handleNodePointerDown,
   selectNodeFromCard,
@@ -282,58 +340,32 @@ const {
   updateNodePosition: genealogyStore.updateNodePosition,
   saveNodePosition,
   scheduleViewportUpdate,
-  onDragCanceled: consumePendingGraphRefresh,
+  onDragCanceled: () => consumePendingGraphRefreshHandler(),
 });
-
-async function loadGraph(options: { silent?: boolean; force?: boolean } = {}) {
-  if (shouldDeferGraphRefresh()) {
-    pendingGraphRefreshAfterDrag = true;
-    return;
-  }
-  if (genealogyStore.loading && !options.force) return;
-  graphAbortController?.abort();
-  graphAbortController = new AbortController();
-  if (!options.silent) {
-    genealogyStore.loading = true;
-    genealogyStore.error = "";
-  }
-  try {
-    const response = await fetch("/api/genealogy/graph", { signal: graphAbortController.signal });
-    if (!response.ok) throw new Error(`族谱同步失败：${response.status}`);
-    const payload = await response.json() as GenealogyGraphPayload;
-    if (shouldDeferGraphRefresh()) {
-      pendingGraphRefreshAfterDrag = true;
-      return;
-    }
-    genealogyStore.replaceGraph(payload);
+const {
+  loadGraph,
+  consumePendingGraphRefresh,
+} = useGenealogyGraphData({
+  genealogyStore,
+  shouldDeferGraphRefresh,
+  afterGraphLoaded: () => {
     void nextTick(updateViewportState);
-  } catch (error) {
-    if (error instanceof DOMException && error.name === "AbortError") return;
-    genealogyStore.error = error instanceof Error ? error.message : String(error || "族谱同步失败。");
-  } finally {
-    if (!options.silent) genealogyStore.loading = false;
-  }
-}
+  },
+});
+consumePendingGraphRefreshHandler = consumePendingGraphRefresh;
+const {
+  isPanning: isViewportPanning,
+  handleViewportPointerDown,
+} = useGenealogyViewportPan({
+  viewport: treeViewport,
+  canStartPan: () => !dragState.value.nodeId,
+  scheduleViewportUpdate,
+});
 
 function activateFamily(rootId: string) {
   genealogyStore.setActiveRoot(rootId);
+  isMiniMapOpen.value = false;
   void nextTick(() => focusNode(rootId));
-}
-
-function updateViewportState() {
-  const viewport = treeViewport.value;
-  if (!viewport) return;
-  viewportState.value = {
-    left: viewport.scrollLeft,
-    top: viewport.scrollTop,
-    width: viewport.clientWidth,
-    height: viewport.clientHeight,
-  };
-}
-
-function scheduleViewportUpdate() {
-  window.cancelAnimationFrame(viewportFrame);
-  viewportFrame = window.requestAnimationFrame(updateViewportState);
 }
 
 function isEdgeActive(edge: GenealogyLayoutEdge) {
@@ -355,6 +387,13 @@ function isDimmedNode(nodeId: string) {
 
 function isDimmedEdge(edge: GenealogyLayoutEdge) {
   return Boolean(genealogyStore.selectedNodeId && bloodlineNodeIds.value.size > 1 && !isBloodlineEdge(edge) && !isEdgeActive(edge));
+}
+
+function isEdgeVisible(edge: GenealogyLayoutEdge) {
+  if (visibleNodeIds.value.has(edge.from) && visibleNodeIds.value.has(edge.to)) return true;
+  const bounds = viewportCullingRect.value;
+  if (!bounds) return true;
+  return edgeIntersectsBounds(edge, bounds);
 }
 
 function parentCount(nodeId: string) {
@@ -389,36 +428,21 @@ function focusRoot() {
   if (genealogyStore.activeRootId) focusNode(genealogyStore.activeRootId);
 }
 
-function focusSelectedNode() {
-  if (genealogyStore.selectedNodeId) focusNode(genealogyStore.selectedNodeId);
+function toggleMiniMap() {
+  isMiniMapOpen.value = !isMiniMapOpen.value;
 }
 
-function focusNode(nodeId: string) {
-  const node = layoutNodeById.value.get(nodeId);
-  const viewport = treeViewport.value;
-  if (!node || !viewport) return;
-  genealogyStore.setSelectedNode(nodeId);
-  viewport.scrollTo({
-    left: Math.max(0, node.x - (viewport.clientWidth - GENEALOGY_CARD_WIDTH) / 2),
-    top: Math.max(0, node.y - (viewport.clientHeight - GENEALOGY_CARD_HEIGHT) / 2),
-    behavior: "smooth",
-  });
-  void nextTick(() => {
-    const target = viewport.querySelector<HTMLElement>(`[data-genealogy-node-id="${cssAttributeValue(nodeId)}"]`);
-    target?.focus({ preventScroll: true });
-    scheduleViewportUpdate();
-  });
+function closeMiniMapOnOutsidePointer(event: PointerEvent) {
+  if (!isMiniMapOpen.value) return;
+  const target = event.target;
+  if (!(target instanceof Element)) return;
+  if (target.closest("#genealogyNavPopover") || target.closest("#genealogyNavToggleBtn")) return;
+  isMiniMapOpen.value = false;
 }
 
-function panTreeTo(point: { x: number; y: number }) {
-  const viewport = treeViewport.value;
-  if (!viewport) return;
-  viewport.scrollTo({
-    left: Math.max(0, point.x - viewport.clientWidth / 2),
-    top: Math.max(0, point.y - viewport.clientHeight / 2),
-    behavior: "smooth",
-  });
-  scheduleViewportUpdate();
+function closeMiniMapOnEscape(event: KeyboardEvent) {
+  if (event.key !== "Escape" || !isMiniMapOpen.value) return;
+  isMiniMapOpen.value = false;
 }
 
 async function saveNodePosition(
@@ -426,34 +450,11 @@ async function saveNodePosition(
   position: GenealogyNodeDragPosition,
   fallback: GenealogyNodeDragPosition,
 ) {
-  savingNodePositionCount += 1;
-  try {
-    const response = await fetch(`/api/genealogy/nodes/${encodeURIComponent(node.id)}/position`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(position),
-    });
-    if (!response.ok) {
-      const payload = await response.json().catch(() => ({}));
-      throw new Error(String(payload?.error || `位置保存失败：${response.status}`));
-    }
-  } catch (error) {
-    genealogyStore.updateNodePosition(node.id, fallback);
-    runtime.setStatus("error", error instanceof Error ? error.message : String(error || "位置保存失败。"), 2600);
-  } finally {
-    savingNodePositionCount = Math.max(0, savingNodePositionCount - 1);
-    if (!savingNodePositionCount) consumePendingGraphRefresh();
-  }
+  queueNodePositionSave(node.id, position, fallback);
 }
 
 function shouldDeferGraphRefresh() {
-  return Boolean(dragState.value.nodeId || savingNodePositionCount);
-}
-
-function consumePendingGraphRefresh() {
-  if (!pendingGraphRefreshAfterDrag || shouldDeferGraphRefresh()) return;
-  pendingGraphRefreshAfterDrag = false;
-  void loadGraph({ silent: true, force: true });
+  return Boolean(dragState.value.nodeId || hasPendingPositionSave());
 }
 
 function handleNodeKeydown(event: KeyboardEvent, nodeId: string) {
@@ -516,6 +517,34 @@ function nodeCenter(node: GenealogyLayoutNode) {
   };
 }
 
+function isNodeInsideBounds(
+  node: GenealogyLayoutNode,
+  bounds: { left: number; right: number; top: number; bottom: number },
+) {
+  return (
+    node.x + GENEALOGY_CARD_WIDTH >= bounds.left &&
+    node.x <= bounds.right &&
+    node.y + GENEALOGY_CARD_HEIGHT >= bounds.top &&
+    node.y <= bounds.bottom
+  );
+}
+
+function edgeIntersectsBounds(
+  edge: GenealogyLayoutEdge,
+  bounds: { left: number; right: number; top: number; bottom: number },
+) {
+  const edgeLeft = Math.min(edge.fromX, edge.toX);
+  const edgeRight = Math.max(edge.fromX, edge.toX);
+  const edgeTop = Math.min(edge.fromY, edge.toY);
+  const edgeBottom = Math.max(edge.fromY, edge.toY);
+  return (
+    edgeRight >= bounds.left &&
+    edgeLeft <= bounds.right &&
+    edgeBottom >= bounds.top &&
+    edgeTop <= bounds.bottom
+  );
+}
+
 function directionalDistance(
   point: { x: number; y: number },
   current: { x: number; y: number },
@@ -530,16 +559,13 @@ function directionalDistance(
   return primary + cross * 1.8;
 }
 
-function cssAttributeValue(value: string) {
-  return value.replace(/\\/g, "\\\\").replace(/"/g, "\\\"");
-}
-
 async function setSelectedAsReference() {
   if (!selectedNode.value) return;
   await addNodeAsReference(selectedNode.value);
 }
 
 async function addNodeAsReference(node: GenealogyNode) {
+  if (!node.url) return;
   await runtime.addSourceImageFromUrl({
     url: node.url,
     filename: node.filename || "reference.png",
@@ -562,7 +588,7 @@ function previewSelected() {
 
 function previewNode(node: GenealogyNode) {
   if (!node?.url) return;
-  const items = layout.value.nodes.map(genealogyNodeToGalleryItem);
+  const items = layout.value.nodes.filter((item) => item.url).map(genealogyNodeToGalleryItem);
   const index = Math.max(0, items.findIndex((item) => (
     item.jobId === (node.job_id || node.id) && Number(item.slot || 0) === Number(node.slot || 1)
   )));
@@ -625,14 +651,24 @@ onMounted(() => {
   }, 15000);
   window.addEventListener("focus", onWindowFocus);
   window.addEventListener("resize", scheduleViewportUpdate);
+  document.addEventListener("pointerdown", closeMiniMapOnOutsidePointer);
+  document.addEventListener("keydown", closeMiniMapOnEscape);
 });
+
+watch(
+  () => [genealogyStore.viewMode, layout.value.width, layout.value.height],
+  () => {
+    void nextTick(updateViewportState);
+  },
+  { flush: "post" },
+);
 
 onBeforeUnmount(() => {
   window.clearInterval(refreshTimer);
-  window.cancelAnimationFrame(viewportFrame);
-  graphAbortController?.abort();
   window.removeEventListener("focus", onWindowFocus);
   window.removeEventListener("resize", scheduleViewportUpdate);
+  document.removeEventListener("pointerdown", closeMiniMapOnOutsidePointer);
+  document.removeEventListener("keydown", closeMiniMapOnEscape);
 });
 
 function onWindowFocus() {
@@ -696,6 +732,19 @@ function onWindowFocus() {
     #070809;
   background-size: 32px 32px, 32px 32px, 8px 8px, 8px 8px, auto;
   box-shadow: inset 0 0 0 1px rgba(0,0,0,.35);
+  cursor: grab;
+  overscroll-behavior: contain;
+  touch-action: none;
+}
+.tree-viewport.is-panning {
+  cursor: grabbing;
+  user-select: none;
+}
+.tree-viewport.is-interacting :deep(.genealogy-node:not(.active):hover) {
+  border-color: rgba(255,255,255,.1);
+  background:
+    linear-gradient(180deg, rgba(255,255,255,.06), rgba(255,255,255,.018)),
+    #111214;
 }
 .tree-canvas {
   position: relative;
@@ -793,6 +842,16 @@ function onWindowFocus() {
 }
 .tree-arrow-active {
   fill: var(--genealogy-active);
+}
+.tree-edge[data-genealogy-edge-to^="pending:"],
+.tree-edge-track[data-genealogy-edge-to^="pending:"] {
+  stroke-dasharray: 4 10;
+}
+.tree-edge[data-genealogy-edge-to^="pending:"] {
+  stroke: rgba(143,200,255,.58);
+}
+.tree-edge-origin[data-genealogy-edge-to^="pending:"] {
+  fill: rgba(143,200,255,.82);
 }
 @media (prefers-reduced-motion: no-preference) {
   .tree-edge.is-active,
