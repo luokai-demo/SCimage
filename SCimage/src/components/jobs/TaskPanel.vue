@@ -1,20 +1,20 @@
 <template>
-  <section :class="['task-panel', `is-${props.variant}`]" id="taskPanel" :open="open ? '' : undefined" aria-labelledby="taskPanelTitle">
-    <button type="button" class="task-panel-header" :aria-expanded="open" aria-controls="taskPanelBody" @click="toggleOpen">
-      <span class="task-panel-heading">
-        <span id="taskPanelTitle" class="task-panel-title">最近任务</span>
-        <span id="taskPanelPreview" class="task-panel-preview">{{ previewText }}</span>
+  <section :class="['job-panel', `is-${props.variant}`]" id="taskPanel" :open="open ? '' : undefined" aria-labelledby="taskPanelTitle">
+    <button type="button" class="job-panel-header" :aria-expanded="open" aria-controls="taskPanelBody" @click="toggleOpen">
+      <span class="job-panel-heading">
+        <span id="taskPanelTitle" class="job-panel-title">最近任务</span>
+        <span id="taskPanelPreview" class="job-panel-preview">{{ previewText }}</span>
       </span>
-      <span class="task-panel-meta">
-        <span id="taskPanelCount" class="task-panel-count">{{ countText }}</span>
-        <ChevronDown class="task-panel-chevron" aria-hidden="true" />
+      <span class="job-panel-meta">
+        <span id="taskPanelCount" class="job-panel-count">{{ countText }}</span>
+        <ChevronDown class="job-panel-chevron" aria-hidden="true" />
       </span>
     </button>
-    <div id="taskPanelBody" class="task-panel-body">
-      <div id="taskList" class="task-list" @scroll="onScroll">
-        <div v-if="!sortedJobs.length" class="task-empty">暂无任务</div>
+    <div id="taskPanelBody" class="job-panel-body">
+      <div id="taskList" class="job-list" @scroll="onScroll">
+        <div v-if="!sortedJobs.length" class="job-empty">暂无任务</div>
         <template v-else>
-          <div v-if="startIndex > 0" class="task-list-spacer" :style="{ height: `${startIndex * itemHeight}px` }" />
+          <div v-if="startIndex > 0" class="job-list-spacer" :style="{ height: `${startIndex * itemHeight}px` }" />
           <TaskCard
             v-for="job in visibleJobs"
             :key="String(job.id || '')"
@@ -24,11 +24,11 @@
             @copy="copyPrompt"
             @action="onJobAction"
           />
-          <div v-if="endIndex < sortedJobs.length" class="task-list-spacer" :style="{ height: `${(sortedJobs.length - endIndex) * itemHeight}px` }" />
+          <div v-if="endIndex < sortedJobs.length" class="job-list-spacer" :style="{ height: `${(sortedJobs.length - endIndex) * itemHeight}px` }" />
           <button
             v-if="jobStore.pagination.hasMore"
             type="button"
-            class="task-load-more-btn"
+            class="job-load-more-btn"
             :disabled="jobStore.pagination.isLoadingMore"
             @click="requestLoadMore"
           >
@@ -129,7 +129,7 @@ function onJobAction(jobId: string, action: "cancel" | "retry" | "delete") {
 </script>
 
 <style scoped>
-.task-panel {
+.job-panel {
   margin-top: 0;
   flex-shrink: 0;
   max-height: 100%;
@@ -141,17 +141,17 @@ function onJobAction(jobId: string, action: "cancel" | "retry" | "delete") {
   overflow: hidden;
   min-width: 0;
 }
-.task-panel[open] {
+.job-panel[open] {
   height: 100%;
 }
-.task-panel.is-dock {
+.job-panel.is-dock {
   flex: 1 1 auto;
   height: 100%;
   min-height: 0;
   display: grid;
   grid-template-rows: auto minmax(0, 1fr);
 }
-.task-panel-header {
+.job-panel-header {
   width: 100%;
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
@@ -169,25 +169,25 @@ function onJobAction(jobId: string, action: "cancel" | "retry" | "delete") {
   min-width: 0;
   transition: background var(--transition);
 }
-.task-panel-header:hover {
+.job-panel-header:hover {
   background: rgba(255,255,255,.035);
 }
-.task-panel-header::-webkit-details-marker {
+.job-panel-header::-webkit-details-marker {
   display: none;
 }
-.task-panel-heading {
+.job-panel-heading {
   min-width: 0;
   display: flex;
   flex-direction: column;
   gap: 3px;
   overflow: hidden;
 }
-.task-panel-title {
+.job-panel-title {
   font-size: 11px;
   font-weight: 600;
   color: var(--text-secondary);
 }
-.task-panel-preview {
+.job-panel-preview {
   color: var(--text-tertiary);
   font-size: 10px;
   line-height: 1.35;
@@ -195,7 +195,7 @@ function onJobAction(jobId: string, action: "cancel" | "retry" | "delete") {
   overflow: hidden;
   text-overflow: ellipsis;
 }
-.task-panel-meta {
+.job-panel-meta {
   display: flex;
   align-items: center;
   gap: 6px;
@@ -204,7 +204,7 @@ function onJobAction(jobId: string, action: "cancel" | "retry" | "delete") {
   max-width: 96px;
   justify-content: flex-end;
 }
-.task-panel-count {
+.job-panel-count {
   min-width: 0;
   font-size: 10px;
   color: var(--text-tertiary);
@@ -212,7 +212,7 @@ function onJobAction(jobId: string, action: "cancel" | "retry" | "delete") {
   overflow: hidden;
   text-overflow: ellipsis;
 }
-.task-panel-chevron {
+.job-panel-chevron {
   flex: 0 0 auto;
   width: 13px;
   height: 13px;
@@ -220,10 +220,10 @@ function onJobAction(jobId: string, action: "cancel" | "retry" | "delete") {
   transition: transform 180ms ease;
   stroke-width: 1.8;
 }
-.task-panel[open] .task-panel-chevron {
+.job-panel[open] .job-panel-chevron {
   transform: rotate(180deg);
 }
-.task-panel-body {
+.job-panel-body {
   border-top: 1px solid var(--border);
   flex: 1;
   min-height: 0;
@@ -231,17 +231,17 @@ function onJobAction(jobId: string, action: "cancel" | "retry" | "delete") {
   overflow: hidden;
   transition: max-height 180ms ease;
 }
-.task-panel:not([open]) .task-panel-body {
+.job-panel:not([open]) .job-panel-body {
   border-top-color: transparent;
 }
-.task-panel[open] .task-panel-body {
+.job-panel[open] .job-panel-body {
   max-height: 280px;
 }
-.task-panel.is-dock[open] .task-panel-body {
+.job-panel.is-dock[open] .job-panel-body {
   height: auto;
   max-height: none;
 }
-.task-list {
+.job-list {
   overflow-y: auto;
   padding: 7px;
   display: flex;
@@ -250,17 +250,17 @@ function onJobAction(jobId: string, action: "cancel" | "retry" | "delete") {
   max-height: 279px;
   min-height: 0;
 }
-.task-panel.is-dock .task-list {
+.job-panel.is-dock .job-list {
   height: 100%;
   max-height: none;
   overscroll-behavior: contain;
 }
-.task-list-spacer {
+.job-list-spacer {
   flex: 0 0 auto;
   min-height: 0;
   pointer-events: none;
 }
-.task-empty {
+.job-empty {
   flex: 1;
   min-height: 116px;
   display: flex;
@@ -270,7 +270,7 @@ function onJobAction(jobId: string, action: "cancel" | "retry" | "delete") {
   font-size: 11px;
   text-align: center;
 }
-.task-load-more-btn {
+.job-load-more-btn {
   width: 100%;
   min-height: 30px;
   border: 1px solid var(--border);
@@ -282,25 +282,25 @@ function onJobAction(jobId: string, action: "cancel" | "retry" | "delete") {
   cursor: pointer;
   transition: border-color var(--transition), color var(--transition), background var(--transition), opacity var(--transition);
 }
-.task-load-more-btn:hover {
+.job-load-more-btn:hover {
   border-color: var(--border-hover);
   color: var(--text-primary);
   background: rgba(255,255,255,.05);
 }
-.task-load-more-btn:disabled {
+.job-load-more-btn:disabled {
   cursor: wait;
   opacity: .62;
 }
 @media (max-width: 1040px) {
-  .task-panel-meta {
+  .job-panel-meta {
     max-width: 82px;
   }
 }
 @media (prefers-reduced-motion: reduce) {
-  .task-panel-header,
-  .task-panel-body,
-  .task-panel-chevron,
-  .task-load-more-btn {
+  .job-panel-header,
+  .job-panel-body,
+  .job-panel-chevron,
+  .job-load-more-btn {
     transition: none;
   }
 }

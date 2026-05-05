@@ -78,14 +78,14 @@
               </div>
             </template>
             <template v-else>
-              <section v-for="group in galleryGroups.grouped.value" :key="group.id" class="gallery-task-section">
-                <div class="gallery-task-section-info">
-                  <div class="gallery-task-section-eyebrow">{{ galleryStore.filter === 'tasks' ? '任务' : '提示词' }}</div>
-                  <div class="gallery-task-section-title" :title="group.title">{{ group.title }}</div>
-                  <div v-if="galleryStore.filter === 'tasks'" class="gallery-task-section-summary" :title="group.summary">{{ group.summary }}</div>
-                  <div class="gallery-task-section-meta">{{ group.meta }}</div>
+              <section v-for="group in galleryGroups.grouped.value" :key="group.id" class="gallery-job-section">
+                <div class="gallery-job-section-info">
+                  <div class="gallery-job-section-eyebrow">{{ galleryStore.filter === 'tasks' ? '任务' : '提示词' }}</div>
+                  <div class="gallery-job-section-title" :title="group.title">{{ group.title }}</div>
+                  <div v-if="galleryStore.filter === 'tasks'" class="gallery-job-section-summary" :title="group.summary">{{ group.summary }}</div>
+                  <div class="gallery-job-section-meta">{{ group.meta }}</div>
                 </div>
-                <div class="gallery-task-section-grid" :style="galleryGridStyle">
+                <div class="gallery-job-section-grid" :style="galleryGridStyle">
                   <div v-for="(column, columnIndex) in distributeColumns(group.items)" :key="`${group.id}-column-${columnIndex}`" class="gallery-column">
                     <GalleryImageCard
                       v-for="item in column"

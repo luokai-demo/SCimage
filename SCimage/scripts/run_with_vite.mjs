@@ -10,7 +10,11 @@ if (!command) {
 
 const host = process.env.SCIMAGE_VITE_HOST || "127.0.0.1";
 const port = process.env.SCIMAGE_VITE_PORT || "5173";
-const baseUrl = new URL(`${host}:${port}/`, "http:").toString();
+const baseUrlObject = new URL("http:local");
+baseUrlObject.hostname = host;
+baseUrlObject.port = port;
+baseUrlObject.pathname = "/";
+const baseUrl = baseUrlObject.toString();
 const server = spawn(
   "npm",
   ["run", "dev", "--", "--host", host, "--port", port, "--strictPort"],

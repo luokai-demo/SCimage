@@ -184,7 +184,7 @@
 .gallery-virtual-item .gallery-item {
   height: 100%;
 }
-.gallery-task-section {
+.gallery-job-section {
   margin: 0 0 18px;
   padding: 10px;
   border: 1px solid var(--border);
@@ -197,7 +197,7 @@
   content-visibility: auto;
   contain-intrinsic-size: auto 420px;
 }
-.gallery-task-section-info {
+.gallery-job-section-info {
   min-width: 0;
   position: sticky;
   top: 0;
@@ -206,13 +206,13 @@
   border-radius: var(--radius);
   background: rgba(0,0,0,0.16);
 }
-.gallery-task-section-eyebrow {
+.gallery-job-section-eyebrow {
   margin-bottom: 8px;
   color: var(--text-tertiary);
   font-size: 10px;
   line-height: 1.2;
 }
-.gallery-task-section-title {
+.gallery-job-section-title {
   max-height: 70px;
   font-size: 12px;
   line-height: 1.45;
@@ -224,7 +224,7 @@
   -webkit-line-clamp: 3;
   -webkit-box-orient: vertical;
 }
-.gallery-task-section-summary {
+.gallery-job-section-summary {
   margin-top: 9px;
   padding-top: 9px;
   border-top: 1px solid rgba(255,255,255,0.055);
@@ -237,7 +237,7 @@
   -webkit-box-orient: vertical;
   overflow: hidden;
 }
-.gallery-task-section-meta {
+.gallery-job-section-meta {
   margin-top: 10px;
   font-size: 10px;
   color: var(--text-tertiary);
@@ -245,7 +245,7 @@
   overflow: hidden;
   text-overflow: ellipsis;
 }
-.gallery-task-section-grid {
+.gallery-job-section-grid {
   min-width: 0;
   display: grid;
   grid-template-columns: repeat(var(--gallery-columns, 4), minmax(0, 1fr));

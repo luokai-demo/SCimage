@@ -2,7 +2,7 @@ export async function runInitialWorkspaceAndGalleryScenario(context) {
   const { page, baseUrl } = context;
   await page.goto(baseUrl, { waitUntil: "networkidle" });
   await page.waitForSelector("#galleryWindow");
-  await page.waitForSelector(".left-task-card.is-running");
+  await page.waitForSelector(".left-job-card.is-running");
   const topTaskState = await page.evaluate(() => ({
     legacyTopTaskCount: document.querySelectorAll(".running-job-card, #runningBanner").length,
     headerTaskText: document.querySelector("#fsDirStatus")?.textContent?.trim() || "",
@@ -23,12 +23,12 @@ export async function runInitialWorkspaceAndGalleryScenario(context) {
   }
   await page.locator("#panelToggleBtn").click();
   await page.waitForFunction(() => document.querySelector("#panelToggleBtn")?.getAttribute("aria-label") === "收起左侧工作区");
-  await page.waitForSelector(".left-task-card.is-partial", { state: "attached" });
-  const partialTaskActions = await page.locator(".left-task-card.is-partial .left-task-actions").textContent();
+  await page.waitForSelector(".left-job-card.is-partial", { state: "attached" });
+  const partialTaskActions = await page.locator(".left-job-card.is-partial .left-job-actions").textContent();
   if (partialTaskActions.includes("重试") || !partialTaskActions.includes("删除")) {
     throw new Error(`部分完成任务操作错误，应只允许删除不允许重试：${partialTaskActions}`);
   }
-  const partialTaskMessage = await page.locator(".left-task-card.is-partial .left-task-message").textContent();
+  const partialTaskMessage = await page.locator(".left-job-card.is-partial .left-job-message").textContent();
   if (!partialTaskMessage?.includes("API上游原因失败") || !partialTaskMessage.includes("auth_required / chat-requirements failed")) {
     throw new Error(`部分完成任务没有显示旧版诊断信息：${partialTaskMessage || ""}`);
   }
@@ -472,11 +472,11 @@ export async function runPromptSettingsGalleryScenario(context) {
 
   await page.locator("[data-gallery-filter='tasks']").click();
   await page.waitForFunction(() => document.querySelector("#galleryCount")?.textContent?.includes("个可见任务"));
-  await page.waitForSelector(".gallery-task-section");
-  const runningTaskSection = page.locator(".gallery-task-section", { hasText: "正在生成的任务" }).first();
-  const runningTaskTitle = await runningTaskSection.locator(".gallery-task-section-title").textContent();
-  const runningTaskSummary = await runningTaskSection.locator(".gallery-task-section-summary").textContent();
-  const runningTaskMeta = await runningTaskSection.locator(".gallery-task-section-meta").textContent();
+  await page.waitForSelector(".gallery-job-section");
+  const runningTaskSection = page.locator(".gallery-job-section", { hasText: "正在生成的任务" }).first();
+  const runningTaskTitle = await runningTaskSection.locator(".gallery-job-section-title").textContent();
+  const runningTaskSummary = await runningTaskSection.locator(".gallery-job-section-summary").textContent();
+  const runningTaskMeta = await runningTaskSection.locator(".gallery-job-section-meta").textContent();
   if (
     runningTaskTitle !== "正在生成的任务" ||
     !runningTaskSummary?.includes("任务 job-runn") ||
@@ -493,8 +493,8 @@ export async function runPromptSettingsGalleryScenario(context) {
   }
   await page.locator("[data-gallery-filter='prompts']").click();
   await page.waitForFunction(() => document.querySelector("#galleryCount")?.textContent?.includes("组提示词"));
-  const completedPromptSection = page.locator(".gallery-task-section", { hasText: "可删除的任务" }).first();
-  const completedPromptMeta = await completedPromptSection.locator(".gallery-task-section-meta").textContent();
+  const completedPromptSection = page.locator(".gallery-job-section", { hasText: "可删除的任务" }).first();
+  const completedPromptMeta = await completedPromptSection.locator(".gallery-job-section-meta").textContent();
   if (!completedPromptMeta?.includes("1 个任务 · 2 张图片 · 最近更新")) {
     throw new Error(`提示词分组信息没有按旧版展示：${completedPromptMeta || ""}`);
   }
@@ -757,14 +757,14 @@ export async function runProviderWorkflowScenario(context) {
 
 export async function runTaskLifecycleScenario(context) {
   const { page, state, now } = context;
-  const durationNode = page.locator(".left-task-card.is-running .left-task-meta span").filter({ hasText: /分钟\d+秒/ }).first();
+  const durationNode = page.locator(".left-job-card.is-running .left-job-meta span").filter({ hasText: /分钟\d+秒/ }).first();
   const durationText = await durationNode.textContent();
   if (!durationText || !/\d+分钟\d+秒/.test(durationText)) {
     throw new Error(`运行中耗时没有显示秒：${durationText || ""}`);
   }
   await page.waitForFunction(
     (text) => {
-      const nextText = [...document.querySelectorAll(".left-task-card.is-running .left-task-meta span")]
+      const nextText = [...document.querySelectorAll(".left-job-card.is-running .left-job-meta span")]
         .map((node) => node.textContent || "")
         .find((value) => /\d+分钟\d+秒/.test(value)) || "";
       return /\d+分钟\d+秒/.test(nextText) && nextText !== text;
@@ -777,27 +777,27 @@ export async function runTaskLifecycleScenario(context) {
     throw new Error(`运行中耗时没有按秒刷新：${durationText || ""}`);
   }
 
-  await page.locator(".task-panel-header").click();
-  await page.waitForFunction(() => !document.querySelector(".task-panel")?.hasAttribute("open"));
-  await page.locator(".task-panel-header").click();
-  await page.waitForFunction(() => document.querySelector(".task-panel")?.hasAttribute("open"));
+  await page.locator(".job-panel-header").click();
+  await page.waitForFunction(() => !document.querySelector(".job-panel")?.hasAttribute("open"));
+  await page.locator(".job-panel-header").click();
+  await page.waitForFunction(() => document.querySelector(".job-panel")?.hasAttribute("open"));
 
-  await page.locator(".left-task-card.is-running .left-task-actions button", { hasText: "中断" }).click();
+  await page.locator(".left-job-card.is-running .left-job-actions button", { hasText: "中断" }).click();
   await page.waitForTimeout(100);
-  const runningCountAfterCancel = await page.locator(".left-task-card.is-running").count();
+  const runningCountAfterCancel = await page.locator(".left-job-card.is-running").count();
   if (runningCountAfterCancel !== 0) {
     throw new Error(`中断点击后运行任务没有立即清空：${runningCountAfterCancel}`);
   }
-  const canceledBadge = await page.locator(".left-task-card.is-canceled .left-task-badge").first().textContent();
+  const canceledBadge = await page.locator(".left-job-card.is-canceled .left-job-badge").first().textContent();
   if (canceledBadge !== "已中断") {
     throw new Error(`中断点击后未立即进入已中断：${canceledBadge || ""}`);
   }
   await page.waitForTimeout(1400);
-  const runningCountAfterSlowCancelResponse = await page.locator(".left-task-card.is-running").count();
+  const runningCountAfterSlowCancelResponse = await page.locator(".left-job-card.is-running").count();
   if (runningCountAfterSlowCancelResponse !== 0) {
     throw new Error(`中断接口慢返回后运行任务又闪回：${runningCountAfterSlowCancelResponse}`);
   }
-  const canceledBadgeAfterSlowCancelResponse = await page.locator(".left-task-card.is-canceled .left-task-badge").first().textContent();
+  const canceledBadgeAfterSlowCancelResponse = await page.locator(".left-job-card.is-canceled .left-job-badge").first().textContent();
   if (canceledBadgeAfterSlowCancelResponse !== "已中断") {
     throw new Error(`中断接口慢返回后任务状态被覆盖：${canceledBadgeAfterSlowCancelResponse || ""}`);
   }
@@ -861,7 +861,7 @@ export async function runTaskLifecycleScenario(context) {
     throw new Error("失败弹窗重试后没有清理同一任务的弹窗队列。");
   }
 
-  const leftTaskPrompts = await page.locator(".left-task-card .left-task-prompt").allTextContents();
+  const leftTaskPrompts = await page.locator(".left-job-card .left-job-prompt").allTextContents();
   if (leftTaskPrompts.includes("只在图库分页中的任务")) {
     throw new Error("只存在于图库分页的任务不应出现在左侧任务列表中。");
   }
@@ -906,13 +906,13 @@ export async function runTaskLifecycleScenario(context) {
   await page.locator(".confirm-dialog-action", { hasText: "删除图片" }).click();
   await page.waitForFunction(() => document.querySelectorAll(".gallery-item[data-job-id='job-completed']").length === 1);
 
-  const taskPanelWasOpen = await page.locator(".task-panel").evaluate((panel) => panel.hasAttribute("open"));
+  const taskPanelWasOpen = await page.locator(".job-panel").evaluate((panel) => panel.hasAttribute("open"));
   if (!taskPanelWasOpen) {
-    await page.locator(".task-panel-header").click();
+    await page.locator(".job-panel-header").click();
   }
-  await page.locator(".left-task-card.is-completed .gallery-del-btn").click();
+  await page.locator(".left-job-card.is-completed .gallery-del-btn").click();
   await page.locator(".confirm-dialog-action", { hasText: "删除任务" }).click();
-  await page.waitForFunction(() => !document.querySelector(".left-task-card.is-completed"));
+  await page.waitForFunction(() => !document.querySelector(".left-job-card.is-completed"));
   await page.waitForFunction(() => !document.querySelector(".gallery-item[data-job-id='job-completed']"));
 }
 
