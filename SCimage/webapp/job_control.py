@@ -139,3 +139,9 @@ class JobRegistry:
     def finish(self, job_id: str) -> None:
         with self._lock:
             self._runners.pop(job_id, None)
+
+    def request_cancel_all(self) -> None:
+        with self._lock:
+            runners = list(self._runners.values())
+        for runner in runners:
+            runner.request_cancel()

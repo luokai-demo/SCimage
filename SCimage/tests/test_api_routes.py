@@ -10,17 +10,22 @@ from unittest.mock import patch
 from urllib.error import HTTPError
 from urllib.request import Request, urlopen
 
-
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
+TESTS_DIR = PROJECT_ROOT / "tests"
 WEBAPP_DIR = PROJECT_ROOT / "webapp"
 
+if str(TESTS_DIR) not in sys.path:
+    sys.path.insert(0, str(TESTS_DIR))
 if str(WEBAPP_DIR) not in sys.path:
     sys.path.insert(0, str(WEBAPP_DIR))
 
 import job_store  # noqa: E402
+from image_service import GenerationResult  # noqa: E402
+from job_execution import JobExecutionQueue  # noqa: E402
 from provider_profiles import ProviderProfileStore  # noqa: E402
 import server as server_module  # noqa: E402
 from server import create_server, serve_server, shutdown_server  # noqa: E402
+from test_helpers import wait_for_job_status  # noqa: E402
 from workspace_state_store import WorkspaceStateStore  # noqa: E402
 
 
@@ -113,7 +118,7 @@ class ApiRouteIntegrationTests(unittest.TestCase):
     def test_provider_model_route_uses_saved_source_profile_key(self) -> None:
         state = server_module.PROVIDER_PROFILES.create_profile(
             name="接口配置",
-            base_url="https://example.test/v1",
+            base_url="https://example.com/v1",
             model="gpt-image-test",
             api_key="secret-key",
         )
@@ -126,13 +131,13 @@ class ApiRouteIntegrationTests(unittest.TestCase):
                 "POST",
                 "/api/provider-profiles/models",
                 {
-                    "base_url": "https://example.test",
+                    "base_url": "https://example.com",
                     "api_key": "",
                     "source_profile_id": state["active_profile_id"],
                 },
             )
 
-        self.assertEqual(payload["normalized_base_url"], "https://example.test/v1")
+        self.assertEqual(payload["normalized_base_url"], "https://example.com/v1")
         self.assertEqual(
             payload["models"],
             [
@@ -141,7 +146,7 @@ class ApiRouteIntegrationTests(unittest.TestCase):
             ],
         )
         request = mock_urlopen.call_args.args[0]
-        self.assertEqual(request.full_url, "https://example.test/v1/models")
+        self.assertEqual(request.full_url, "https://example.com/v1/models")
         self.assertEqual(request.get_header("Authorization"), "Bearer secret-key")
 
     def test_unknown_api_route_returns_json_404(self) -> None:
@@ -149,6 +154,61 @@ class ApiRouteIntegrationTests(unittest.TestCase):
             self.request_json("GET", "/api/not-found")
 
         self.assertEqual(context.exception.code, 404)
+
+    def test_queue_route_returns_execution_snapshot(self) -> None:
+        payload = self.request_json("GET", "/api/queue")
+
+        self.assertEqual(payload["running"], [])
+        self.assertEqual(payload["pending"], [])
+        self.assertEqual(payload["running_count"], 0)
+        self.assertEqual(payload["pending_count"], 0)
+
+    def test_create_job_uses_server_execution_queue(self) -> None:
+        server_module.PROVIDER_PROFILES.create_profile(
+            name="任务配置",
+            base_url="https://example.com/v1",
+            model="gpt-image-test",
+            api_key="secret-key",
+        )
+        called_job_ids: list[str] = []
+
+        def fake_generator(**kwargs):
+            called_job_ids.append(kwargs["job_id"])
+            kwargs["status_callback"]("测试执行中")
+            return GenerationResult(
+                images=[
+                    {
+                        "slot": 1,
+                        "name": "generated.png",
+                        "url": f"/generated/{kwargs['job_id']}/generated.png",
+                    }
+                ],
+                errors=[],
+            )
+
+        self.server.execution_queue.shutdown()
+        self.server.execution_queue = JobExecutionQueue(
+            store=self.store,
+            runners=self.server.runners,
+            image_generator=fake_generator,
+        )
+
+        payload = self.request_json(
+            "POST",
+            "/api/jobs",
+            {
+                "workflow": "generate",
+                "prompt": "HTTP 创建任务",
+                "quality": "auto",
+                "size": "auto",
+                "count": 1,
+            },
+        )
+        job_id = payload["id"]
+        self.wait_for_job_status(job_id, "completed")
+
+        self.assertEqual(called_job_ids, [job_id])
+        self.assertEqual(self.store.snapshot(job_id)["images"][0]["name"], "generated.png")
 
     def request_json(self, method: str, path: str, payload: dict | None = None) -> dict:
         url = f"http://127.0.0.1:{self.server.server_address[1]}{path}"
@@ -162,6 +222,9 @@ class ApiRouteIntegrationTests(unittest.TestCase):
         with urlopen(request, timeout=3) as response:
             self.assertIn(response.status, {200, 201, 202})
             return json.loads(response.read().decode("utf-8"))
+
+    def wait_for_job_status(self, job_id: str, status: str) -> None:
+        wait_for_job_status(self, self.store, job_id, status)
 
 
 class FakeResponse:

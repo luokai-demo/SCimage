@@ -17,6 +17,8 @@ if candidate_text not in sys.path:
 
 import job_store  # noqa: E402
 import job_persistence  # noqa: E402
+import job_record_images  # noqa: E402
+import job_record_recovery  # noqa: E402
 import api_pagination  # noqa: E402
 
 
@@ -113,9 +115,10 @@ class JobPaginationTests(unittest.TestCase):
             )
 
             with patch.object(job_store, "JOB_RECORDS_PATH", json_path):
-                with patch.object(job_persistence, "GENERATED_DIR", temp_path / "generated"):
-                    with job_store.JobStore(database_path) as store:
-                        page = store.list_page(offset=0, limit=10)
+                with patch.object(job_record_images, "GENERATED_DIR", temp_path / "generated"):
+                    with patch.object(job_record_recovery, "GENERATED_DIR", temp_path / "generated"):
+                        with job_store.JobStore(database_path) as store:
+                            page = store.list_page(offset=0, limit=10)
 
         self.assertEqual(page["total"], 1)
         self.assertEqual(page["jobs"][0]["id"], "legacy-job")
@@ -159,9 +162,10 @@ class JobPaginationTests(unittest.TestCase):
             )
 
             with patch.object(job_store, "JOB_RECORDS_PATH", json_path):
-                with patch.object(job_persistence, "GENERATED_DIR", temp_path / "generated"):
-                    with job_store.JobStore(database_path) as store:
-                        page = store.list_page(offset=0, limit=10)
+                with patch.object(job_record_images, "GENERATED_DIR", temp_path / "generated"):
+                    with patch.object(job_record_recovery, "GENERATED_DIR", temp_path / "generated"):
+                        with job_store.JobStore(database_path) as store:
+                            page = store.list_page(offset=0, limit=10)
         job_ids = {job["id"] for job in page["jobs"]}
 
         self.assertEqual(page["total"], 2)
@@ -273,8 +277,8 @@ class JobPaginationTests(unittest.TestCase):
             json_path.write_text(json.dumps({"jobs": {}}), encoding="utf-8")
 
             with patch.object(job_store, "JOB_RECORDS_PATH", json_path):
-                with patch.object(job_persistence, "GENERATED_DIR", generated_dir):
-                    with patch.object(job_persistence, "build_images_from_generated_dir") as mocked_builder:
+                with patch.object(job_record_recovery, "GENERATED_DIR", generated_dir):
+                    with patch.object(job_record_recovery, "build_images_from_generated_dir") as mocked_builder:
                         with job_store.JobStore(temp_path / "job-records.db") as store:
                             total = store.list_page(offset=0, limit=10)["total"]
 
@@ -320,8 +324,8 @@ class JobPersistenceStartupPerformanceTests(unittest.TestCase):
                 ],
             }
 
-            with patch.object(job_persistence, "GENERATED_DIR", generated_dir):
-                with patch.object(job_persistence, "build_generated_image_record") as mocked_builder:
+            with patch.object(job_record_images, "GENERATED_DIR", generated_dir):
+                with patch.object(job_record_images, "build_generated_image_record") as mocked_builder:
                     normalized = job_persistence.normalize_job_record("job-1", raw_job)
 
         self.assertIsNotNone(normalized)
@@ -335,8 +339,8 @@ class JobPersistenceStartupPerformanceTests(unittest.TestCase):
             generated_dir = Path(temp_dir)
             (generated_dir / "job-1").mkdir()
 
-            with patch.object(job_persistence, "GENERATED_DIR", generated_dir):
-                with patch.object(job_persistence, "build_images_from_generated_dir") as mocked_builder:
+            with patch.object(job_record_recovery, "GENERATED_DIR", generated_dir):
+                with patch.object(job_record_recovery, "build_images_from_generated_dir") as mocked_builder:
                     recovered = job_persistence.recover_jobs_from_generated_dir({"job-1": {"id": "job-1"}})
 
         self.assertEqual(recovered, {})
