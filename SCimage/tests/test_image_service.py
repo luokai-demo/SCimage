@@ -15,6 +15,8 @@ if candidate_text not in sys.path:
     sys.path.insert(0, candidate_text)
 
 import image_service  # noqa: E402
+import image_count_strategies  # noqa: E402
+import image_generation_results  # noqa: E402
 from image_generation_runtime import ImageGenerationResponse  # noqa: E402
 from provider_profiles import ProviderProfile  # noqa: E402
 
@@ -40,11 +42,11 @@ class ImageServiceCountStrategyTests(unittest.TestCase):
 
             with patch.object(image_service, "recreate_job_output_dir", return_value=output_dir):
                 with patch.object(
-                    image_service,
-                    "_build_image_payload",
+                    image_generation_results,
+                    "build_image_payload",
                     side_effect=lambda job_id, file_path, slot: {"slot": slot, "path": str(file_path), "job_id": job_id},
                 ):
-                    with patch.object(image_service, "execute_image_generation", side_effect=fake_execute):
+                    with patch.object(image_count_strategies, "execute_image_generation", side_effect=fake_execute):
                         result = image_service.generate_images(
                             job_id="job-1",
                             workflow="generate",
@@ -80,11 +82,11 @@ class ImageServiceCountStrategyTests(unittest.TestCase):
 
             with patch.object(image_service, "recreate_job_output_dir", return_value=output_dir):
                 with patch.object(
-                    image_service,
-                    "_build_image_payload",
+                    image_count_strategies,
+                    "build_image_payload",
                     side_effect=lambda job_id, file_path, slot: {"slot": slot, "path": str(file_path), "job_id": job_id},
                 ):
-                    with patch.object(image_service, "execute_image_generation", side_effect=fake_execute):
+                    with patch.object(image_count_strategies, "execute_image_generation", side_effect=fake_execute):
                         result = image_service.generate_images(
                             job_id="job-2",
                             workflow="generate",
@@ -121,11 +123,11 @@ class ImageServiceCountStrategyTests(unittest.TestCase):
 
             with patch.object(image_service, "recreate_job_output_dir", return_value=output_dir):
                 with patch.object(
-                    image_service,
-                    "_build_image_payload",
+                    image_count_strategies,
+                    "build_image_payload",
                     side_effect=lambda job_id, file_path, slot: {"slot": slot, "path": str(file_path), "job_id": job_id},
                 ):
-                    with patch.object(image_service, "execute_image_generation", side_effect=fake_execute):
+                    with patch.object(image_count_strategies, "execute_image_generation", side_effect=fake_execute):
                         result = image_service.generate_images(
                             job_id="job-3",
                             workflow="generate",

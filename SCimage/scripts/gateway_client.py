@@ -9,6 +9,7 @@ if str(WEBAPP_DIR) not in sys.path:
     sys.path.insert(0, str(WEBAPP_DIR))
 
 import image_gateway_client as _gateway  # noqa: E402
+import image_gateway_assets as _gateway_assets  # noqa: E402
 
 
 GatewayConfig = _gateway.GatewayConfig
@@ -35,9 +36,12 @@ def download_file(*args, **kwargs):
 
 
 def save_image_item(*args, **kwargs):
-    original_download_file = _gateway.download_file
+    original_client_download_file = _gateway.download_file
+    original_assets_download_file = _gateway_assets.download_file
     _gateway.download_file = download_file
+    _gateway_assets.download_file = download_file
     try:
         return _gateway.save_image_item(*args, **kwargs)
     finally:
-        _gateway.download_file = original_download_file
+        _gateway.download_file = original_client_download_file
+        _gateway_assets.download_file = original_assets_download_file

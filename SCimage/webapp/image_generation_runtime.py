@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import base64
-import mimetypes
 from dataclasses import dataclass
 from pathlib import Path
 from threading import Event
@@ -14,17 +12,17 @@ from image_gateway_client import (
     request_generation,
     save_image_item,
 )
+from image_generation_params import ResolvedImageGenerationParams, resolve_image_generation_params
+from image_generation_payloads import (
+    build_chat_completion_payload,
+    build_edit_fields,
+    build_generation_payload,
+)
 from openai_image_sdk import OpenAISDKConfig, request_openai_sdk_edit, request_openai_sdk_generation
 from output_options import (
     DEFAULT_OUTPUT_PROFILE_ID,
     DEFAULT_QUALITY,
     DEFAULT_SIZE_OPTION,
-    normalize_output_profile_id,
-    normalize_quality,
-    normalize_size_value,
-    resolve_api_size_value,
-    resolve_openai_sdk_quality,
-    resolve_openai_sdk_size_value,
 )
 from provider_compat import (
     DEFAULT_COMPAT_PROFILE_ID,
@@ -34,8 +32,6 @@ from provider_compat import (
     IMAGE_TO_IMAGE_TRANSPORT_UNSUPPORTED,
     TEXT_TO_IMAGE_TRANSPORT_IMAGES_GENERATIONS,
     TEXT_TO_IMAGE_TRANSPORT_OPENAI_SDK,
-    get_compat_profile,
-    normalize_compat_profile_id,
 )
 
 
@@ -102,32 +98,11 @@ def execute_image_generation(
     if not output_paths:
         raise ValueError("输出路径不能为空。")
 
-    compat_profile = get_compat_profile(normalize_compat_profile_id(request.compat_profile_id))
-    output_profile_id = normalize_output_profile_id(
-        request.output_profile_id,
-        fallback=compat_profile.output_profile_id,
-    )
-    normalized_quality = normalize_quality(
-        request.quality,
-        fallback=DEFAULT_QUALITY,
-        output_profile_id=output_profile_id,
-    )
-    normalized_size = normalize_size_value(
-        request.size,
-        fallback=DEFAULT_SIZE_OPTION,
-        quality=normalized_quality,
-        output_profile_id=output_profile_id,
-    )
-    api_size = resolve_api_size_value(
-        normalized_size,
-        normalized_quality,
-        output_profile_id=output_profile_id,
-    )
-    sdk_quality = resolve_openai_sdk_quality(normalized_quality, output_profile_id=output_profile_id)
-    sdk_size = resolve_openai_sdk_size_value(
-        normalized_size,
-        normalized_quality,
-        output_profile_id=output_profile_id,
+    params = resolve_image_generation_params(
+        compat_profile_id=request.compat_profile_id,
+        output_profile_id=request.output_profile_id,
+        quality=request.quality,
+        size=request.size,
     )
     headers = {
         "Authorization": f"Bearer {request.api_key}",
@@ -143,11 +118,7 @@ def execute_image_generation(
         response = _request_image_to_image(
             request=request,
             headers=headers,
-            compat_profile=compat_profile,
-            normalized_quality=normalized_quality,
-            api_size=api_size,
-            sdk_quality=sdk_quality,
-            sdk_size=sdk_size,
+            params=params,
             gateway_config=runtime_gateway_config,
             openai_sdk_config=runtime_openai_sdk_config,
             status_callback=status_callback,
@@ -158,11 +129,7 @@ def execute_image_generation(
         response = _request_text_to_image(
             request=request,
             headers=headers,
-            compat_profile=compat_profile,
-            normalized_quality=normalized_quality,
-            api_size=api_size,
-            sdk_quality=sdk_quality,
-            sdk_size=sdk_size,
+            params=params,
             gateway_config=runtime_gateway_config,
             openai_sdk_config=runtime_openai_sdk_config,
             status_callback=status_callback,
@@ -229,11 +196,7 @@ def _request_image_to_image(
     *,
     request: ImageGenerationRequest,
     headers: dict[str, str],
-    compat_profile,
-    normalized_quality: str,
-    api_size: str,
-    sdk_quality: str,
-    sdk_size: str,
+    params: ResolvedImageGenerationParams,
     gateway_config: GatewayConfig,
     openai_sdk_config: OpenAISDKConfig,
     status_callback: StatusCallback,
@@ -241,6 +204,7 @@ def _request_image_to_image(
     runner: "JobRunner" | None,
 ) -> dict:
     source_image_paths = list(request.source_image_paths)
+    compat_profile = params.compat_profile
     if compat_profile.image_to_image_transport == IMAGE_TO_IMAGE_TRANSPORT_UNSUPPORTED:
         raise ValueError("当前兼容模式不支持图生图，请切换到支持图生图的提供方配置。")
     if compat_profile.image_to_image_transport == IMAGE_TO_IMAGE_TRANSPORT_OPENAI_SDK:
@@ -250,8 +214,8 @@ def _request_image_to_image(
             model=request.model,
             prompt=request.prompt,
             count=request.count,
-            quality=sdk_quality,
-            size=sdk_size,
+            quality=params.sdk_quality,
+            size=params.sdk_size,
             image_paths=source_image_paths,
             config=openai_sdk_config,
             status_callback=status_callback,
@@ -262,12 +226,12 @@ def _request_image_to_image(
         return request_edit(
             base_url=request.base_url,
             headers=headers,
-            fields=_build_edit_fields(
+            fields=build_edit_fields(
                 model=request.model,
                 prompt=request.prompt,
                 count=request.count,
-                quality=normalized_quality,
-                size=api_size,
+                quality=params.quality,
+                size=params.api_size,
             ),
             image_paths=source_image_paths,
             config=gateway_config,
@@ -279,11 +243,11 @@ def _request_image_to_image(
         return request_chat_completion_images(
             base_url=request.base_url,
             headers=headers,
-            payload=_build_chat_completion_payload(
+            payload=build_chat_completion_payload(
                 model=request.model,
                 prompt=request.prompt,
-                quality=normalized_quality,
-                size=api_size,
+                quality=params.quality,
+                size=params.api_size,
                 source_images=source_image_paths,
             ),
             config=gateway_config,
@@ -298,17 +262,14 @@ def _request_text_to_image(
     *,
     request: ImageGenerationRequest,
     headers: dict[str, str],
-    compat_profile,
-    normalized_quality: str,
-    api_size: str,
-    sdk_quality: str,
-    sdk_size: str,
+    params: ResolvedImageGenerationParams,
     gateway_config: GatewayConfig,
     openai_sdk_config: OpenAISDKConfig,
     status_callback: StatusCallback,
     cancel_event: Event | None,
     runner: "JobRunner" | None,
 ) -> dict:
+    compat_profile = params.compat_profile
     if compat_profile.text_to_image_transport == TEXT_TO_IMAGE_TRANSPORT_OPENAI_SDK:
         return request_openai_sdk_generation(
             base_url=request.base_url,
@@ -316,8 +277,8 @@ def _request_text_to_image(
             model=request.model,
             prompt=request.prompt,
             count=request.count,
-            quality=sdk_quality,
-            size=sdk_size,
+            quality=params.sdk_quality,
+            size=params.sdk_size,
             config=openai_sdk_config,
             status_callback=status_callback,
             cancel_event=cancel_event,
@@ -327,12 +288,12 @@ def _request_text_to_image(
         return request_generation(
             base_url=request.base_url,
             headers=headers,
-            payload=_build_generation_payload(
+            payload=build_generation_payload(
                 model=request.model,
                 prompt=request.prompt,
                 count=request.count,
-                quality=normalized_quality,
-                size=api_size,
+                quality=params.quality,
+                size=params.api_size,
             ),
             config=gateway_config,
             status_callback=status_callback,
@@ -340,59 +301,3 @@ def _request_text_to_image(
             runner=runner,
         )
     raise ValueError(f"Unsupported text-to-image transport: {compat_profile.text_to_image_transport}")
-
-
-def _file_to_data_url(path: Path) -> str:
-    mime_type = mimetypes.guess_type(path.name)[0] or "application/octet-stream"
-    encoded = base64.b64encode(path.read_bytes()).decode("ascii")
-    return f"data:{mime_type};base64,{encoded}"
-
-
-def _build_generation_payload(*, model: str, prompt: str, count: int, quality: str, size: str) -> dict:
-    return {
-        "model": model,
-        "prompt": prompt,
-        "n": count,
-        "size": size,
-        "quality": quality,
-    }
-
-
-def _build_edit_fields(*, model: str, prompt: str, count: int, quality: str, size: str) -> dict[str, object]:
-    return {
-        "model": model,
-        "prompt": prompt,
-        "n": count,
-        "size": size,
-        "quality": quality,
-    }
-
-
-def _build_chat_completion_payload(
-    *,
-    model: str,
-    prompt: str,
-    quality: str,
-    size: str,
-    source_images: list[Path],
-) -> dict:
-    content = [{"type": "text", "text": prompt}]
-    content.extend(
-        {
-            "type": "image_url",
-            "image_url": {"url": _file_to_data_url(path)},
-        }
-        for path in source_images
-    )
-    return {
-        "model": model,
-        "stream": True,
-        "quality": quality,
-        "size": size,
-        "messages": [
-            {
-                "role": "user",
-                "content": content,
-            }
-        ],
-    }
