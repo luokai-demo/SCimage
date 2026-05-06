@@ -288,7 +288,8 @@ async function waitForAppReady(page, options = {}) {
     await page.waitForSelector("#galleryWindow");
   }
   await page.waitForSelector("#workspacePanel");
-  await page.waitForSelector(".job-dock");
+  await page.waitForSelector(".right-workspace");
+  await page.waitForSelector("#taskQueueToggleBtn[aria-expanded='false']");
   await page.waitForTimeout(250);
 }
 
@@ -302,7 +303,7 @@ async function screenshot(page, name) {
 
 async function assertNoObviousOverflow(page, label) {
   const issues = await page.evaluate(() => (
-    [...document.querySelectorAll("button, .left-job-card, .gallery-item, .genealogy-node, .job-dock")]
+    [...document.querySelectorAll("button, .left-job-card, .gallery-item, .genealogy-node, .job-dock, .right-workspace")]
       .map((node) => {
         const rect = node.getBoundingClientRect();
         return {
@@ -368,7 +369,7 @@ async function runDesktopScreens(page) {
 
   await page.locator(".job-dock-toggle").click();
   await page.waitForTimeout(250);
-  await screenshot(page, "07-job-dock-collapsed.png");
+  await screenshot(page, "07-queue-expanded.png");
 }
 
 async function runMobileScreen(browser) {

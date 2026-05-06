@@ -1,5 +1,9 @@
 export async function runTaskLifecycleScenario(context) {
   const { page, state, now } = context;
+  await page.waitForSelector("#taskQueueToggleBtn[aria-expanded='false']");
+  await page.locator("#taskQueueToggleBtn").click();
+  await page.waitForSelector("#taskQueuePanel");
+
   const durationNode = page.locator(".left-job-card.is-running .left-job-meta span").filter({ hasText: /分钟\d+秒/ }).first();
   const durationText = await durationNode.textContent();
   if (!durationText || !/\d+分钟\d+秒/.test(durationText)) {
@@ -20,10 +24,10 @@ export async function runTaskLifecycleScenario(context) {
     throw new Error(`运行中耗时没有按秒刷新：${durationText || ""}`);
   }
 
-  await page.locator(".job-panel-header").click();
-  await page.waitForFunction(() => !document.querySelector(".job-panel")?.hasAttribute("open"));
-  await page.locator(".job-panel-header").click();
-  await page.waitForFunction(() => document.querySelector(".job-panel")?.hasAttribute("open"));
+  await page.locator("#taskQueueToggleBtn").click();
+  await page.waitForFunction(() => document.querySelector("#taskQueueToggleBtn")?.getAttribute("aria-expanded") === "false");
+  await page.locator("#taskQueueToggleBtn").click();
+  await page.waitForSelector("#taskQueuePanel");
 
   await page.locator(".left-job-card.is-running .left-job-actions button", { hasText: "中断" }).click();
   await page.waitForTimeout(100);
@@ -149,12 +153,18 @@ export async function runTaskLifecycleScenario(context) {
   await page.locator(".confirm-dialog-action", { hasText: "删除图片" }).click();
   await page.waitForFunction(() => document.querySelectorAll(".gallery-item[data-job-id='job-completed']").length === 1);
 
-  const taskPanelWasOpen = await page.locator(".job-panel").evaluate((panel) => panel.hasAttribute("open"));
-  if (!taskPanelWasOpen) {
-    await page.locator(".job-panel-header").click();
+  if (await page.locator("#taskQueueToggleBtn").getAttribute("aria-expanded") !== "true") {
+    await page.locator("#taskQueueToggleBtn").click();
+    await page.waitForSelector("#taskQueuePanel");
+  }
+  const taskPanelVisible = await page.locator("#taskPanel .left-job-card").first().isVisible();
+  if (!taskPanelVisible) {
+    throw new Error("任务列表展开后任务内容应可见。");
   }
   await page.locator(".left-job-card.is-completed .gallery-del-btn").click();
   await page.locator(".confirm-dialog-action", { hasText: "删除任务" }).click();
   await page.waitForFunction(() => !document.querySelector(".left-job-card.is-completed"));
   await page.waitForFunction(() => !document.querySelector(".gallery-item[data-job-id='job-completed']"));
+  await page.locator("#taskQueueToggleBtn").click();
+  await page.waitForFunction(() => document.querySelector("#taskQueueToggleBtn")?.getAttribute("aria-expanded") === "false");
 }

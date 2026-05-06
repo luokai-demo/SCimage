@@ -103,7 +103,7 @@ export function runGenealogyUnitCases(modules) {
     assert.equal(selectedState.loadingMode, "eager");
   });
 
-  test("任务中心按状态分组输出稳定顺序", () => {
+  test("任务中心只保留进行中分组并按时间展示历史任务", () => {
     const items = createJobPanelListItems([
       job({ id: "done", status: "completed" }),
       job({ id: "running", status: "running" }),
@@ -113,7 +113,7 @@ export function runGenealogyUnitCases(modules) {
 
     assert.deepEqual(
       items.map((item) => item.type === "group" ? item.title : item.job.id),
-      ["进行中", "running", "失败", "failed", "partial", "已完成", "done"],
+      ["进行中", "running", "done", "failed", "partial"],
     );
   });
 }

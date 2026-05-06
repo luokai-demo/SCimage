@@ -2,6 +2,9 @@ export async function runInitialWorkspaceAndGalleryScenario(context) {
   const { page, baseUrl } = context;
   await page.goto(baseUrl, { waitUntil: "domcontentloaded" });
   await page.waitForSelector("#galleryWindow");
+  await page.waitForSelector("#taskQueueToggleBtn[aria-expanded='false']");
+  await page.locator("#taskQueueToggleBtn").click();
+  await page.waitForSelector("#taskQueuePanel");
   await page.waitForSelector(".left-job-card.is-running");
   const topTaskState = await page.evaluate(() => ({
     legacyTopTaskCount: document.querySelectorAll(".running-job-card, #runningBanner").length,
@@ -12,17 +15,17 @@ export async function runInitialWorkspaceAndGalleryScenario(context) {
   }
   await page.waitForSelector("#saveAsProviderBtn[disabled]");
   const initialPanelToggleLabel = await page.locator("#panelToggleBtn").getAttribute("aria-label");
-  if (initialPanelToggleLabel !== "收起左侧工作区") {
+  if (initialPanelToggleLabel !== "收起输入工作区") {
     throw new Error(`左侧面板初始按钮文案错误：${initialPanelToggleLabel || ""}`);
   }
   await page.locator("#panelToggleBtn").click();
-  await page.waitForFunction(() => document.querySelector("#panelToggleBtn")?.getAttribute("aria-label") === "展开左侧工作区");
+  await page.waitForFunction(() => document.querySelector("#panelToggleBtn")?.getAttribute("aria-label") === "展开输入工作区");
   const collapsedPanelToggleTitle = await page.locator("#panelToggleBtn").getAttribute("title");
-  if (collapsedPanelToggleTitle !== "展开左侧工作区") {
+  if (collapsedPanelToggleTitle !== "展开输入工作区") {
     throw new Error(`左侧面板收起后标题文案错误：${collapsedPanelToggleTitle || ""}`);
   }
   await page.locator("#panelToggleBtn").click();
-  await page.waitForFunction(() => document.querySelector("#panelToggleBtn")?.getAttribute("aria-label") === "收起左侧工作区");
+  await page.waitForFunction(() => document.querySelector("#panelToggleBtn")?.getAttribute("aria-label") === "收起输入工作区");
   await page.waitForSelector(".left-job-card.is-partial", { state: "attached" });
   const partialTaskActions = await page.locator(".left-job-card.is-partial .left-job-actions").textContent();
   if (partialTaskActions.includes("重试") || !partialTaskActions.includes("删除")) {
@@ -32,6 +35,8 @@ export async function runInitialWorkspaceAndGalleryScenario(context) {
   if (!partialTaskMessage?.includes("API上游原因失败") || !partialTaskMessage.includes("auth_required / chat-requirements failed")) {
     throw new Error(`部分完成任务没有显示旧版诊断信息：${partialTaskMessage || ""}`);
   }
+  await page.locator("#taskQueueToggleBtn").click();
+  await page.waitForFunction(() => document.querySelector("#taskQueueToggleBtn")?.getAttribute("aria-expanded") === "false");
 
   const portraitCard = page.locator(".gallery-item[data-job-id='job-completed'][data-image-slot='1']");
   await portraitCard.scrollIntoViewIfNeeded();

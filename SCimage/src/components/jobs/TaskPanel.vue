@@ -1,58 +1,45 @@
 <template>
-  <section :class="['job-panel', `is-${props.variant}`]" id="taskPanel" :open="open ? '' : undefined" aria-labelledby="taskPanelTitle">
-    <button type="button" class="job-panel-header" :aria-expanded="open" aria-controls="taskPanelBody" @click="toggleOpen">
-      <span class="job-panel-heading">
-        <span id="taskPanelTitle" class="job-panel-title">最近任务</span>
-        <span id="taskPanelPreview" class="job-panel-preview">{{ previewText }}</span>
-      </span>
-      <span class="job-panel-meta">
-        <span id="taskPanelCount" class="job-panel-count">{{ countText }}</span>
-        <ChevronDown class="job-panel-chevron" aria-hidden="true" />
-      </span>
-    </button>
-    <div id="taskPanelBody" class="job-panel-body">
-      <div id="taskList" class="job-list" @scroll="onScroll">
-        <div v-if="!sortedJobs.length" class="job-empty">暂无任务</div>
-        <template v-else>
-          <div v-if="startIndex > 0" class="job-list-spacer" :style="{ height: `${beforeSpacerHeight}px` }" />
-          <template v-for="item in visibleItems" :key="item.id">
-            <div v-if="item.type === 'group'" class="job-group-heading">
-              <span>{{ item.title }}</span>
-              <small>{{ item.count }} 个</small>
-            </div>
-            <TaskCard
-              v-else
-              :job="item.job"
-              :busy="runtime.busyJobIds.value.has(String(item.job.id || ''))"
-              :clock-tick="runtime.clockTick.value"
-              @copy="copyPrompt"
-              @action="onJobAction"
-            />
-          </template>
-          <div v-if="endIndex < jobListItems.length" class="job-list-spacer" :style="{ height: `${afterSpacerHeight}px` }" />
-          <button
-            v-if="jobStore.pagination.hasMore"
-            type="button"
-            class="job-load-more-btn"
-            :disabled="jobStore.pagination.isLoadingMore"
-            @click="requestLoadMore"
-          >
-            {{ jobStore.pagination.isLoadingMore ? "正在加载更多任务..." : "加载更多历史任务" }}
-          </button>
+  <section class="job-panel" id="taskPanel" aria-label="最近任务">
+    <div id="taskList" class="job-list" @scroll="onScroll">
+      <div v-if="!sortedJobs.length" class="job-empty">暂无任务</div>
+      <template v-else>
+        <div v-if="startIndex > 0" class="job-list-spacer" :style="{ height: `${beforeSpacerHeight}px` }" />
+        <template v-for="item in visibleItems" :key="item.id">
+          <div v-if="item.type === 'group'" class="job-group-heading">
+            <span>{{ item.title }}</span>
+            <small>{{ item.count }} 个</small>
+          </div>
+          <TaskCard
+            v-else
+            :job="item.job"
+            :busy="runtime.busyJobIds.value.has(String(item.job.id || ''))"
+            :clock-tick="runtime.clockTick.value"
+            @copy="copyPrompt"
+            @action="onJobAction"
+          />
         </template>
-      </div>
+        <div v-if="endIndex < jobListItems.length" class="job-list-spacer" :style="{ height: `${afterSpacerHeight}px` }" />
+        <button
+          v-if="jobStore.pagination.hasMore"
+          type="button"
+          class="job-load-more-btn"
+          :disabled="jobStore.pagination.isLoadingMore"
+          @click="requestLoadMore"
+        >
+          {{ jobStore.pagination.isLoadingMore ? "正在加载更多任务..." : "加载更多历史任务" }}
+        </button>
+      </template>
     </div>
   </section>
 </template>
 
 <script setup lang="ts">
 import { computed, ref } from "vue";
-import { ChevronDown } from "lucide-vue-next";
 import { useScimageRuntime } from "../../composables/useScimageRuntime";
 import { useJobStore } from "../../stores/jobs";
 import type { JobSummary } from "../../stores/jobs";
 import { copyTextToClipboard } from "../../utils/clipboard";
-import { createJobPanelListItems, createJobPanelPreview } from "../../utils/jobViewModel";
+import { createJobPanelListItems } from "../../utils/jobViewModel";
 import TaskCard from "./TaskCard.vue";
 
 const itemHeight = 144;
@@ -64,24 +51,8 @@ const viewportHeight = ref(280);
 const jobStore = useJobStore();
 const runtime = useScimageRuntime();
 
-const props = withDefaults(defineProps<{
-  variant?: "inline" | "dock";
-}>(), {
-  variant: "inline",
-});
-const open = ref(true);
-
 const sortedJobs = computed(() => jobStore.sortedJobs);
 const jobListItems = computed(() => createJobPanelListItems(sortedJobs.value));
-const runningCount = computed(() => jobStore.runningCount);
-const countText = computed(() => {
-  const total = Number(jobStore.pagination.total || 0);
-  const loaded = sortedJobs.value.length;
-  return `${total || loaded} 个任务`;
-});
-const previewText = computed(() => {
-  return createJobPanelPreview(sortedJobs.value, runningCount.value);
-});
 const visibleCapacity = computed(() => Math.max(12, Math.ceil(viewportHeight.value / itemHeight) + overscan * 2));
 const startIndex = computed(() => (
   jobListItems.value.length > maxRendered
@@ -109,10 +80,6 @@ function onScroll(event: Event) {
 
 function requestLoadMore() {
   void runtime.loadMoreJobs();
-}
-
-function toggleOpen() {
-  open.value = !open.value;
 }
 
 async function copyPrompt(job: JobSummary) {

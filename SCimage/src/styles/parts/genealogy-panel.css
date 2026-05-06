@@ -4,12 +4,12 @@
   --genealogy-line: rgba(160, 176, 196, .34);
   --genealogy-active: rgba(255,255,255,.72);
   flex: 1;
-  min-width: min(760px, calc(100vw - 54px));
+  min-width: 0;
   min-height: 0;
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  padding: 24px;
+  padding: 10px 24px 24px;
   color: var(--text-primary);
 }
 .genealogy-error {

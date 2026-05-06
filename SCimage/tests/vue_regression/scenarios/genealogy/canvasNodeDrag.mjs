@@ -153,24 +153,43 @@ async function verifyBlankCanvasPan(page) {
     });
     return point ? {
       ...point,
+      canPanX: viewport.scrollWidth > viewport.clientWidth + 40,
+      canPanY: viewport.scrollHeight > viewport.clientHeight + 40,
       scrollLeft: viewport.scrollLeft,
       scrollTop: viewport.scrollTop,
     } : null;
   });
-  if (!blankPanStart || blankPanStart.scrollLeft < 80 || blankPanStart.scrollTop < 80) {
+  if (
+    !blankPanStart ||
+    (blankPanStart.canPanX && blankPanStart.scrollLeft < 80) ||
+    (blankPanStart.canPanY && blankPanStart.scrollTop < 80) ||
+    (!blankPanStart.canPanX && !blankPanStart.canPanY)
+  ) {
     throw new Error(`族谱空白拖动视野测试前置失败：${JSON.stringify(blankPanStart)}`);
   }
 
   await page.mouse.move(blankPanStart.x, blankPanStart.y);
   await page.mouse.down();
-  await page.mouse.move(blankPanStart.x + 86, blankPanStart.y + 74, { steps: 8 });
+  await page.mouse.move(
+    blankPanStart.x + (blankPanStart.canPanX ? 86 : 0),
+    blankPanStart.y + (blankPanStart.canPanY ? 74 : 0),
+    { steps: 8 },
+  );
   await page.mouse.up();
   await page.waitForFunction(
-    ({ left, top }) => {
+    ({ canPanX, canPanY, left, top }) => {
       const viewport = document.querySelector(".tree-viewport");
-      return Boolean(viewport && viewport.scrollLeft < left - 35 && viewport.scrollTop < top - 35);
+      return Boolean(viewport && (
+        (!canPanX || viewport.scrollLeft < left - 35) &&
+        (!canPanY || viewport.scrollTop < top - 35)
+      ));
     },
-    { left: blankPanStart.scrollLeft, top: blankPanStart.scrollTop },
+    {
+      canPanX: blankPanStart.canPanX,
+      canPanY: blankPanStart.canPanY,
+      left: blankPanStart.scrollLeft,
+      top: blankPanStart.scrollTop,
+    },
   );
 
   const blankPanEnd = await page.evaluate(() => {
