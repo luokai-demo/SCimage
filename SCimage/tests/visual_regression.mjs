@@ -3,7 +3,9 @@ import path from "node:path";
 import { chromium } from "playwright";
 import {
   collectViteOverlayText,
+  emptyQueuePayload,
   installRegressionHarness,
+  installRuntimeEventStreamMock,
   svgDataUrl,
 } from "./vue_regression/helpers.mjs";
 
@@ -243,6 +245,8 @@ function genealogyPayload() {
 }
 
 async function installVisualRoutes(page) {
+  await installRuntimeEventStreamMock(page);
+  await page.route("**/api/queue", (route) => route.fulfill({ json: emptyQueuePayload() }));
   await page.route("**/api/jobs?**", (route) => route.fulfill({ json: jobsPayload() }));
   await page.route("**/api/gallery/images?**", (route) => route.fulfill({ json: galleryPayload() }));
   await page.route("**/api/genealogy/graph", (route) => route.fulfill({ json: genealogyPayload() }));

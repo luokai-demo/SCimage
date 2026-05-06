@@ -1,7 +1,9 @@
 import { chromium } from "playwright";
 import {
   collectViteOverlayText,
+  emptyQueuePayload,
   installRegressionHarness,
+  installRuntimeEventStreamMock,
   svgDataUrl,
   waitForCondition,
 } from "./vue_regression/helpers.mjs";
@@ -300,7 +302,10 @@ async function main() {
   page.on("pageerror", (error) => errors.push(error.message));
 
   await installRegressionHarness(page);
-
+  await installRuntimeEventStreamMock(page);
+  await page.route("**/api/queue", (route) => route.fulfill({
+    json: emptyQueuePayload(),
+  }));
   await page.route("**/api/jobs?**", (route) => route.fulfill({ json: jobsPayload() }));
   await page.route("**/api/gallery/images?**", async (route) => {
     const url = new URL(route.request().url());

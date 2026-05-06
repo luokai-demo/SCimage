@@ -11,6 +11,26 @@ export function svgDataUrl(width, height, topColor, bottomColor) {
   return `data:image/svg+xml,${encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}"><defs><linearGradient id="g" x1="0" x2="0" y1="0" y2="1"><stop offset="0" stop-color="${topColor}"/><stop offset="1" stop-color="${bottomColor}"/></linearGradient></defs><rect width="${width}" height="${height}" fill="url(#g)"/><circle cx="${width * 0.52}" cy="${height * 0.42}" r="${Math.min(width, height) * 0.18}" fill="#f4dfcd"/><rect x="${width * 0.18}" y="${height * 0.62}" width="${width * 0.64}" height="${height * 0.2}" rx="28" fill="#ffffff" opacity="0.78"/></svg>`)}`;
 }
 
+export function emptyQueuePayload() {
+  return {
+    running: [],
+    pending: [],
+    running_count: 0,
+    pending_count: 0,
+  };
+}
+
+export async function installRuntimeEventStreamMock(page) {
+  await page.addInitScript(() => {
+    window.__emitRuntimeUpdate = (reason = "test") => {
+      window.dispatchEvent(new CustomEvent("scimage:runtime-update", {
+        detail: { reason, sent_at: Date.now() / 1000 },
+      }));
+    };
+  });
+  await page.route("**/api/events", (route) => route.abort("aborted"));
+}
+
 export async function installRegressionHarness(page) {
   await page.addInitScript(() => {
     Object.defineProperty(navigator, "clipboard", { value: undefined, configurable: true });

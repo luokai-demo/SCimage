@@ -1,4 +1,5 @@
 import { chromium } from "playwright";
+import { emptyQueuePayload, installRuntimeEventStreamMock } from "./vue_regression/helpers.mjs";
 
 const BASE_URL = process.env.SCIMAGE_BASE_URL || "http://127.0.0.1:5173/";
 const imageDataUrl = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII=";
@@ -47,6 +48,7 @@ async function main() {
       }
     });
     page.on("requestfailed", (request) => {
+      if (request.url().includes("/api/events")) return;
       errors.push(`请求失败：${request.method()} ${request.url()} ${request.failure()?.errorText || ""}`.trim());
     });
     page.on("response", (response) => {
@@ -57,7 +59,7 @@ async function main() {
     page.on("pageerror", (error) => errors.push(error.message));
 
     await installSmokeMocks(page);
-    await page.goto(BASE_URL, { waitUntil: "networkidle" });
+    await page.goto(BASE_URL, { waitUntil: "domcontentloaded" });
     await page.waitForSelector("#galleryWindow");
     await page.waitForSelector("#workspacePanel");
     await page.locator("#togglePromptBankBtn").click();
@@ -154,6 +156,7 @@ async function installSmokeMocks(page) {
       error: `浏览器烟测缺少 API mock：${route.request().method()} ${route.request().url()}`,
     },
   }));
+  await installRuntimeEventStreamMock(page);
   await page.route("**/api/provider-profiles", (route) => route.fulfill({
     json: {
       active_profile_id: "smoke-profile",
@@ -198,6 +201,9 @@ async function installSmokeMocks(page) {
     return route.fulfill({ json: {} });
   });
   await page.route("**/api/prompts{,?*}", (route) => route.fulfill({ json: { prompts: [] } }));
+  await page.route("**/api/queue{,?*}", (route) => route.fulfill({
+    json: emptyQueuePayload(),
+  }));
   await page.route("**/api/jobs{,?*}", (route) => route.fulfill({
     json: {
       jobs,
