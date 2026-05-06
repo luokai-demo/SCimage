@@ -1,5 +1,5 @@
 <template>
-  <div class="genealogy-node-copy">
+  <div :class="['genealogy-node-copy', { 'is-expanded': expanded }]">
     <strong>{{ title }}</strong>
     <span class="genealogy-node-meta">
       <span><ImageIcon aria-hidden="true" />{{ mediaLabel }}</span>
@@ -27,6 +27,7 @@ import {
 } from "lucide-vue-next";
 
 defineProps<{
+  expanded?: boolean;
   mediaLabel: string;
   model: string;
   quality: string;
@@ -93,9 +94,8 @@ defineProps<{
   transform: translateY(-2px);
   transition: max-height var(--transition), opacity var(--transition), transform var(--transition);
 }
-:global(.genealogy-node:hover) .node-detail-chips,
-:global(.genealogy-node:focus-visible) .node-detail-chips,
-:global(.genealogy-node.active) .node-detail-chips {
+.genealogy-node-copy:hover .node-detail-chips,
+.genealogy-node-copy.is-expanded .node-detail-chips {
   max-height: 20px;
   opacity: 1;
   transform: translateY(0);

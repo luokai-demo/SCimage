@@ -118,6 +118,7 @@ export function createScimageWorkspaceRuntime(options: ScimageWorkspaceRuntimeOp
     clockTick,
     initRuntime,
     isCreatingJob,
+    subscribeRuntimeUpdate: lifecycle.subscribeRuntimeUpdate,
   };
 }
 

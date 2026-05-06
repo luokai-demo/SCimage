@@ -4,6 +4,7 @@
       'genealogy-node',
       {
         active,
+        'is-active': active,
         'is-source': node.type === 'source',
         'is-pending': node.type === 'pending',
         'is-related': related,
@@ -39,9 +40,11 @@
       :image-url="imageUrl"
       :loading-mode="imageLoadingMode"
       :multi-source="parentCount > 1"
+      :placeholder-text="imagePlaceholderText"
       :pending="node.type === 'pending'"
     />
     <GenealogyNodeCopy
+      :expanded="active"
       :media-label="node.type === 'source' ? '外部参考图' : node.size || 'auto'"
       :model="node.model ? shortGenealogyText(node.model, 18) : ''"
       :quality="node.quality || 'auto'"
@@ -79,6 +82,7 @@ const props = defineProps<{
   draggable?: boolean;
   dragging?: boolean;
   imageLoadingMode?: "lazy" | "eager";
+  imagePlaceholderText?: string;
 }>();
 
 defineEmits<{

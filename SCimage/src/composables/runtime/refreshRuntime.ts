@@ -1,6 +1,7 @@
-import type { GalleryImagesPagePayload, JobsPagePayload } from "../../contracts/api";
+import type { GalleryImagesPagePayload, JobsPagePayload, QueueSnapshotPayload } from "../../contracts/api";
 import { useGalleryStore } from "../../stores/gallery";
 import { useJobStore, type JobSummary } from "../../stores/jobs";
+import { emptyQueueSnapshot } from "../../utils/queueSnapshot";
 import { apiRequest } from "./apiClient";
 import type { StatusTone } from "./status";
 
@@ -42,10 +43,12 @@ export function createRefreshRuntime(options: RefreshRuntimeOptions) {
 
     refreshInFlight = (async () => {
       try {
-        const [jobsPayload, galleryPayload] = await Promise.all([
+        const [jobsPayload, galleryPayload, queuePayload] = await Promise.all([
           apiRequest<JobsPagePayload>(`/api/jobs?offset=0&limit=${jobStore.pagination.pageSize || 80}`, { method: "GET" }),
           apiRequest<GalleryImagesPagePayload>(`/api/gallery/images?limit=${galleryStore.pagination.pageSize || 160}&sort=${requestedSortAsc ? "asc" : "desc"}`, { method: "GET" }),
+          fetchQueueSnapshot(),
         ]);
+        jobStore.patchQueue(queuePayload);
         if (refreshJobsGeneration === options.currentJobsGeneration()) {
           options.applyJobsPage(jobsPayload);
           jobStore.markSyncSuccess(new Date());
@@ -78,8 +81,21 @@ export function createRefreshRuntime(options: RefreshRuntimeOptions) {
 
   return {
     isRefreshInFlight,
+    refreshQueueSnapshot,
     refreshJobs,
   };
+
+  async function refreshQueueSnapshot() {
+    useJobStore().patchQueue(await fetchQueueSnapshot());
+  }
+}
+
+async function fetchQueueSnapshot() {
+  try {
+    return await apiRequest<QueueSnapshotPayload>("/api/queue", { method: "GET", timeoutMs: 8000 });
+  } catch {
+    return emptyQueueSnapshot();
+  }
 }
 
 function mergeRefreshOptions(current: RefreshJobsOptions | null, next: RefreshJobsOptions) {

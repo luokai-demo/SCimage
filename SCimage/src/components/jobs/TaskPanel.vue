@@ -14,17 +14,22 @@
       <div id="taskList" class="job-list" @scroll="onScroll">
         <div v-if="!sortedJobs.length" class="job-empty">暂无任务</div>
         <template v-else>
-          <div v-if="startIndex > 0" class="job-list-spacer" :style="{ height: `${startIndex * itemHeight}px` }" />
-          <TaskCard
-            v-for="job in visibleJobs"
-            :key="String(job.id || '')"
-            :job="job"
-            :busy="runtime.busyJobIds.value.has(String(job.id || ''))"
-            :clock-tick="runtime.clockTick.value"
-            @copy="copyPrompt"
-            @action="onJobAction"
-          />
-          <div v-if="endIndex < sortedJobs.length" class="job-list-spacer" :style="{ height: `${(sortedJobs.length - endIndex) * itemHeight}px` }" />
+          <div v-if="startIndex > 0" class="job-list-spacer" :style="{ height: `${beforeSpacerHeight}px` }" />
+          <template v-for="item in visibleItems" :key="item.id">
+            <div v-if="item.type === 'group'" class="job-group-heading">
+              <span>{{ item.title }}</span>
+              <small>{{ item.count }} 个</small>
+            </div>
+            <TaskCard
+              v-else
+              :job="item.job"
+              :busy="runtime.busyJobIds.value.has(String(item.job.id || ''))"
+              :clock-tick="runtime.clockTick.value"
+              @copy="copyPrompt"
+              @action="onJobAction"
+            />
+          </template>
+          <div v-if="endIndex < jobListItems.length" class="job-list-spacer" :style="{ height: `${afterSpacerHeight}px` }" />
           <button
             v-if="jobStore.pagination.hasMore"
             type="button"
@@ -47,10 +52,11 @@ import { useScimageRuntime } from "../../composables/useScimageRuntime";
 import { useJobStore } from "../../stores/jobs";
 import type { JobSummary } from "../../stores/jobs";
 import { copyTextToClipboard } from "../../utils/clipboard";
-import { createJobPanelPreview } from "../../utils/jobViewModel";
+import { createJobPanelListItems, createJobPanelPreview } from "../../utils/jobViewModel";
 import TaskCard from "./TaskCard.vue";
 
 const itemHeight = 144;
+const groupHeaderHeight = 32;
 const maxRendered = 180;
 const overscan = 8;
 const scrollTop = ref(0);
@@ -66,6 +72,7 @@ const props = withDefaults(defineProps<{
 const open = ref(true);
 
 const sortedJobs = computed(() => jobStore.sortedJobs);
+const jobListItems = computed(() => createJobPanelListItems(sortedJobs.value));
 const runningCount = computed(() => jobStore.runningCount);
 const countText = computed(() => {
   const total = Number(jobStore.pagination.total || 0);
@@ -77,16 +84,18 @@ const previewText = computed(() => {
 });
 const visibleCapacity = computed(() => Math.max(12, Math.ceil(viewportHeight.value / itemHeight) + overscan * 2));
 const startIndex = computed(() => (
-  sortedJobs.value.length > maxRendered
+  jobListItems.value.length > maxRendered
     ? Math.max(0, Math.floor(scrollTop.value / itemHeight) - overscan)
     : 0
 ));
 const endIndex = computed(() => (
-  sortedJobs.value.length > maxRendered
-    ? Math.min(sortedJobs.value.length, startIndex.value + visibleCapacity.value)
-    : Math.min(sortedJobs.value.length, maxRendered)
+  jobListItems.value.length > maxRendered
+    ? Math.min(jobListItems.value.length, startIndex.value + visibleCapacity.value)
+    : Math.min(jobListItems.value.length, maxRendered)
 ));
-const visibleJobs = computed(() => sortedJobs.value.slice(startIndex.value, endIndex.value));
+const visibleItems = computed(() => jobListItems.value.slice(startIndex.value, endIndex.value));
+const beforeSpacerHeight = computed(() => estimateListHeight(jobListItems.value.slice(0, startIndex.value)));
+const afterSpacerHeight = computed(() => estimateListHeight(jobListItems.value.slice(endIndex.value)));
 
 function onScroll(event: Event) {
   const target = event.currentTarget as HTMLElement;
@@ -113,5 +122,9 @@ async function copyPrompt(job: JobSummary) {
 
 function onJobAction(jobId: string, action: "cancel" | "retry" | "delete") {
   void runtime.jobAction(jobId, action);
+}
+
+function estimateListHeight(items: ReturnType<typeof createJobPanelListItems>) {
+  return items.reduce((height, item) => height + (item.type === "group" ? groupHeaderHeight : itemHeight), 0);
 }
 </script>

@@ -1,6 +1,7 @@
 import { defineStore } from "pinia";
 import { isActiveJobStatus } from "../utils/jobStatus";
-import type { ApiJobSummary } from "../contracts/api";
+import { emptyQueueSnapshot, normalizeQueueSnapshot } from "../utils/queueSnapshot";
+import type { ApiJobSummary, QueueSnapshotPayload } from "../contracts/api";
 
 export interface JobPaginationState {
   total: number;
@@ -34,6 +35,7 @@ export const useJobStore = defineStore("jobs", {
     } as JobPaginationState,
     lastSyncAt: "" as string,
     lastSyncError: "" as string,
+    queue: emptyQueueSnapshot(),
   }),
   getters: {
     sortedJobs: (state) => sortJobsByCreatedDesc(state.jobs),
@@ -54,6 +56,9 @@ export const useJobStore = defineStore("jobs", {
     },
     patchPagination(pagination: Partial<JobPaginationState>) {
       this.pagination = { ...this.pagination, ...pagination };
+    },
+    patchQueue(queue: QueueSnapshotPayload) {
+      this.queue = normalizeQueueSnapshot(queue);
     },
     markSyncSuccess(date = new Date()) {
       this.lastSyncAt = date.toISOString();

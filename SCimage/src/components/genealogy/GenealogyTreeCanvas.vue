@@ -59,22 +59,23 @@
           />
         </svg>
         <GenealogyNodeCard
-          v-for="node in visibleNodes"
-          :key="node.id"
-          :node="node"
-          :image-url="nodeImageUrl(node)"
-          :active="node.id === selectedNodeId"
-          :related="isRelatedNode(node.id)"
-          :bloodline="bloodlineNodeIds.has(node.id)"
-          :dimmed="isDimmedNode(node.id)"
-          :parent-count="parentCount(node.id)"
-          :draggable="canDragNode(node)"
-            :dragging="dragState.nodeId === node.id"
-            :image-loading-mode="renderBudget.imageLoadingMode"
-            @select="selectNodeFromCard"
+          v-for="card in visibleNodeCards"
+          :key="card.node.id"
+          :node="card.node"
+          :image-url="card.media.imageUrl"
+          :image-placeholder-text="card.media.placeholderText"
+          :active="card.node.id === selectedNodeId"
+          :related="card.related"
+          :bloodline="card.bloodline"
+          :dimmed="isDimmedNode(card.node.id)"
+          :parent-count="card.parentCount"
+          :draggable="canDragNode(card.node)"
+          :dragging="dragState.nodeId === card.node.id"
+          :image-loading-mode="card.media.loadingMode"
+          @select="selectNodeFromCard"
           @node-pointerdown="handleNodePointerDown"
           @node-pointerup="handleNodePointerUpSelect"
-          @node-keydown="$emit('node-keydown', $event, node.id)"
+          @node-keydown="$emit('node-keydown', $event, card.node.id)"
         />
       </div>
     </div>
@@ -85,14 +86,13 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { useGenealogyStore, type GenealogyNode } from "../../stores/genealogy";
 import {
-  genealogyImageUrl,
-  genealogyPreviewImageUrl,
   type GenealogyLayout,
   type GenealogyLayoutNode,
 } from "../../utils/genealogyGraph";
 import GenealogyNodeCard from "./GenealogyNodeCard.vue";
 import { createGenealogyRenderBudget } from "./genealogyRenderBudget";
 import { hitTestGenealogyNode } from "./genealogyNodeHitTest";
+import { createGenealogyNodeMediaLoadState } from "./genealogyNodeMediaLoading";
 import { canDragGenealogyNode } from "./genealogyNodeViewModel";
 import { useGenealogyLayoutState } from "./useGenealogyLayoutState";
 import { useGenealogyNodeDrag, type GenealogyNodeDragPosition } from "./useGenealogyNodeDrag";
@@ -168,6 +168,27 @@ const {
   canStartPan: () => !dragState.value.nodeId,
   scheduleViewportUpdate,
 });
+const visibleNodeCards = computed(() => visibleNodes.value.map((node) => {
+  const nodeId = node.id;
+  const bloodline = props.bloodlineNodeIds.has(nodeId);
+  const dragging = dragState.value.nodeId === nodeId;
+  const related = props.isRelatedNode(nodeId);
+  const selected = nodeId === props.selectedNodeId;
+  return {
+    bloodline,
+    media: createGenealogyNodeMediaLoadState({
+      bloodline,
+      dragging,
+      node,
+      related,
+      renderBudget: renderBudget.value,
+      selected,
+    }),
+    node,
+    parentCount: props.parentCount(nodeId),
+    related,
+  };
+}));
 
 function canDragNode(node: GenealogyLayoutNode | GenealogyNode) {
   return canDragGenealogyNode(node);
@@ -175,12 +196,6 @@ function canDragNode(node: GenealogyLayoutNode | GenealogyNode) {
 
 function selectNode(nodeId: string) {
   genealogyStore.setSelectedNode(nodeId);
-}
-
-function nodeImageUrl(node: GenealogyNode) {
-  return renderBudget.value.imageSourceMode === "preview"
-    ? genealogyPreviewImageUrl(node)
-    : genealogyImageUrl(node);
 }
 
 function handleNodePointerUpSelect(event: PointerEvent, nodeId: string) {

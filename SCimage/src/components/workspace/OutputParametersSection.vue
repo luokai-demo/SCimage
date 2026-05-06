@@ -25,7 +25,7 @@
       </UiSelectField>
       <div class="form-group">
         <label>输出格式</label>
-        <div class="helper-note">当前固定输出 PNG，格式与压缩选项后续再开放。</div>
+        <div class="helper-note">当前输出格式固定为 PNG。</div>
       </div>
     </div>
   </section>

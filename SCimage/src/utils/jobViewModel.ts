@@ -9,6 +9,7 @@ import {
   isRetryableJob,
   truncateText,
 } from "./jobFormatters";
+import { isTerminalJobStatus } from "./jobStatus";
 
 export type JobCardAction = "cancel" | "retry" | "delete";
 
@@ -32,6 +33,19 @@ export interface JobCardViewModel {
   retryable: boolean;
   actions: JobCardActionView[];
 }
+
+export type JobPanelListItem =
+  | {
+    id: string;
+    count: number;
+    title: string;
+    type: "group";
+  }
+  | {
+    id: string;
+    job: JobSummary;
+    type: "job";
+  };
 
 export function createJobCardViewModel(job: JobSummary, options: { activeDuration?: boolean } = {}): JobCardViewModel {
   const active = isActiveStatus(String(job.status || ""));
@@ -61,6 +75,24 @@ export function createJobPanelPreview(jobs: JobSummary[], runningCount: number) 
   return `${statusMeta.label} · ${truncateText(latestJob.prompt || "未提供提示词", 14)}`;
 }
 
+export function createJobPanelListItems(jobs: JobSummary[]): JobPanelListItem[] {
+  const activeJobs = jobs.filter((job) => isActiveStatus(job.status));
+  const failedJobs = jobs.filter((job) => isProblemJob(job));
+  const completedJobs = jobs.filter((job) => isCompletedJob(job));
+  const unknownJobs = jobs.filter((job) => (
+    !isActiveStatus(job.status) &&
+    !isProblemJob(job) &&
+    !isCompletedJob(job)
+  ));
+
+  return [
+    ...createJobPanelGroup("active", "进行中", activeJobs),
+    ...createJobPanelGroup("failed", "失败", failedJobs),
+    ...createJobPanelGroup("completed", "已完成", completedJobs),
+    ...createJobPanelGroup("other", "其他", unknownJobs),
+  ];
+}
+
 function getJobCardActions(active: boolean, retryable: boolean): JobCardActionView[] {
   if (active) {
     return [{ action: "cancel", label: "中断", title: "中断任务", className: "is-primary" }];
@@ -72,4 +104,27 @@ function getJobCardActions(active: boolean, retryable: boolean): JobCardActionVi
     ];
   }
   return [{ action: "delete", label: "删除", title: "删除任务", className: "gallery-del-btn is-danger" }];
+}
+
+function createJobPanelGroup(id: string, title: string, jobs: JobSummary[]): JobPanelListItem[] {
+  if (!jobs.length) return [];
+  return [
+    { id: `group-${id}`, count: jobs.length, title, type: "group" },
+    ...jobs.map((job) => ({
+      id: `job-${String(job.id || "")}`,
+      job,
+      type: "job" as const,
+    })),
+  ];
+}
+
+function isProblemJob(job: JobSummary) {
+  return job.status === "failed" || job.status === "partial" || job.status === "canceled";
+}
+
+function isCompletedJob(job: JobSummary) {
+  return job.status === "completed" || (
+    isTerminalJobStatus(job.status) &&
+    !isProblemJob(job)
+  );
 }

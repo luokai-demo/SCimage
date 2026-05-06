@@ -106,8 +106,8 @@ const genealogyStore = useGenealogyStore();
 const jobStore = useJobStore();
 const emptyViewportState = { left: 0, top: 0, width: 0, height: 0 };
 const canvasRef = ref<InstanceType<typeof GenealogyTreeCanvas> | null>(null);
-let refreshTimer = 0;
 let consumePendingGraphRefreshHandler = () => {};
+let unsubscribeRuntimeUpdate = () => false;
 
 const {
   activeFamily,
@@ -212,17 +212,18 @@ function shouldDeferGraphRefresh() {
 
 onMounted(() => {
   void loadGraph();
-  refreshTimer = window.setInterval(() => {
-    if (document.visibilityState !== "visible") return;
-    void loadGraph({ silent: true });
-  }, 15000);
+  unsubscribeRuntimeUpdate = runtime.subscribeRuntimeUpdate(onRuntimeUpdate);
   window.addEventListener("focus", onWindowFocus);
 });
 
 onBeforeUnmount(() => {
-  window.clearInterval(refreshTimer);
+  unsubscribeRuntimeUpdate();
   window.removeEventListener("focus", onWindowFocus);
 });
+
+function onRuntimeUpdate() {
+  void loadGraph({ silent: true });
+}
 
 function onWindowFocus() {
   void loadGraph({ silent: true });

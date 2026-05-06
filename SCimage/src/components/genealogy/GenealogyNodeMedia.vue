@@ -9,11 +9,11 @@
       draggable="false"
       @dragstart.prevent
     >
-    <div v-else-if="pending" class="genealogy-node-placeholder is-pending">
+    <div v-if="!imageUrl && pending" class="genealogy-node-placeholder is-pending">
       <LoaderCircle aria-hidden="true" />
       <span>预定位置</span>
     </div>
-    <div v-else class="genealogy-node-placeholder">无预览</div>
+    <div v-else-if="!imageUrl" class="genealogy-node-placeholder">{{ placeholderText || "无预览" }}</div>
     <span class="node-badge">{{ badgeText }}</span>
     <span v-if="multiSource" class="node-multi-badge"><Combine aria-hidden="true" />多参考</span>
   </div>
@@ -28,6 +28,7 @@ defineProps<{
   imageUrl: string;
   loadingMode?: "lazy" | "eager";
   multiSource: boolean;
+  placeholderText?: string;
   pending: boolean;
 }>();
 </script>

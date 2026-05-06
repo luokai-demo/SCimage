@@ -44,6 +44,7 @@ export function createScimageJobsRuntime(base: ScimageRuntimeBase) {
     ...jobActionRuntime,
     loadMoreGallery,
     loadMoreJobs,
+    refreshQueueSnapshot: refreshRuntime.refreshQueueSnapshot,
     refreshJobs: refreshRuntime.refreshJobs,
     resetGalleryPaginationForSort: galleryListRuntime.resetGalleryPaginationForSort,
   };

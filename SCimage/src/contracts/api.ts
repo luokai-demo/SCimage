@@ -68,6 +68,14 @@ export interface JobsPagePayload {
   [key: string]: unknown;
 }
 
+export interface QueueSnapshotPayload {
+  running?: string[];
+  pending?: string[];
+  running_count?: number;
+  pending_count?: number;
+  [key: string]: unknown;
+}
+
 export interface ApiGalleryImagePageItem {
   job?: ApiJobSummary;
   image?: ApiJobImage;

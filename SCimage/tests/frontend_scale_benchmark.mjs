@@ -1,6 +1,8 @@
 import { chromium } from "playwright";
 import {
+  emptyQueuePayload,
   installRegressionHarness,
+  installRuntimeEventStreamMock,
   svgDataUrl,
 } from "./vue_regression/helpers.mjs";
 
@@ -118,11 +120,18 @@ async function main() {
     });
     const errors = [];
     page.on("console", (message) => {
+      if (message.text().includes("/api/events")) return;
       if (message.type() === "error") errors.push(message.text());
     });
     page.on("pageerror", (error) => errors.push(error.message));
     await installRegressionHarness(page);
+    await installRuntimeEventStreamMock(page);
 
+    await page.route("**/api/queue", (route) =>
+      route.fulfill({
+        json: emptyQueuePayload(),
+      }),
+    );
     await page.route("**/api/jobs?**", (route) =>
       route.fulfill({
         json: {
@@ -190,7 +199,7 @@ async function main() {
     );
 
     const startedAt = performance.now();
-    await page.goto(BASE_URL, { waitUntil: "networkidle" });
+    await page.goto(BASE_URL, { waitUntil: "domcontentloaded" });
     await page.waitForSelector("#galleryWindow");
     await page.waitForFunction(
       () => document.querySelectorAll(".gallery-item").length > 20,

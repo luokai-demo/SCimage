@@ -130,6 +130,30 @@
   min-height: 0;
   pointer-events: none;
 }
+.job-group-heading {
+  position: sticky;
+  top: -7px;
+  z-index: 2;
+  min-height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin: 2px 0 0;
+  padding: 6px 7px 5px;
+  border-bottom: 1px solid rgba(255,255,255,.07);
+  background: rgba(0,0,0,.9);
+  color: var(--text-secondary);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0;
+}
+.job-group-heading small {
+  color: var(--text-tertiary);
+  font-size: 10px;
+  font-weight: 500;
+  white-space: nowrap;
+}
 .job-empty {
   flex: 1;
   min-height: 116px;

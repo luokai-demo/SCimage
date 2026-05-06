@@ -5,7 +5,9 @@ export function runGenealogyUnitCases(modules) {
   const {
     createGenealogyFamilyViewModel,
     createGenealogyInspectorViewModel,
+    createGenealogyNodeMediaLoadState,
     createGenealogyRenderBudget,
+    createJobPanelListItems,
     findGenealogyMiniMapNodeAtPoint,
   } = modules;
 
@@ -72,6 +74,48 @@ export function runGenealogyUnitCases(modules) {
     assert.equal(view.statusLabel, "排队");
     assert.equal(view.title, "等待生成");
   });
+
+  test("族谱节点图片策略不会因视口变化退回占位", () => {
+    const layout = layoutOf(180, 220);
+    const hugeBudget = createGenealogyRenderBudget(layout);
+    const farNode = layoutNode({ x: 3600, y: 2600 });
+
+    const farState = createGenealogyNodeMediaLoadState({
+      bloodline: false,
+      dragging: false,
+      node: farNode,
+      related: false,
+      renderBudget: hugeBudget,
+      selected: false,
+    });
+    const selectedState = createGenealogyNodeMediaLoadState({
+      bloodline: false,
+      dragging: false,
+      node: farNode,
+      related: false,
+      renderBudget: hugeBudget,
+      selected: true,
+    });
+
+    assert.equal(farState.imageUrl, "/preview.png");
+    assert.equal(farState.loadingMode, "lazy");
+    assert.equal(selectedState.imageUrl, "/preview.png");
+    assert.equal(selectedState.loadingMode, "eager");
+  });
+
+  test("任务中心按状态分组输出稳定顺序", () => {
+    const items = createJobPanelListItems([
+      job({ id: "done", status: "completed" }),
+      job({ id: "running", status: "running" }),
+      job({ id: "failed", status: "failed" }),
+      job({ id: "partial", status: "partial" }),
+    ]);
+
+    assert.deepEqual(
+      items.map((item) => item.type === "group" ? item.title : item.job.id),
+      ["进行中", "running", "失败", "failed", "partial", "已完成", "done"],
+    );
+  });
 }
 
 function layoutNode(overrides = {}) {
@@ -116,5 +160,19 @@ function layoutOf(nodeCount, edgeCount) {
     generationCount: 1,
     width: 1000,
     height: 1000,
+  };
+}
+
+function job(overrides = {}) {
+  return {
+    id: "job",
+    status: "completed",
+    workflow: "generate",
+    prompt: "prompt",
+    count: 1,
+    images: [],
+    created_at: "2026-05-06T12:00:00.000Z",
+    updated_at: "2026-05-06T12:00:10.000Z",
+    ...overrides,
   };
 }

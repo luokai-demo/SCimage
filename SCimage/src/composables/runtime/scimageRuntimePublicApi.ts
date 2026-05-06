@@ -78,6 +78,7 @@ export interface ScimageRuntimePublicApi {
   providerWorkflowAvailability: ComputedRef<Record<WorkflowName, boolean>>;
   promptStore: ReturnType<typeof usePromptStore>;
   qualityOptions: ComputedRef<OutputOption[]>;
+  refreshQueueSnapshot: () => Promise<void>;
   refreshJobs: (options?: { silent?: boolean; reset?: boolean; manual?: boolean }) => Promise<void>;
   removePromptToken: (token: string) => void;
   removeSourceImage: (key: string) => void;
@@ -95,6 +96,7 @@ export interface ScimageRuntimePublicApi {
     tone: StatusTone;
     message: string;
   };
+  subscribeRuntimeUpdate: (listener: () => void) => () => boolean;
   togglePromptToken: (token: string) => void;
   toggleSelection: (item: GalleryFlatItem) => void;
   toggleSort: () => void;

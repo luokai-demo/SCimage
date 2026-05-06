@@ -4,6 +4,7 @@ import {
   type GenealogyLayoutNode,
 } from "../../utils/genealogyGraph";
 import { findGenealogyMiniMapNodeAtPoint } from "./genealogyMiniMapHitTest";
+import { createGenealogyMiniMapPanScheduler } from "./genealogyMiniMapPanScheduler";
 
 interface MiniMapModel {
   nodes: GenealogyLayoutNode[];
@@ -19,6 +20,7 @@ interface GenealogyMiniMapInteractionOptions {
 
 export function useGenealogyMiniMapInteraction(options: GenealogyMiniMapInteractionOptions) {
   const isOverlayDragging = ref(false);
+  const panScheduler = createGenealogyMiniMapPanScheduler(options.onPanTo);
   let overlayDragPointerId = 0;
   let startPointerPoint = { x: 0, y: 0 };
   let dragStartedOnNodeId = "";
@@ -36,7 +38,7 @@ export function useGenealogyMiniMapInteraction(options: GenealogyMiniMapInteract
     if (event.currentTarget instanceof HTMLElement) {
       event.currentTarget.setPointerCapture?.(event.pointerId);
     }
-    if (!dragStartedOnNodeId) options.onPanTo(point);
+    if (!dragStartedOnNodeId) panScheduler.schedule(point, true);
   }
 
   function onOverlayPointerMove(event: PointerEvent) {
@@ -51,7 +53,7 @@ export function useGenealogyMiniMapInteraction(options: GenealogyMiniMapInteract
       return;
     }
     isOverlayDragging.value = true;
-    options.onPanTo(point);
+    panScheduler.schedule(point);
   }
 
   function stopOverlayDrag(event?: PointerEvent) {
@@ -59,6 +61,7 @@ export function useGenealogyMiniMapInteraction(options: GenealogyMiniMapInteract
     if (event && event.pointerId !== overlayDragPointerId) return;
 
     const point = event ? eventToSvgPoint(event) : null;
+    const wasDragging = isOverlayDragging.value;
     const shouldSelectNode = !isOverlayDragging.value && dragStartedOnNodeId;
     releaseOverlayPointer(event);
     overlayDragPointerId = 0;
@@ -67,6 +70,8 @@ export function useGenealogyMiniMapInteraction(options: GenealogyMiniMapInteract
     if (shouldSelectNode) {
       const hitNode = point ? findNodeAtPoint(point) : null;
       options.onFocusNode(hitNode?.id || dragStartedOnNodeId);
+    } else if (wasDragging) {
+      panScheduler.flush();
     }
     dragStartedOnNodeId = "";
   }
@@ -101,7 +106,10 @@ export function useGenealogyMiniMapInteraction(options: GenealogyMiniMapInteract
     };
   }
 
-  onBeforeUnmount(() => stopOverlayDrag());
+  onBeforeUnmount(() => {
+    stopOverlayDrag();
+    panScheduler.dispose();
+  });
 
   return {
     onOverlayPointerDown,

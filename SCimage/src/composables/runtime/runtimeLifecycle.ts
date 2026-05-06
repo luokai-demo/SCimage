@@ -1,6 +1,9 @@
 import { nextTick, type Ref, watch } from "vue";
 import type { WorkflowName } from "../../stores/workspace";
+import { createRuntimeEventsController } from "./runtimeEvents";
 import type { RuntimeWorkspaceForm } from "./workspacePersistence";
+
+type RuntimeUpdateListener = () => void;
 
 interface RuntimeLifecycleOptions {
   activeOutputProfileId: Ref<string>;
@@ -28,8 +31,11 @@ interface RuntimeLifecycleOptions {
 export function createRuntimeLifecycleController(options: RuntimeLifecycleOptions) {
   let initialized = false;
   let watchersInitialized = false;
-  let pollTimer = 0;
   let clockTimer = 0;
+  const runtimeUpdateListeners = new Set<RuntimeUpdateListener>();
+  const runtimeEvents = createRuntimeEventsController({
+    onRuntimeUpdate: emitRuntimeUpdate,
+  });
 
   async function initRuntime(activeWorkflow: WorkflowName) {
     if (initialized) return;
@@ -56,15 +62,31 @@ export function createRuntimeLifecycleController(options: RuntimeLifecycleOption
     watch(() => options.providerForm.compat_profile_id, () => options.syncWorkflowAvailability());
     watch(() => [options.providerForm.base_url, options.providerForm.api_key], () => options.handleProviderConnectionChanged());
     document.addEventListener("visibilitychange", onVisibilityChange);
+    window.addEventListener("scimage:runtime-update", emitRuntimeUpdate);
     window.addEventListener("focus", onWindowFocus);
     window.addEventListener("beforeunload", onBeforeUnload);
   }
 
   function startTimers() {
-    window.clearInterval(pollTimer);
-    pollTimer = window.setInterval(() => void options.refreshJobs({ silent: true }), 3500);
+    runtimeEvents.connect();
     window.clearInterval(clockTimer);
     clockTimer = window.setInterval(options.updateClockTick, 1000);
+  }
+
+  function refreshJobsWhenVisible() {
+    if (document.visibilityState === "hidden") return;
+    void options.refreshJobs({ silent: true });
+  }
+
+  function emitRuntimeUpdate() {
+    refreshJobsWhenVisible();
+    if (document.visibilityState === "hidden") return;
+    runtimeUpdateListeners.forEach((listener) => listener());
+  }
+
+  function subscribeRuntimeUpdate(listener: RuntimeUpdateListener) {
+    runtimeUpdateListeners.add(listener);
+    return () => runtimeUpdateListeners.delete(listener);
   }
 
   function onVisibilityChange() {
@@ -82,5 +104,6 @@ export function createRuntimeLifecycleController(options: RuntimeLifecycleOption
 
   return {
     initRuntime,
+    subscribeRuntimeUpdate,
   };
 }
