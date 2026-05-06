@@ -14,10 +14,13 @@ PYTHON_TESTS = [
     "tests/test_desktop_bridge.py",
     "tests/test_genealogy.py",
     "tests/test_image_service.py",
+    "tests/test_image_gateway_response.py",
     "tests/test_job_pagination.py",
+    "tests/test_job_execution_queue.py",
     "tests/test_multi_api_compat.py",
     "tests/test_provider_model_catalog.py",
     "tests/test_runtime_paths.py",
+    "tests/test_runtime_events.py",
     "tests/test_server_lifecycle.py",
     "tests/test_workspace_state_store.py",
 ]

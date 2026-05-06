@@ -18,6 +18,7 @@
     "test:visual": "node scripts/run_with_vite.mjs node tests/visual_regression.mjs",
     "typecheck": "vue-tsc --noEmit",
     "verify": "npm run lint && npm run build && npm run build:check && npm run test:python && npm run test:vue-regression && npm run test:visual && npm run test:perf",
+    "verify:release": "node scripts/verify_release.mjs",
     "preview": "vite preview --host 127.0.0.1"
   },
   "dependencies": {
