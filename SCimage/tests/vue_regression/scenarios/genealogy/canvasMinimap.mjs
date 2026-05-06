@@ -18,6 +18,30 @@ export async function runGenealogyMinimapScenario(context, blankPanStart) {
     throw new Error(`族谱导航展开状态或内部按钮错误：${JSON.stringify(openedNavigationState)}`);
   }
 
+  const minimapPaintState = await page.evaluate(() => {
+    const nodes = [...document.querySelectorAll("[data-minimap-node-id]")];
+    const firstNodeStyle = nodes[0] ? getComputedStyle(nodes[0]) : null;
+    const viewport = document.querySelector(".minimap-viewport");
+    const viewportStyle = viewport ? getComputedStyle(viewport) : null;
+    return {
+      nodeCount: nodes.length,
+      edgeCount: document.querySelectorAll("[data-minimap-edge]").length,
+      firstNodeFill: firstNodeStyle?.fill || "",
+      firstNodeStroke: firstNodeStyle?.stroke || "",
+      viewportFill: viewportStyle?.fill || "",
+      viewportStroke: viewportStyle?.stroke || "",
+    };
+  });
+  if (
+    minimapPaintState.nodeCount < 1 ||
+    minimapPaintState.edgeCount < 1 ||
+    isInvisibleMinimapPaint(minimapPaintState.firstNodeFill) ||
+    isInvisibleMinimapPaint(minimapPaintState.firstNodeStroke) ||
+    isInvisibleMinimapPaint(minimapPaintState.viewportStroke)
+  ) {
+    throw new Error(`族谱导航小地图没有渲染可见节点、连线和视口框：${JSON.stringify(minimapPaintState)}`);
+  }
+
   const minimapRootPoint = await page.locator('[data-minimap-node-id="genealogy-job:1"]').evaluate((node) => {
     const rect = node.getBoundingClientRect();
     return {
@@ -55,4 +79,8 @@ export async function runGenealogyMinimapScenario(context, blankPanStart) {
   if (closedNavigationState !== "false") {
     throw new Error(`点击导航外部后没有收起导航：aria-pressed=${closedNavigationState || ""}`);
   }
+}
+
+function isInvisibleMinimapPaint(value) {
+  return !value || value === "none" || value === "rgb(0, 0, 0)" || value === "rgba(0, 0, 0, 0)";
 }
