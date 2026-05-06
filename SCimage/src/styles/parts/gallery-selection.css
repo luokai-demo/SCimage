@@ -1,0 +1,59 @@
+.gallery-select-btn {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  z-index: 8;
+  width: 26px;
+  height: 26px;
+  border-radius: 999px;
+  border: 1px solid rgba(255,255,255,0.35);
+  background: rgba(0,0,0,0.36);
+  color: #fff;
+  opacity: 0;
+  cursor: pointer;
+  display: grid;
+  place-items: center;
+  font-size: 13px;
+  line-height: 1;
+  box-shadow: 0 6px 18px rgba(0,0,0,0.22);
+  transition: opacity var(--transition), background var(--transition), border-color var(--transition);
+}
+.gallery-item:hover .gallery-select-btn,
+.gallery-item.is-selected .gallery-select-btn,
+.gallery-select-btn:hover,
+.gallery-select-btn:focus-visible { opacity: 1; }
+.gallery-select-btn:focus:not(:focus-visible) { opacity: 0; }
+.gallery-item:hover .gallery-select-btn:focus,
+.gallery-item.is-selected .gallery-select-btn:focus { opacity: 1; }
+.gallery-select-btn::before {
+  content: "";
+  width: 10px;
+  height: 10px;
+  border-radius: 999px;
+  border: 1px solid rgba(255,255,255,0.76);
+}
+.gallery-item.is-selected .gallery-select-btn {
+  background: rgba(91,160,255,0.72);
+  border-color: rgba(255,255,255,0.78);
+}
+.gallery-item.is-selected .gallery-select-btn::before {
+  content: "✓";
+  width: auto;
+  height: auto;
+  border: none;
+}
+.gallery-item.is-selected {
+  outline: none;
+  box-shadow:
+    inset 0 0 0 2px rgba(91,160,255,0.92),
+    0 0 0 1px rgba(91,160,255,0.28);
+}
+.selection-box {
+  position: fixed;
+  z-index: 80;
+  border: 1px solid rgba(91,160,255,0.95);
+  background: rgba(91,160,255,0.16);
+  border-radius: 6px;
+  pointer-events: none;
+  box-shadow: 0 0 0 1px rgba(255,255,255,0.08) inset;
+}

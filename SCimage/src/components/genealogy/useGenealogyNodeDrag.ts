@@ -1,4 +1,12 @@
 import { onBeforeUnmount, ref, type Ref } from "vue";
+import {
+  clampNodePosition,
+  clampRawNodePosition,
+  hasNodeDragMoved,
+  pointerDeltaSinceLastEvent,
+} from "./genealogyNodeDragMath";
+import { createGenealogyDragAutoScroll } from "./genealogyDragAutoScroll";
+import { useNodeClickSuppressor } from "./useNodeClickSuppressor";
 
 export interface GenealogyDraggableNode {
   id: string;
@@ -41,23 +49,31 @@ interface UseGenealogyNodeDragOptions<TNode extends GenealogyDraggableNode> {
   onDragCanceled?: () => void;
 }
 
-const DRAG_EDGE_PAN_ZONE = 72;
-const DRAG_EDGE_PAN_MAX_SPEED = 22;
-
 export function useGenealogyNodeDrag<TNode extends GenealogyDraggableNode>(
   options: UseGenealogyNodeDragOptions<TNode>,
 ) {
   const dragState = ref<NodeDragState>(emptyNodeDragState());
-  const suppressNextNodeClickId = ref("");
-  let suppressNodeClickTimer = 0;
   let dragFrame = 0;
-  let dragAutoScrollFrame = 0;
+  const {
+    disposeNodeClickSuppressor,
+    shouldSuppressNodeClick,
+    suppressNodeClick,
+  } = useNodeClickSuppressor();
+  const {
+    cancelNodeDragAutoScroll,
+    startNodeDragAutoScroll,
+  } = createGenealogyDragAutoScroll({
+    getState: () => dragState.value,
+    scheduleViewportUpdate: options.scheduleViewportUpdate,
+    setState: (state) => {
+      dragState.value = state;
+    },
+    updateNodePosition: options.updateNodePosition,
+    viewport: options.viewport,
+  });
 
   function selectNodeFromCard(nodeId: string) {
-    if (suppressNextNodeClickId.value === nodeId) {
-      suppressNextNodeClickId.value = "";
-      return;
-    }
+    if (shouldSuppressNodeClick(nodeId)) return;
     options.selectNode(nodeId);
   }
 
@@ -71,7 +87,6 @@ export function useGenealogyNodeDrag<TNode extends GenealogyDraggableNode>(
     event.preventDefault();
     const captureTarget = event.currentTarget instanceof HTMLElement ? event.currentTarget : null;
     captureTarget?.setPointerCapture?.(event.pointerId);
-    options.selectNode(nodeId);
     dragState.value = {
       nodeId,
       pointerId: event.pointerId,
@@ -97,7 +112,7 @@ export function useGenealogyNodeDrag<TNode extends GenealogyDraggableNode>(
     if (!state.nodeId || event.pointerId !== state.pointerId) return;
     event.preventDefault();
     const delta = pointerDeltaSinceLastEvent(state, event);
-    const moved = state.moved || Math.hypot(event.clientX - state.startClientX, event.clientY - state.startClientY) >= 3;
+    const moved = hasNodeDragMoved(state, event);
     const nextPosition = clampRawNodePosition({
       x: state.currentX + delta.x,
       y: state.currentY + delta.y,
@@ -131,6 +146,8 @@ export function useGenealogyNodeDrag<TNode extends GenealogyDraggableNode>(
     }));
     if (nextState.moved) {
       options.updateNodePosition(nextState.nodeId, nextPosition);
+    } else {
+      options.selectNode(nextState.nodeId);
     }
     const node = options.getNode(nextState.nodeId);
     if (nextState.moved) suppressNodeClick(nextState.nodeId);
@@ -155,8 +172,7 @@ export function useGenealogyNodeDrag<TNode extends GenealogyDraggableNode>(
     window.removeEventListener("pointerup", handleNodePointerUp);
     window.removeEventListener("pointercancel", cancelNodeDrag);
     window.cancelAnimationFrame(dragFrame);
-    window.cancelAnimationFrame(dragAutoScrollFrame);
-    dragAutoScrollFrame = 0;
+    cancelNodeDragAutoScroll();
     releaseNodePointerCapture(state);
   }
 
@@ -170,55 +186,8 @@ export function useGenealogyNodeDrag<TNode extends GenealogyDraggableNode>(
     });
   }
 
-  function pointerDeltaSinceLastEvent(state: NodeDragState, event: { clientX: number; clientY: number }) {
-    return {
-      x: event.clientX - state.lastClientX,
-      y: event.clientY - state.lastClientY,
-    };
-  }
-
-  function startNodeDragAutoScroll() {
-    if (dragAutoScrollFrame) return;
-    dragAutoScrollFrame = window.requestAnimationFrame(runNodeDragAutoScroll);
-  }
-
-  function runNodeDragAutoScroll() {
-    dragAutoScrollFrame = 0;
-    const state = dragState.value;
-    const viewport = options.viewport.value;
-    if (!state.nodeId || !state.moved || !viewport) return;
-
-    const rect = viewport.getBoundingClientRect();
-    const deltaX = edgePanVelocity(state.lastClientX, rect.left, rect.right);
-    const deltaY = edgePanVelocity(state.lastClientY, rect.top, rect.bottom);
-    if (!deltaX && !deltaY) return;
-
-    const beforeLeft = viewport.scrollLeft;
-    const beforeTop = viewport.scrollTop;
-    viewport.scrollBy({ left: deltaX, top: deltaY, behavior: "auto" });
-    const scrollDeltaX = viewport.scrollLeft - beforeLeft;
-    const scrollDeltaY = viewport.scrollTop - beforeTop;
-    const nextState = {
-      ...state,
-      currentX: Math.max(0, state.currentX + scrollDeltaX),
-      currentY: Math.max(0, state.currentY + scrollDeltaY),
-    };
-    dragState.value = nextState;
-    options.updateNodePosition(state.nodeId, clampNodePosition({ x: nextState.currentX, y: nextState.currentY }));
-    options.scheduleViewportUpdate();
-    dragAutoScrollFrame = window.requestAnimationFrame(runNodeDragAutoScroll);
-  }
-
-  function suppressNodeClick(nodeId: string) {
-    suppressNextNodeClickId.value = nodeId;
-    window.clearTimeout(suppressNodeClickTimer);
-    suppressNodeClickTimer = window.setTimeout(() => {
-      if (suppressNextNodeClickId.value === nodeId) suppressNextNodeClickId.value = "";
-    }, 0);
-  }
-
   function disposeNodeDrag() {
-    window.clearTimeout(suppressNodeClickTimer);
+    disposeNodeClickSuppressor();
     cleanupNodeDrag();
   }
 
@@ -250,33 +219,7 @@ function emptyNodeDragState(): NodeDragState {
   };
 }
 
-function clampNodePosition(position: GenealogyNodeDragPosition) {
-  return {
-    x: Math.max(0, Math.round(position.x)),
-    y: Math.max(0, Math.round(position.y)),
-  };
-}
-
-function clampRawNodePosition(position: GenealogyNodeDragPosition) {
-  return {
-    x: Math.max(0, position.x),
-    y: Math.max(0, position.y),
-  };
-}
-
 function releaseNodePointerCapture(state: NodeDragState) {
   if (!state.captureTarget?.hasPointerCapture?.(state.pointerId)) return;
   state.captureTarget.releasePointerCapture(state.pointerId);
-}
-
-function edgePanVelocity(pointer: number, start: number, end: number) {
-  if (pointer < start + DRAG_EDGE_PAN_ZONE) {
-    const ratio = (start + DRAG_EDGE_PAN_ZONE - pointer) / DRAG_EDGE_PAN_ZONE;
-    return -Math.ceil(Math.min(1, ratio) * DRAG_EDGE_PAN_MAX_SPEED);
-  }
-  if (pointer > end - DRAG_EDGE_PAN_ZONE) {
-    const ratio = (pointer - (end - DRAG_EDGE_PAN_ZONE)) / DRAG_EDGE_PAN_ZONE;
-    return Math.ceil(Math.min(1, ratio) * DRAG_EDGE_PAN_MAX_SPEED);
-  }
-  return 0;
 }

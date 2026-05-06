@@ -1,0 +1,53 @@
+/* Drop zone */
+.drop-zone {
+  border: 1px dashed var(--border-hover);
+  border-radius: var(--radius);
+  padding: 16px;
+  text-align: center;
+  transition: all var(--transition);
+  position: relative;
+  outline: none;
+  min-height: 80px;
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px;
+}
+.drop-zone:hover, .drop-zone:focus-within { border-color: #555; }
+.drop-zone.dragover { border-color: var(--accent); background: rgba(255,255,255,0.03); }
+.drop-zone-text { color: var(--text-tertiary); font-size: 12px; pointer-events: none; }
+.drop-zone-browse {
+  padding: 4px 12px; border-radius: var(--radius); font-size: 11px;
+  font-family: inherit; cursor: pointer;
+  border: 1px solid var(--border); background: transparent;
+  color: var(--text-secondary); transition: all var(--transition);
+}
+.drop-zone-browse:hover { border-color: var(--border-hover); color: var(--text-primary); }
+.drop-zone-preview {
+  display: flex; flex-wrap: wrap; gap: 6px; justify-content: center;
+}
+.drop-zone-preview img {
+  height: 48px; border-radius: 4px; border: 1px solid var(--border);
+}
+.source-preview-item {
+  position: relative;
+  display: inline-flex;
+}
+.source-preview-item button {
+  position: absolute;
+  top: -5px;
+  right: -5px;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border: 1px solid rgba(255,255,255,0.18);
+  border-radius: 999px;
+  background: rgba(229,72,77,0.9);
+  color: #fff;
+  cursor: pointer;
+  display: inline-grid;
+  place-items: center;
+  box-shadow: 0 8px 16px rgba(0,0,0,0.28);
+}
+.source-preview-item button svg {
+  width: 11px;
+  height: 11px;
+  stroke-width: 2;
+}

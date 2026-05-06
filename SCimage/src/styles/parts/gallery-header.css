@@ -1,0 +1,82 @@
+/* Gallery header */
+.gallery-header {
+  margin-bottom: 16px;
+  position: relative;
+  flex-shrink: 0;
+  z-index: 10;
+  min-width: 0;
+  min-height: 30px;
+}
+.gallery-header-normal,
+.gallery-header-batch {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  min-width: 0;
+}
+.gallery-header-normal {
+  position: relative;
+  z-index: 13;
+  justify-content: space-between;
+  gap: 12px;
+  animation: galleryHeaderSwap 150ms ease-out both;
+  pointer-events: none;
+}
+.gallery-header-normal[hidden],
+.gallery-header-batch[hidden] { display: none !important; }
+.gallery-header-batch {
+  justify-content: stretch;
+  gap: 12px;
+  animation: galleryHeaderSwap 150ms ease-out both;
+}
+@keyframes galleryHeaderSwap {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+.gallery-header-left {
+  position: relative;
+  z-index: 13;
+  pointer-events: auto;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.gallery-count { color: var(--text-tertiary); font-size: 12px; }
+.gallery-filter { display: flex; gap: 4px; }
+.gallery-filter button {
+  padding: 4px 12px; border-radius: 100px; font-size: 12px;
+  font-family: inherit; cursor: pointer;
+  border: 1px solid var(--border); background: transparent;
+  color: var(--text-tertiary); transition: all var(--transition);
+}
+.gallery-filter button:hover { color: var(--text-secondary); border-color: var(--border-hover); }
+.gallery-filter button.active { color: var(--text-primary); background: rgba(255,255,255,0.08); border-color: var(--border-hover); }
+.gallery-sort-btn {
+  padding: 4px 10px; border-radius: 100px; font-size: 11px;
+  font-family: inherit; cursor: pointer;
+  border: 1px solid var(--border); background: transparent;
+  color: var(--text-tertiary); transition: all var(--transition); white-space: nowrap;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+.gallery-sort-btn:hover { color: var(--text-secondary); border-color: var(--border-hover); }
+.gallery-sort-btn svg {
+  width: 12px;
+  height: 12px;
+  stroke-width: 1.8;
+}
+.gallery-actions-right {
+  position: relative;
+  z-index: 13;
+  pointer-events: auto;
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}

@@ -18,7 +18,7 @@ export function useGenealogyGraphData(options: UseGenealogyGraphDataOptions) {
   let pendingGraphRefreshAfterDrag = false;
 
   async function loadGraph(loadOptions: LoadGraphOptions = {}) {
-    if (options.shouldDeferGraphRefresh()) {
+    if (!loadOptions.force && options.shouldDeferGraphRefresh()) {
       pendingGraphRefreshAfterDrag = true;
       return;
     }
@@ -33,7 +33,7 @@ export function useGenealogyGraphData(options: UseGenealogyGraphDataOptions) {
       const response = await fetch("/api/genealogy/graph", { signal: graphAbortController.signal });
       if (!response.ok) throw new Error(`族谱同步失败：${response.status}`);
       const payload = await response.json() as GenealogyGraphPayload;
-      if (options.shouldDeferGraphRefresh()) {
+      if (!loadOptions.force && options.shouldDeferGraphRefresh()) {
         pendingGraphRefreshAfterDrag = true;
         return;
       }

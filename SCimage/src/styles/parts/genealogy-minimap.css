@@ -1,0 +1,124 @@
+.genealogy-minimap {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  z-index: 12;
+  width: 236px;
+  padding: 10px;
+  border: 1px solid rgba(255,255,255,.12);
+  border-radius: 10px;
+  background: rgba(11,12,14,.96);
+  box-shadow: 0 16px 38px rgba(0,0,0,.32);
+}
+.minimap-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.minimap-head > span {
+  min-width: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--text-primary);
+  font-size: 10px;
+  font-weight: 650;
+}
+.minimap-head > span svg {
+  width: 12px;
+  height: 12px;
+  stroke-width: 1.9;
+}
+.minimap-status {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text-tertiary);
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.minimap-body {
+  margin-top: 8px;
+  position: relative;
+}
+.minimap-svg {
+  width: 100%;
+  height: 116px;
+  display: block;
+  overflow: hidden;
+  border: 1px solid rgba(255,255,255,.09);
+  border-radius: 9px;
+  background: rgba(255,255,255,.014);
+  pointer-events: none;
+}
+.minimap-interaction-overlay {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 116px;
+  border-radius: 9px;
+  touch-action: none;
+  cursor: grab;
+}
+.minimap-interaction-overlay:active {
+  cursor: grabbing;
+}
+.minimap-plane {
+  fill: transparent;
+}
+.minimap-edge {
+  fill: none;
+  stroke: rgba(175,187,205,.36);
+  stroke-width: 1.15;
+  vector-effect: non-scaling-stroke;
+  stroke-linecap: round;
+}
+.minimap-edge.is-bloodline {
+  stroke: rgba(220,226,238,.78);
+  stroke-width: 1.7;
+}
+.minimap-node {
+  fill: rgba(238,242,248,.22);
+  stroke: rgba(255,255,255,.32);
+  stroke-width: 1.1;
+  vector-effect: non-scaling-stroke;
+  transition: fill var(--transition), stroke var(--transition), opacity var(--transition);
+}
+.minimap-node.is-source {
+  fill: rgba(220,206,156,.44);
+  stroke: rgba(220,206,156,.7);
+}
+.minimap-node.is-bloodline {
+  fill: rgba(220,226,238,.54);
+  stroke: rgba(220,226,238,.86);
+}
+.minimap-node.is-selected {
+  fill: rgba(255,255,255,.9);
+  stroke: rgba(255,255,255,.9);
+  stroke-width: 1.9;
+}
+.genealogy-minimap.is-sampled .minimap-node:not(.is-selected):not(.is-bloodline) {
+  opacity: .7;
+}
+.minimap-viewport {
+  fill: rgba(255,255,255,.08);
+  stroke: rgba(255,255,255,.72);
+  stroke-width: 1.6;
+  vector-effect: non-scaling-stroke;
+  transition: fill var(--transition), stroke var(--transition);
+}
+.minimap-viewport:hover,
+.minimap-viewport:focus-visible {
+  fill: rgba(255,255,255,.1);
+  stroke: rgba(255,255,255,.82);
+  outline: none;
+}
+@media (max-width: 1040px) {
+  .genealogy-minimap {
+    width: 204px;
+  }
+}

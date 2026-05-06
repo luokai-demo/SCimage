@@ -1,0 +1,88 @@
+.failure-popup {
+  position: fixed;
+  top: 18px;
+  left: 50%;
+  width: min(540px, calc(100vw - 32px));
+  transform: translate(-50%, -20px);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 220ms ease, transform 320ms var(--panel-ease);
+  z-index: 980;
+}
+.failure-popup.open {
+  transform: translate(-50%, 0);
+  opacity: 1;
+  pointer-events: auto;
+}
+.failure-popup-card {
+  border: 1px solid rgba(229,72,77,0.28);
+  border-radius: var(--radius-lg);
+  background:
+    radial-gradient(circle at top right, rgba(229,72,77,0.08), transparent 34%),
+    linear-gradient(180deg, rgba(16,8,8,0.98), rgba(10,10,10,0.98));
+  box-shadow: 0 20px 40px rgba(0,0,0,0.42);
+  padding: 14px;
+}
+.failure-popup-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: #ffd6d6;
+}
+.failure-popup-prompt {
+  margin-top: 8px;
+  color: var(--text-secondary);
+  font-size: 11px;
+  line-height: 1.45;
+}
+.failure-popup-content {
+  margin-top: 10px;
+  padding: 10px;
+  border: 1px solid rgba(255,255,255,0.08);
+  border-radius: var(--radius);
+  background: rgba(255,255,255,0.02);
+  color: var(--text-secondary);
+  font-size: 11px;
+  line-height: 1.5;
+  white-space: pre-line;
+}
+.failure-popup-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 12px;
+}
+.failure-popup-actions button {
+  min-width: 78px;
+  padding: 8px 14px;
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+  background: rgba(255,255,255,0.04);
+  color: var(--text-primary);
+  font: inherit;
+  cursor: pointer;
+  transition: all var(--transition);
+}
+.failure-popup-actions button:hover {
+  border-color: var(--border-hover);
+  background: rgba(255,255,255,0.08);
+}
+.failure-popup-actions .failure-popup-retry {
+  border-color: rgba(255,255,255,0.16);
+  background: rgba(255,255,255,0.02);
+}
+.failure-popup-actions .failure-popup-retry:hover {
+  border-color: var(--border-hover);
+}
+.failure-popup-actions .failure-popup-delete {
+  border-color: rgba(229,72,77,0.4);
+  color: #ffd6d6;
+  background: rgba(229,72,77,0.08);
+}
+.failure-popup-actions .failure-popup-delete:hover {
+  border-color: rgba(229,72,77,0.65);
+  background: rgba(229,72,77,0.14);
+}
+.failure-popup-actions button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}

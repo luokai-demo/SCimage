@@ -114,20 +114,17 @@
 </template>
 
 <script setup lang="ts">
-import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from "vue";
+import { computed, onBeforeUnmount, onMounted, ref } from "vue";
 import { ArrowUpDown, Settings } from "lucide-vue-next";
 import { useScimageRuntime } from "../composables/useScimageRuntime";
 import { useGalleryGroups } from "../composables/useGalleryGroups";
 import type { GalleryFlatItem } from "../stores/gallery";
 import { copyTextToClipboard } from "../utils/clipboard";
-import {
-  buildGalleryMasonryLayout,
-  filterVisibleGalleryItems,
-  warmGalleryImages,
-  type GalleryLayoutItem,
-} from "../utils/galleryLayout";
 import { imageKey } from "../utils/galleryKeys";
+import { createGalleryCountText } from "../utils/galleryItemViewModel";
 import GalleryImageCard from "./gallery/GalleryImageCard.vue";
+import { useGalleryColumns } from "./gallery/useGalleryColumns";
+import { useGallerySelectionBox } from "./gallery/useGallerySelectionBox";
 import IconButton from "./ui/IconButton.vue";
 
 const runtime = useScimageRuntime();
@@ -138,27 +135,15 @@ const settingsOpen = ref(false);
 const galleryGridRef = ref<HTMLElement | null>(null);
 const galleryWindowRef = ref<HTMLElement | null>(null);
 const galleryGroups = useGalleryGroups(runtime.visibleGalleryItems, computed(() => galleryStore.filter));
-const galleryColumnCount = ref(4);
-const galleryContainerWidth = ref(0);
-const galleryScrollTop = ref(0);
-const galleryViewportHeight = ref(1);
-const selectionStart = reactive({ x: 0, y: 0, active: false });
-const selectionBox = reactive({ visible: false, left: 0, top: 0, width: 0, height: 0 });
-let gridResizeObserver: ResizeObserver | null = null;
-let layoutFrame = 0;
 
 const galleryCountText = computed(() => {
   const count = runtime.visibleGalleryItems.value.length;
-  if (!count) return "";
-  const total = Number(galleryStore.pagination.total || count);
-  const loadedText = total > count ? `已加载 ${count}/${total} 张` : `${count} 张图片`;
-  if (galleryStore.filter === "tasks") {
-    return `${galleryGroups.grouped.value.length} 个可见任务 · ${count} 张 · ${loadedText}`;
-  }
-  if (galleryStore.filter === "prompts") {
-    return `${galleryGroups.grouped.value.length} 组提示词 · ${count} 张 · ${loadedText}`;
-  }
-  return total > count ? `${count}/${total} 张图片` : loadedText;
+  return createGalleryCountText({
+    filter: galleryStore.filter,
+    groupedCount: galleryGroups.grouped.value.length,
+    loadedCount: count,
+    totalCount: Number(galleryStore.pagination.total || count),
+  });
 });
 
 const syncText = computed(() => {
@@ -166,46 +151,28 @@ const syncText = computed(() => {
   if (jobStore.lastSyncAt) return `最后同步：${new Date(jobStore.lastSyncAt).toLocaleTimeString()}`;
   return "同步：自动刷新";
 });
-
-const selectionBoxStyle = computed(() => ({
-  left: `${selectionBox.left}px`,
-  top: `${selectionBox.top}px`,
-  width: `${selectionBox.width}px`,
-  height: `${selectionBox.height}px`,
-}));
-
-const galleryGridStyle = computed(() => ({
-  "--gallery-columns": String(galleryColumnCount.value),
-  "--gallery-virtual-height": `${Math.ceil(galleryLayout.value.totalHeight)}px`,
-}));
-
-const galleryLayout = computed(() => buildGalleryMasonryLayout(runtime.visibleGalleryItems.value, {
-  containerWidth: galleryContainerWidth.value,
-  targetColumnWidth: 176,
-  minColumns: 1,
-  maxColumns: 8,
-  gapPx: 12,
-  allowFeatured: galleryStore.filter === "all",
-}));
-
-const visibleGalleryRecords = computed(() => (
-  filterVisibleGalleryItems(galleryLayout.value.items, {
-    scrollTop: galleryScrollTop.value,
-    viewportHeight: galleryViewportHeight.value,
-    overscanScreens: 1.25,
-  })
-));
-
-const groupedProfileByKey = computed(() => {
-  const layout = buildGalleryMasonryLayout(runtime.visibleGalleryItems.value, {
-    containerWidth: galleryContainerWidth.value,
-    targetColumnWidth: 176,
-    minColumns: 1,
-    maxColumns: 8,
-    gapPx: 12,
-    allowFeatured: false,
-  });
-  return new Map(layout.items.map((record) => [record.key, record.profile]));
+const {
+  distributeColumns,
+  galleryGridStyle,
+  galleryRecordStyle,
+  groupedProfileByKey,
+  updateGalleryScrollMetrics,
+  visibleGalleryRecords,
+} = useGalleryColumns({
+  items: runtime.visibleGalleryItems,
+  filter: computed(() => galleryStore.filter),
+  isPanelCollapsed: computed(() => runtime.workspaceStore.isPanelCollapsed),
+  galleryGridRef,
+  galleryWindowRef,
+});
+const {
+  selectionBox,
+  selectionBoxStyle,
+  startEdgeSelection,
+} = useGallerySelectionBox({
+  clearSelection: runtime.clearSelection,
+  hasSelection: () => Boolean(galleryStore.selectedCount),
+  selectByRect: runtime.selectByRect,
 });
 
 function isSelected(item: GalleryFlatItem) {
@@ -216,72 +183,9 @@ function itemIndex(item: GalleryFlatItem) {
   return galleryGroups.itemIndexByKey.value.get(imageKey(item)) ?? 0;
 }
 
-function galleryRecordStyle(record: GalleryLayoutItem) {
-  return {
-    transform: `translate3d(${Math.round(record.x)}px, ${Math.round(record.y)}px, 0)`,
-    width: `${Math.round(record.width)}px`,
-    height: `${Math.round(record.height)}px`,
-    "--gallery-column-span": String(record.columnSpan),
-  };
-}
-
-function distributeColumns(items: GalleryFlatItem[]) {
-  const columns = Array.from({ length: galleryColumnCount.value }, () => [] as GalleryFlatItem[]);
-  const byKey = new Map(groupedProfileByKey.value);
-  const sorted = items.map((item) => {
-    const key = imageKey(item);
-    const profile = byKey.get(key);
-    const ratio = profile?.heightRatio || (item.width && item.height ? item.height / item.width : 1);
-    return { item, ratio };
-  });
-  const heights = Array.from({ length: galleryColumnCount.value }, () => 0);
-  sorted.forEach(({ item, ratio }) => {
-    const columnIndex = heights.reduce((bestIndex, height, index) => (
-      height < heights[bestIndex] ? index : bestIndex
-    ), 0);
-    columns[columnIndex].push(item);
-    heights[columnIndex] += Math.max(0.5, ratio);
-  });
-  return columns;
-}
-
-function startEdgeSelection(event: PointerEvent) {
-  if (galleryStore.selectedCount && event.detail <= 1) {
-    runtime.clearSelection();
-  }
-  selectionStart.x = event.clientX;
-  selectionStart.y = event.clientY;
-  selectionStart.active = true;
-  selectionBox.visible = true;
-  updateSelectionBox(event.clientX, event.clientY);
-  window.addEventListener("pointermove", onSelectionMove);
-  window.addEventListener("pointerup", finishSelection, { once: true });
-}
-
-function updateSelectionBox(x: number, y: number) {
-  selectionBox.left = Math.min(selectionStart.x, x);
-  selectionBox.top = Math.min(selectionStart.y, y);
-  selectionBox.width = Math.abs(x - selectionStart.x);
-  selectionBox.height = Math.abs(y - selectionStart.y);
-}
-
-function onSelectionMove(event: PointerEvent) {
-  if (!selectionStart.active) return;
-  updateSelectionBox(event.clientX, event.clientY);
-}
-
-function finishSelection() {
-  window.removeEventListener("pointermove", onSelectionMove);
-  selectionStart.active = false;
-  const rect = new DOMRect(selectionBox.left, selectionBox.top, selectionBox.width, selectionBox.height);
-  if (selectionBox.width > 8 && selectionBox.height > 8) runtime.selectByRect(rect);
-  selectionBox.visible = false;
-}
-
 function onGalleryScroll(event: Event) {
   const target = event.currentTarget as HTMLElement;
-  galleryScrollTop.value = target.scrollTop || 0;
-  galleryViewportHeight.value = target.clientHeight || 1;
+  updateGalleryScrollMetrics();
   const remaining = target.scrollHeight - target.scrollTop - target.clientHeight;
   if (remaining <= 900) void runtime.loadMoreGallery();
 }
@@ -306,61 +210,13 @@ function onDocumentKeydown(event: KeyboardEvent) {
   if (event.key === "Escape") closeSettingsPanel();
 }
 
-function clamp(value: number, min: number, max: number) {
-  return Math.min(max, Math.max(min, value));
-}
-
-function updateGalleryColumns() {
-  const grid = galleryGridRef.value;
-  if (!grid) return;
-  const gapPx = 12;
-  const targetColumnWidth = 176;
-  const width = grid.clientWidth;
-  if (!width) return;
-  const columns = clamp(Math.floor((width + gapPx) / (targetColumnWidth + gapPx)), 1, 8);
-  galleryColumnCount.value = columns;
-  galleryContainerWidth.value = width;
-  grid.style.setProperty("--gallery-columns", String(columns));
-  grid.style.setProperty("--gallery-grid-gap", `${gapPx}px`);
-  const windowNode = galleryWindowRef.value;
-  if (windowNode) {
-    galleryScrollTop.value = windowNode.scrollTop || 0;
-    galleryViewportHeight.value = windowNode.clientHeight || 1;
-  }
-}
-
-function scheduleGalleryColumnsUpdate() {
-  if (layoutFrame) cancelAnimationFrame(layoutFrame);
-  layoutFrame = requestAnimationFrame(() => {
-    layoutFrame = 0;
-    updateGalleryColumns();
-  });
-}
-
 onMounted(() => {
-  nextTick(() => {
-    updateGalleryColumns();
-    if (typeof ResizeObserver === "function" && galleryGridRef.value) {
-      gridResizeObserver = new ResizeObserver(scheduleGalleryColumnsUpdate);
-      gridResizeObserver.observe(galleryGridRef.value);
-    }
-    window.addEventListener("resize", scheduleGalleryColumnsUpdate);
-    document.addEventListener("click", onDocumentClick);
-    document.addEventListener("keydown", onDocumentKeydown);
-  });
+  document.addEventListener("click", onDocumentClick);
+  document.addEventListener("keydown", onDocumentKeydown);
 });
 
 onBeforeUnmount(() => {
-  gridResizeObserver?.disconnect();
-  gridResizeObserver = null;
-  window.removeEventListener("resize", scheduleGalleryColumnsUpdate);
   document.removeEventListener("click", onDocumentClick);
   document.removeEventListener("keydown", onDocumentKeydown);
-  if (layoutFrame) cancelAnimationFrame(layoutFrame);
 });
-
-watch(() => runtime.visibleGalleryItems.value.length, () => nextTick(scheduleGalleryColumnsUpdate));
-watch(() => runtime.visibleGalleryItems.value, (items) => warmGalleryImages(items), { immediate: true });
-watch(() => galleryStore.filter, () => nextTick(scheduleGalleryColumnsUpdate));
-watch(() => runtime.workspaceStore.isPanelCollapsed, () => nextTick(scheduleGalleryColumnsUpdate));
 </script>

@@ -1,5 +1,12 @@
-import type { GenealogyEdge, GenealogyFamily, GenealogyNode, GenealogyNodePosition } from "../stores/genealogy";
+import type { GenealogyEdge, GenealogyNode, GenealogyNodePosition } from "../stores/genealogy";
 import { genealogyEdgeAnchors } from "./genealogyWire";
+export { filterGenealogyFamilies } from "./genealogyFamilies";
+export { formatGenealogyTime } from "./genealogyTime";
+export {
+  genealogyEdgeIntersectsBounds,
+  isGenealogyNodeInsideBounds,
+  type GenealogyViewportBounds,
+} from "./genealogyViewport";
 
 export interface GenealogyLayoutNode extends GenealogyNode {
   generation: number;
@@ -38,24 +45,6 @@ const CANVAS_PADDING = 72;
 const FREE_CANVAS_TRAILING_SPACE = 520;
 const LAYOUT_CACHE_LIMIT = 12;
 const layoutCache = new Map<string, GenealogyLayoutCacheEntry>();
-
-export function filterGenealogyFamilies(
-  families: GenealogyFamily[],
-  query: string,
-) {
-  const normalizedQuery = query.trim().toLowerCase();
-  return families
-    .filter((family) => {
-      if (!normalizedQuery) return true;
-      return [
-        family.title,
-        family.prompt,
-        family.root_id,
-        family.latest_updated_at,
-      ].some((value) => String(value || "").toLowerCase().includes(normalizedQuery));
-    })
-    .sort((left, right) => new Date(right.latest_updated_at || 0).getTime() - new Date(left.latest_updated_at || 0).getTime());
-}
 
 export function buildGenealogyLayout(
   rootId: string,
@@ -269,11 +258,4 @@ export function genealogyImageUrl(node: GenealogyNode | null | undefined) {
 
 export function genealogyPreviewImageUrl(node: GenealogyNode | null | undefined) {
   return String(node?.preview_url || node?.url || "");
-}
-
-export function formatGenealogyTime(value: string) {
-  if (!value) return "--";
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return value;
-  return date.toLocaleString("zh-CN", { hour12: false });
 }

@@ -2,7 +2,7 @@ import { computed, reactive, ref, type Ref } from "vue";
 import type { GalleryFlatItem } from "../../stores/gallery";
 import { imageKeyFromParts } from "../../utils/galleryKeys";
 
-interface LightboxState {
+export interface RuntimeLightboxState {
   open: boolean;
   index: number;
   selectionKey: string;
@@ -21,7 +21,7 @@ interface UseRuntimeLightboxOptions {
 }
 
 export function useRuntimeLightbox(options: UseRuntimeLightboxOptions) {
-  const lightbox = reactive<LightboxState>({
+  const lightbox = reactive<RuntimeLightboxState>({
     open: false,
     index: 0,
     selectionKey: "",

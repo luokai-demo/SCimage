@@ -1,6 +1,8 @@
 @import "./parts/tokens.css";
 @import "./parts/layout.css";
 @import "./parts/gallery.css";
+@import "./parts/jobs.css";
+@import "./parts/genealogy-node-card.css";
 @import "./parts/forms.css";
 @import "./parts/lightbox.css";
 @import "./parts/responsive.css";

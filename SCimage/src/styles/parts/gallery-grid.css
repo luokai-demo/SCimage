@@ -1,0 +1,100 @@
+/* Gallery grid */
+.gallery-grid {
+  display: grid;
+  grid-template-columns: repeat(var(--gallery-columns, 4), minmax(0, 1fr));
+  gap: var(--gallery-grid-gap, 10px);
+  align-items: start;
+}
+.gallery-grid.is-virtualized {
+  position: relative;
+  display: block;
+  height: var(--gallery-virtual-height, 0px);
+  min-height: 0;
+}
+.gallery-grid.grouped-by-task {
+  display: block;
+}
+.gallery-virtual-item {
+  position: absolute;
+  left: 0;
+  top: 0;
+  will-change: transform;
+  contain: layout paint style;
+}
+.gallery-virtual-item .gallery-item {
+  height: 100%;
+}
+.gallery-job-section {
+  margin: 0 0 18px;
+  padding: 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: rgba(255,255,255,0.02);
+  display: grid;
+  grid-template-columns: minmax(176px, 232px) minmax(0, 1fr);
+  gap: 12px;
+  align-items: start;
+  content-visibility: auto;
+  contain-intrinsic-size: auto 420px;
+}
+.gallery-job-section-info {
+  min-width: 0;
+  position: sticky;
+  top: 0;
+  padding: 9px;
+  border: 1px solid rgba(255,255,255,0.055);
+  border-radius: var(--radius);
+  background: rgba(0,0,0,0.16);
+}
+.gallery-job-section-eyebrow {
+  margin-bottom: 8px;
+  color: var(--text-tertiary);
+  font-size: 10px;
+  line-height: 1.2;
+}
+.gallery-job-section-title {
+  max-height: 70px;
+  font-size: 12px;
+  line-height: 1.45;
+  font-weight: 600;
+  color: var(--text-primary);
+  overflow: hidden;
+  overflow-wrap: anywhere;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+}
+.gallery-job-section-summary {
+  margin-top: 9px;
+  padding-top: 9px;
+  border-top: 1px solid rgba(255,255,255,0.055);
+  color: var(--text-secondary);
+  font-size: 11px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+  display: -webkit-box;
+  -webkit-line-clamp: 4;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.gallery-job-section-meta {
+  margin-top: 10px;
+  font-size: 10px;
+  color: var(--text-tertiary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.gallery-job-section-grid {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: repeat(var(--gallery-columns, 4), minmax(0, 1fr));
+  gap: var(--gallery-grid-gap, 10px);
+  align-items: start;
+}
+.gallery-column {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--gallery-grid-gap, 10px);
+}

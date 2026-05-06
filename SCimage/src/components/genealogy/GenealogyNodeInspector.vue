@@ -3,18 +3,18 @@
     <div class="node-inspector-strip" aria-hidden="true"></div>
     <div class="node-inspector-preview">
       <img v-if="imageUrl" :src="imageUrl" alt="" loading="lazy" decoding="async">
-      <div v-else class="genealogy-node-placeholder">{{ node.type === 'pending' ? '预定位置' : '无预览' }}</div>
+      <div v-else class="genealogy-node-placeholder">{{ viewModel?.fallbackPreviewText }}</div>
     </div>
     <div class="node-inspector-copy">
-      <span class="node-inspector-kicker">{{ node.type === 'source' ? 'Load Image' : node.type === 'pending' ? 'Pending Image' : 'Image to Image' }} · {{ formattedTime }}</span>
-      <strong>{{ node.prompt || node.filename || node.id }}</strong>
+      <span class="node-inspector-kicker">{{ viewModel?.kicker }}</span>
+      <strong>{{ viewModel?.title }}</strong>
       <span class="node-inspector-meta">
-        <span><GitBranch aria-hidden="true" />{{ layoutNode ? formatGenealogyGeneration(layoutNode.generation) : '当前节点' }}</span>
-        <span><ImageIcon aria-hidden="true" />{{ node.size || 'auto' }}</span>
-        <span v-if="node.quality"><SlidersHorizontal aria-hidden="true" />{{ node.quality }}</span>
-        <span v-if="node.model"><Cpu aria-hidden="true" />{{ shortGenealogyText(node.model, 22) }}</span>
-        <span><GitMerge aria-hidden="true" />{{ parentCount }} 来源</span>
-        <span><Activity aria-hidden="true" />{{ statusLabel }}</span>
+        <span><GitBranch aria-hidden="true" />{{ viewModel?.generationLabel }}</span>
+        <span><ImageIcon aria-hidden="true" />{{ viewModel?.sizeLabel }}</span>
+        <span v-if="viewModel?.qualityLabel"><SlidersHorizontal aria-hidden="true" />{{ viewModel.qualityLabel }}</span>
+        <span v-if="viewModel?.modelLabel"><Cpu aria-hidden="true" />{{ viewModel.modelLabel }}</span>
+        <span><GitMerge aria-hidden="true" />{{ viewModel?.parentLabel }}</span>
+        <span><Activity aria-hidden="true" />{{ viewModel?.statusLabel }}</span>
       </span>
     </div>
     <div class="node-inspector-actions">
@@ -51,12 +51,7 @@ import {
 } from "lucide-vue-next";
 import type { GenealogyNode } from "../../stores/genealogy";
 import type { GenealogyLayoutNode } from "../../utils/genealogyGraph";
-import {
-  formatGenealogyGeneration,
-  formatGenealogyNodeStatus,
-  shortGenealogyText,
-} from "../../utils/genealogyFormat";
-import { formatGenealogyTime } from "../../utils/genealogyGraph";
+import { createGenealogyInspectorViewModel } from "./genealogyInspectorViewModel";
 
 const props = defineProps<{
   node: GenealogyNode | null;
@@ -73,161 +68,11 @@ defineEmits<{
   delete: [];
 }>();
 
-const formattedTime = computed(() => formatGenealogyTime(props.node?.updated_at || ""));
-const statusLabel = computed(() => formatGenealogyNodeStatus(props.node?.status));
+const viewModel = computed(() => (
+  props.node
+    ? createGenealogyInspectorViewModel(props.node, props.layoutNode, props.parentCount)
+    : null
+));
 </script>
 
-<style scoped>
-.node-inspector {
-  position: relative;
-  flex-shrink: 0;
-  display: grid;
-  grid-template-columns: 64px minmax(0, 1fr) auto;
-  gap: 12px;
-  align-items: center;
-  padding: 10px;
-  overflow: hidden;
-  border: 1px solid rgba(255,255,255,.09);
-  border-radius: 10px;
-  background:
-    linear-gradient(180deg, rgba(255,255,255,.04), rgba(255,255,255,.016)),
-    rgba(11,12,14,.92);
-}
-.node-inspector-strip {
-  position: absolute;
-  inset: 0 auto 0 0;
-  width: 3px;
-  background: rgba(212,216,224,.75);
-}
-.node-inspector.is-source .node-inspector-strip {
-  background: var(--genealogy-source);
-}
-.node-inspector.is-pending .node-inspector-strip {
-  background: #8fc8ff;
-}
-.node-inspector-preview {
-  width: 64px;
-  height: 64px;
-  overflow: hidden;
-  border-radius: 6px;
-  background: rgba(255,255,255,.06);
-}
-.node-inspector-preview img,
-.node-inspector-preview .genealogy-node-placeholder {
-  width: 64px;
-  height: 64px;
-  display: block;
-  object-fit: cover;
-}
-.node-inspector-preview .genealogy-node-placeholder {
-  display: flex;
-}
-.genealogy-node-placeholder {
-  align-items: center;
-  justify-content: center;
-  color: var(--text-tertiary);
-  font-size: 12px;
-}
-.node-inspector-copy {
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 5px;
-}
-.node-inspector-kicker {
-  color: var(--text-tertiary);
-  font-size: 11px;
-}
-.node-inspector-copy strong {
-  color: var(--text-primary);
-  font-size: 13px;
-  line-height: 1.35;
-  overflow: hidden;
-  white-space: nowrap;
-  text-overflow: ellipsis;
-}
-.node-inspector-meta {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-}
-.node-inspector-meta span {
-  min-height: 22px;
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  padding: 0 7px;
-  border: 1px solid rgba(255,255,255,.075);
-  border-radius: 6px;
-  background: rgba(255,255,255,.035);
-  color: var(--text-secondary);
-  font-size: 10px;
-}
-.node-inspector-meta svg,
-.node-inspector-actions svg {
-  width: 12px;
-  height: 12px;
-  flex: 0 0 auto;
-  stroke-width: 1.8;
-}
-.node-inspector-actions {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-.genealogy-tool-btn {
-  min-height: 28px;
-  padding: 0 10px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 5px;
-  border: 1px solid var(--border);
-  border-radius: 7px;
-  background: rgba(255,255,255,.03);
-  color: var(--text-tertiary);
-  font-family: inherit;
-  font-size: 11px;
-  line-height: 1;
-  white-space: nowrap;
-  cursor: pointer;
-  transition: border-color var(--transition), color var(--transition), background var(--transition);
-}
-.genealogy-tool-btn:hover {
-  border-color: var(--border-hover);
-  color: var(--text-primary);
-  background: rgba(255,255,255,.055);
-}
-.genealogy-tool-btn.is-danger {
-  border-color: rgba(229,72,77,.26);
-  color: #f87171;
-  background: rgba(229,72,77,.14);
-}
-.genealogy-tool-btn.is-danger:hover {
-  border-color: rgba(248,113,113,.46);
-  color: #ffb3b6;
-  background: rgba(229,72,77,.22);
-}
-.genealogy-tool-btn:disabled {
-  opacity: .48;
-  cursor: not-allowed;
-}
-.genealogy-tool-btn .is-spinning {
-  animation: genealogy-inspector-spin 900ms linear infinite;
-}
-@keyframes genealogy-inspector-spin {
-  to {
-    transform: rotate(360deg);
-  }
-}
-@media (max-width: 1040px) {
-  .node-inspector {
-    display: flex;
-    align-items: flex-start;
-    flex-direction: column;
-  }
-  .node-inspector-actions {
-    flex-wrap: wrap;
-  }
-}
-</style>
+<style scoped src="../../styles/parts/genealogy-node-inspector.css"></style>

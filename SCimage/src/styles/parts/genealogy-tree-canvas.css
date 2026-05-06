@@ -1,0 +1,176 @@
+.tree-viewport-wrap {
+  position: relative;
+  flex: 1;
+  height: 100%;
+  min-height: 260px;
+  overflow: hidden;
+  border: 1px solid rgba(255,255,255,.08);
+  border-radius: 10px;
+  background: #070809;
+}
+.tree-viewport {
+  width: 100%;
+  height: 100%;
+  overflow: auto;
+  border-radius: 10px;
+  background:
+    linear-gradient(rgba(255,255,255,.028) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255,255,255,.028) 1px, transparent 1px),
+    linear-gradient(rgba(255,255,255,.012) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255,255,255,.012) 1px, transparent 1px),
+    #070809;
+  background-size: 32px 32px, 32px 32px, 8px 8px, 8px 8px, auto;
+  box-shadow: inset 0 0 0 1px rgba(0,0,0,.35);
+  cursor: grab;
+  overscroll-behavior: contain;
+  touch-action: none;
+}
+.tree-viewport.is-panning {
+  cursor: grabbing;
+  user-select: none;
+}
+.tree-viewport.is-interacting .genealogy-node:not(.active):hover {
+  border-color: rgba(255,255,255,.1);
+  background:
+    linear-gradient(180deg, rgba(255,255,255,.06), rgba(255,255,255,.018)),
+    #111214;
+}
+.tree-viewport.is-dense-graph {
+  background-size: 32px 32px, 32px 32px, auto;
+  background-image:
+    linear-gradient(rgba(255,255,255,.024) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255,255,255,.024) 1px, transparent 1px),
+    linear-gradient(#070809, #070809);
+}
+.tree-viewport.is-huge-graph {
+  background: #070809;
+}
+.tree-canvas {
+  position: relative;
+  min-width: 100%;
+  min-height: 100%;
+}
+.tree-skeleton {
+  position: absolute;
+  inset: 1px;
+  z-index: 7;
+  display: grid;
+  grid-template-columns: repeat(3, 168px);
+  gap: 78px;
+  padding: 58px 18px;
+  pointer-events: none;
+}
+.tree-skeleton span {
+  height: 208px;
+  border: 1px solid rgba(255,255,255,.07);
+  border-radius: 8px;
+  background: linear-gradient(110deg, rgba(255,255,255,.035), rgba(255,255,255,.08), rgba(255,255,255,.035));
+  background-size: 220% 100%;
+  animation: genealogy-skeleton 1200ms ease-in-out infinite;
+}
+@keyframes genealogy-skeleton {
+  0% { background-position: 100% 0; }
+  100% { background-position: -100% 0; }
+}
+.free-canvas-grid {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  background:
+    radial-gradient(circle at 1px 1px, rgba(255,255,255,.13) 1px, transparent 0);
+  background-size: 32px 32px;
+  opacity: .25;
+}
+.tree-lines {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  overflow: visible;
+  pointer-events: none;
+}
+.tree-edge-track,
+.tree-edge {
+  fill: none;
+  vector-effect: non-scaling-stroke;
+  stroke-linecap: round;
+  transition: stroke var(--transition), stroke-width var(--transition), opacity var(--transition), filter var(--transition);
+}
+.tree-edge-track {
+  stroke: rgba(0,0,0,.72);
+  stroke-width: 6.8;
+}
+.tree-edge {
+  stroke: rgba(162,170,184,.52);
+  stroke-width: 1.8;
+  stroke-dasharray: 1 0;
+}
+.tree-edge.is-active {
+  stroke: rgba(238,242,248,.86);
+  stroke-width: 2.25;
+  filter: drop-shadow(0 0 3px rgba(255,255,255,.16));
+}
+.tree-viewport.is-dense-graph .tree-edge,
+.tree-viewport.is-dense-graph .tree-edge-track,
+.tree-viewport.is-dense-graph .tree-edge-origin,
+.tree-viewport.is-huge-graph .tree-edge {
+  transition: none;
+}
+.tree-viewport.is-huge-graph .tree-edge.is-active {
+  filter: none;
+}
+.tree-edge-track.is-active,
+.tree-edge-track.is-bloodline {
+  stroke: rgba(255,255,255,.09);
+  stroke-width: 7.2;
+}
+.tree-edge.is-bloodline:not(.is-active) {
+  stroke: rgba(196,204,216,.62);
+  stroke-width: 2;
+}
+.tree-edge.is-dimmed,
+.tree-edge-track.is-dimmed,
+.tree-edge-origin.is-dimmed {
+  opacity: .28;
+}
+.tree-edge-origin {
+  fill: rgba(162,170,184,.66);
+  stroke: rgba(0,0,0,.72);
+  stroke-width: 1.5;
+  vector-effect: non-scaling-stroke;
+  transition: fill var(--transition), opacity var(--transition), r var(--transition);
+}
+.tree-edge-origin.is-active {
+  fill: rgba(255,255,255,.86);
+}
+.tree-edge-origin.is-bloodline:not(.is-active) {
+  fill: rgba(196,204,216,.78);
+}
+.tree-arrow {
+  fill: var(--genealogy-line);
+}
+.tree-arrow-active {
+  fill: var(--genealogy-active);
+}
+.tree-edge[data-genealogy-edge-to^="pending:"],
+.tree-edge-track[data-genealogy-edge-to^="pending:"] {
+  stroke-dasharray: 4 10;
+}
+.tree-edge[data-genealogy-edge-to^="pending:"] {
+  stroke: rgba(143,200,255,.58);
+}
+.tree-edge-origin[data-genealogy-edge-to^="pending:"] {
+  fill: rgba(143,200,255,.82);
+}
+@media (prefers-reduced-motion: no-preference) {
+  .tree-viewport:not(.is-dense-graph):not(.is-huge-graph) .tree-edge.is-active,
+  .tree-viewport:not(.is-dense-graph):not(.is-huge-graph) .tree-edge.is-bloodline {
+    stroke-dasharray: 5 13;
+    animation: genealogy-edge-flow 850ms linear infinite;
+  }
+}
+@keyframes genealogy-edge-flow {
+  to {
+    stroke-dashoffset: -18;
+  }
+}

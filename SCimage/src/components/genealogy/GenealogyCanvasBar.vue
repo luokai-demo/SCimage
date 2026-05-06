@@ -2,12 +2,12 @@
   <div class="tree-head">
     <div class="tree-title">
       <div class="tree-kicker">当前族谱</div>
-      <h3>{{ activeFamily?.title || "未选择族谱" }}</h3>
+      <h3>{{ viewModel.familyTitle }}</h3>
     </div>
-    <div v-if="activeFamily" class="tree-stats" aria-label="当前族谱摘要">
-      <span><GitBranch aria-hidden="true" />{{ activeFamily.generation_count }} 代</span>
-      <span><Images aria-hidden="true" />{{ activeFamily.image_count }} 张</span>
-      <span v-if="activeFamily.has_multi_source"><Combine aria-hidden="true" />多参考</span>
+    <div v-if="viewModel.showStats" class="tree-stats" aria-label="当前族谱摘要">
+      <span><GitBranch aria-hidden="true" />{{ viewModel.generationLabel }}</span>
+      <span><Images aria-hidden="true" />{{ viewModel.imageCountLabel }}</span>
+      <span v-if="viewModel.showMultiSource"><Combine aria-hidden="true" />多参考</span>
     </div>
     <div class="canvas-actions">
       <IconButton class-name="canvas-tool-btn" label="定位根图" :disabled="!activeFamily" @click="emit('focus-root')">
@@ -23,7 +23,7 @@
         :disabled="!hasNavigation"
         :expanded="navigationOpen"
         :pressed="navigationOpen"
-        :label="navigationOpen ? '收起导航' : '展开导航'"
+        :label="viewModel.navigationLabel"
         @click="emit('toggle-navigation')"
       >
         <MapPinned aria-hidden="true" />
@@ -34,6 +34,7 @@
 </template>
 
 <script setup lang="ts">
+import { computed } from "vue";
 import {
   Combine,
   GitBranch,
@@ -44,8 +45,9 @@ import {
 } from "lucide-vue-next";
 import type { GenealogyFamily } from "../../stores/genealogy";
 import IconButton from "../ui/IconButton.vue";
+import { createGenealogyCanvasBarViewModel } from "./genealogyToolbarViewModel";
 
-defineProps<{
+const props = defineProps<{
   activeFamily: GenealogyFamily | null;
   hasNavigation: boolean;
   navigationOpen: boolean;
@@ -57,6 +59,8 @@ const emit = defineEmits<{
   refresh: [];
   "toggle-navigation": [];
 }>();
+
+const viewModel = computed(() => createGenealogyCanvasBarViewModel(props.activeFamily, props.navigationOpen));
 </script>
 
 <style scoped>

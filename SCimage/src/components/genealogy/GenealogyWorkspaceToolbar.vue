@@ -2,21 +2,21 @@
   <header class="genealogy-header">
     <div class="genealogy-title-block">
       <div class="genealogy-eyebrow">Graph</div>
-      <h2 id="genealogyTitle">族谱图库</h2>
+      <h2 id="genealogyTitle">{{ viewModel.title }}</h2>
       <span>{{ summaryText }}</span>
     </div>
     <div class="genealogy-toolbar">
       <TabsRoot v-model="viewModeModel" class="genealogy-segmented">
         <TabsList class="genealogy-segmented-list" aria-label="族谱视图">
           <TabsTrigger value="overview" class="genealogy-segmented-trigger">总览</TabsTrigger>
-          <TabsTrigger value="tree" class="genealogy-segmented-trigger" :disabled="!hasActiveFamily">当前族谱</TabsTrigger>
+          <TabsTrigger value="tree" class="genealogy-segmented-trigger" :disabled="!viewModel.canOpenTree">当前族谱</TabsTrigger>
         </TabsList>
       </TabsRoot>
       <label class="genealogy-search">
         <Search aria-hidden="true" />
-        <input v-model="queryModel" type="search" placeholder="搜索根图 / 提示词 / 时间">
+        <input v-model="queryModel" type="search" :placeholder="viewModel.queryPlaceholder">
       </label>
-      <IconButton class-name="genealogy-icon-btn" label="刷新族谱" :disabled="loading" @click="emit('refresh')">
+      <IconButton class-name="genealogy-icon-btn" :label="viewModel.refreshLabel" :disabled="loading" @click="emit('refresh')">
         <RefreshCw aria-hidden="true" />
       </IconButton>
     </div>
@@ -29,6 +29,7 @@ import { TabsList, TabsRoot, TabsTrigger } from "reka-ui";
 import { RefreshCw, Search } from "lucide-vue-next";
 import type { GenealogyViewMode } from "../../stores/genealogy";
 import IconButton from "../ui/IconButton.vue";
+import { createGenealogyWorkspaceToolbarViewModel } from "./genealogyToolbarViewModel";
 
 const props = defineProps<{
   summaryText: string;
@@ -53,6 +54,10 @@ const viewModeModel = computed({
   get: () => props.viewMode,
   set: (value: string | number) => emit("update:viewMode", String(value) as GenealogyViewMode),
 });
+const viewModel = computed(() => createGenealogyWorkspaceToolbarViewModel({
+  hasActiveFamily: props.hasActiveFamily,
+  viewMode: props.viewMode,
+}));
 </script>
 
 <style scoped>
