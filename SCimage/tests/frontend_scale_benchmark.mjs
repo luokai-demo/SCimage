@@ -220,12 +220,16 @@ async function main() {
     const genealogyState = await page.evaluate(() => ({
       renderedNodes: document.querySelectorAll("[data-genealogy-node-id]")
         .length,
+      renderedEdges: document.querySelectorAll(
+        "[data-genealogy-edge-kind='wire']",
+      ).length,
       minimapNodes: document.querySelectorAll("[data-minimap-node-id]").length,
       minimapStatus:
         document.querySelector(".minimap-status")?.textContent || "",
     }));
     if (
       genealogyState.renderedNodes > 80 ||
+      genealogyState.renderedEdges > 90 ||
       genealogyState.minimapNodes > 100 ||
       !genealogyState.minimapStatus.includes(String(GENEALOGY_NODE_COUNT))
     ) {
