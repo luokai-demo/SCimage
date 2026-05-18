@@ -22,12 +22,10 @@ import api_provider_profiles  # noqa: E402
 from provider_model_catalog import (  # noqa: E402
     MODEL_CATEGORY_IMAGE,
     MODEL_CATEGORY_OTHER,
-    MODEL_VALIDATION_ERROR_MESSAGE,
     ProviderModelOption,
     categorize_provider_model,
     discover_provider_models,
     normalize_openai_compatible_base_url,
-    validate_provider_model_selection,
 )
 from provider_profiles import ProviderProfileStore  # noqa: E402
 
@@ -99,23 +97,22 @@ class ProviderModelCatalogTests(unittest.TestCase):
                 api_key="secret-key",
             )
 
-    @patch("provider_model_catalog.discover_provider_models")
-    def test_validate_provider_model_selection_rejects_unsupported_model(self, mock_discover_provider_models) -> None:
-        mock_discover_provider_models.return_value = (
-            "https://example.com/v1",
-            [
-                ProviderModelOption(id="gpt-image-2", category=MODEL_CATEGORY_IMAGE),
-                ProviderModelOption(id="gpt-5.4", category=MODEL_CATEGORY_OTHER),
-            ],
-        )
-
-        with self.assertRaisesRegex(ValueError, MODEL_VALIDATION_ERROR_MESSAGE):
-            validate_provider_model_selection(
+    @patch(
+        "provider_model_catalog.urlopen",
+        side_effect=HTTPError(
+            "https://example.com/v1/models",
+            403,
+            "Forbidden",
+            None,
+            io.BytesIO(b'{"error":{"message":"Insufficient Balance"}}'),
+        ),
+    )
+    def test_discover_provider_models_reports_insufficient_balance(self, mock_urlopen) -> None:
+        with self.assertRaisesRegex(RuntimeError, "账户余额不足"):
+            discover_provider_models(
                 base_url="https://example.com",
                 api_key="secret-key",
-                model="gpt-image-1",
             )
-
 
 class ProviderModelRequestHelpersTests(unittest.TestCase):
     def test_resolve_provider_api_key_inherits_from_source_profile(self) -> None:

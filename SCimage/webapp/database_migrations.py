@@ -3,7 +3,7 @@ from __future__ import annotations
 import sqlite3
 
 
-SCHEMA_VERSION = 4
+SCHEMA_VERSION = 5
 
 
 def initialize_database(connection: sqlite3.Connection) -> None:
@@ -61,6 +61,7 @@ def _initialize_jobs(connection: sqlite3.Connection) -> None:
 
 
 def _initialize_images(connection: sqlite3.Connection) -> None:
+    _migrate_image_index_without_previews(connection)
     connection.execute(
         """
         CREATE TABLE IF NOT EXISTS job_images (
@@ -68,11 +69,8 @@ def _initialize_images(connection: sqlite3.Connection) -> None:
             slot INTEGER NOT NULL,
             name TEXT NOT NULL,
             url TEXT NOT NULL,
-            preview_url TEXT NOT NULL DEFAULT '',
             width INTEGER NOT NULL DEFAULT 0,
             height INTEGER NOT NULL DEFAULT 0,
-            placeholder_color TEXT NOT NULL DEFAULT '',
-            placeholder_accent_color TEXT NOT NULL DEFAULT '',
             created_at TEXT NOT NULL,
             updated_at TEXT NOT NULL,
             payload TEXT NOT NULL,
@@ -83,6 +81,15 @@ def _initialize_images(connection: sqlite3.Connection) -> None:
     )
     connection.execute("CREATE INDEX IF NOT EXISTS idx_job_images_job_id ON job_images(job_id, slot)")
     connection.execute("CREATE INDEX IF NOT EXISTS idx_job_images_created_at ON job_images(created_at DESC, job_id, slot)")
+
+
+def _migrate_image_index_without_previews(connection: sqlite3.Connection) -> None:
+    columns = _table_columns(connection, "job_images")
+    obsolete_columns = {"preview_url", "placeholder_color", "placeholder_accent_color"}
+    if not columns or not obsolete_columns.intersection(columns):
+        return
+
+    connection.execute("DROP TABLE job_images")
 
 
 def _initialize_genealogy_positions(connection: sqlite3.Connection) -> None:

@@ -7,12 +7,7 @@ import { useProviderStore } from "../../stores/provider";
 import { useWorkspaceStore, type WorkflowName } from "../../stores/workspace";
 import {
   createProviderModelPicker,
-  MODEL_EMPTY_TEXT,
-  MODEL_FETCH_FAILED_TEXT,
-  MODEL_INVALID_SELECTION_TEXT,
   MODEL_LOADING_TEXT,
-  MODEL_PLACEHOLDER_TEXT,
-  MODEL_STALE_TEXT,
   type ProviderFormState,
 } from "./providerModelPicker";
 import { createProviderProfileActions } from "./providerProfileActions";
@@ -65,9 +60,7 @@ export function createProviderRuntime(options: ProviderRuntimeOptions) {
     },
   });
   const {
-    currentModelSignature,
     handleProviderConnectionChanged,
-    hasSelectedSupportedModel,
     invalidateModelPicker,
     loadModels,
     modelPicker,
@@ -77,14 +70,8 @@ export function createProviderRuntime(options: ProviderRuntimeOptions) {
   const providerSaveBlockMessage = computed(() => {
     if (!providerForm.base_url.trim()) return "请先填写 Base URL。";
     if (!providerForm.api_key.trim() && !selectedProviderSourceId.value) return "请先填写 API Key。";
+    if (!providerForm.model.trim()) return "请填写模型。";
     if (modelPicker.status === "loading") return MODEL_LOADING_TEXT;
-    if (modelPicker.status === "stale") return MODEL_STALE_TEXT;
-    if (modelPicker.status === "error") return modelPicker.message || MODEL_FETCH_FAILED_TEXT;
-    if (!modelPicker.options.length) return MODEL_EMPTY_TEXT;
-    if (!hasSelectedSupportedModel()) {
-      return modelPicker.message === MODEL_INVALID_SELECTION_TEXT ? MODEL_INVALID_SELECTION_TEXT : MODEL_PLACEHOLDER_TEXT;
-    }
-    if (modelPicker.status !== "ready" || modelPicker.loadedSignature !== currentModelSignature()) return MODEL_STALE_TEXT;
     return "";
   });
   const providerCanSave = computed(() => !useProviderStore().isSaving && !modelPicker.loading && !providerSaveBlockMessage.value);

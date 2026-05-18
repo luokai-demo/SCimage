@@ -4,7 +4,7 @@ import { apiRequest } from "./apiClient";
 import { normalizeBaseUrlForSignature } from "./providerProfiles";
 import type { StatusTone } from "./status";
 
-export type ModelPickerStatus = "idle" | "loading" | "ready" | "stale" | "error";
+export type ModelPickerStatus = "idle" | "loading" | "ready" | "stale" | "unavailable" | "error";
 export type ModelPickerTone = "loading" | "success" | "warning" | "error" | "";
 
 export interface ModelOption {
@@ -36,13 +36,12 @@ interface ProviderModelPickerOptions {
   setSuppressProviderFormWatch: (value: boolean) => void;
 }
 
-export const MODEL_PLACEHOLDER_TEXT = "请选择 API 支持的模型";
 export const MODEL_LOADING_TEXT = "正在拉取模型…";
-export const MODEL_EMPTY_TEXT = "当前 API 没有返回可用模型";
-export const MODEL_STALE_TEXT = "连接信息已变化，请先拉取模型";
+export const MODEL_EMPTY_TEXT = "当前 API 没有返回可用模型，可直接手动输入模型 ID。";
+export const MODEL_STALE_TEXT = "连接信息已变化，可重新拉取模型列表。";
 export const MODEL_READY_HINT_PREFIX = "已加载";
-export const MODEL_INVALID_SELECTION_TEXT = "当前已保存模型不在该 API 支持列表中，请重新选择。";
-export const MODEL_FETCH_FAILED_TEXT = "拉取模型失败，请重试。";
+export const MODEL_MANUAL_ENTRY_TEXT = "当前模型不在 API 返回列表中，将按手动输入保存。";
+export const MODEL_FETCH_FAILED_TEXT = "无法获取模型列表，可直接手动输入模型 ID。";
 
 export function createProviderModelPicker(options: ProviderModelPickerOptions) {
   const modelPicker = reactive({
@@ -61,11 +60,6 @@ export function createProviderModelPicker(options: ProviderModelPickerOptions) {
     const apiKey = options.providerForm.api_key.trim();
     const authToken = apiKey ? `key:${apiKey}` : `source:${String(sourceProfileId || "").trim()}`;
     return `${baseUrl}::${authToken}`;
-  }
-
-  function hasSelectedSupportedModel() {
-    const selectedModel = options.providerForm.model.trim();
-    return Boolean(selectedModel) && modelPicker.options.some((model) => model.id === selectedModel);
   }
 
   function setModelPickerMessage(message = "", tone: ModelPickerTone = "") {
@@ -137,32 +131,33 @@ export function createProviderModelPicker(options: ProviderModelPickerOptions) {
       modelPicker.hasLoaded = true;
       modelPicker.loadedSignature = currentModelSignature(sourceProfileId);
       if (!modelPicker.options.length) {
-        modelPicker.status = "error";
-        setModelPickerMessage(MODEL_EMPTY_TEXT, "error");
-        if (loadOptions.showStatus !== false) options.setStatus("error", MODEL_EMPTY_TEXT, 2200);
+        modelPicker.status = "unavailable";
+        setModelPickerMessage(MODEL_EMPTY_TEXT, "warning");
+        if (loadOptions.showStatus !== false) options.setStatus("warning", MODEL_EMPTY_TEXT, 2200);
         return;
       }
       const preferredModel = String(loadOptions.preferredModel || options.providerForm.model || "").trim();
       const hasPreferredModel = modelPicker.options.some((model) => model.id === preferredModel);
-      options.providerForm.model = hasPreferredModel ? preferredModel : "";
       modelPicker.status = "ready";
       if (hasPreferredModel) {
         setModelPickerMessage(`${MODEL_READY_HINT_PREFIX} ${modelPicker.options.length} 个模型`, "success");
+      } else if (preferredModel) {
+        setModelPickerMessage(MODEL_MANUAL_ENTRY_TEXT, "warning");
       } else {
-        setModelPickerMessage(MODEL_INVALID_SELECTION_TEXT, "warning");
+        setModelPickerMessage(`${MODEL_READY_HINT_PREFIX} ${modelPicker.options.length} 个模型`, "success");
       }
       if (loadOptions.showStatus !== false) {
         options.setStatus("success", `${MODEL_READY_HINT_PREFIX} ${modelPicker.options.length} 个模型。`, 1800);
       }
     } catch (error) {
       if (requestId !== modelPickerRequestId) return;
-      modelPicker.status = "error";
+      modelPicker.status = "unavailable";
       modelPicker.loadedSignature = "";
       modelPicker.options = [];
       modelPicker.hasLoaded = false;
       const message = error instanceof Error ? error.message : String(error || MODEL_FETCH_FAILED_TEXT);
-      setModelPickerMessage(message || MODEL_FETCH_FAILED_TEXT, "error");
-      if (loadOptions.showStatus !== false) options.setStatus("error", message || MODEL_FETCH_FAILED_TEXT, 2200);
+      setModelPickerMessage(message || MODEL_FETCH_FAILED_TEXT, "warning");
+      if (loadOptions.showStatus !== false) options.setStatus("warning", message || MODEL_FETCH_FAILED_TEXT, 2200);
     } finally {
       if (requestId === modelPickerRequestId) {
         modelPicker.loading = false;
@@ -173,7 +168,6 @@ export function createProviderModelPicker(options: ProviderModelPickerOptions) {
   return {
     currentModelSignature,
     handleProviderConnectionChanged,
-    hasSelectedSupportedModel,
     invalidateModelPicker,
     loadModels,
     modelPicker,

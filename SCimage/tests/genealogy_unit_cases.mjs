@@ -34,7 +34,7 @@ export function runGenealogyUnitCases(modules) {
     assert.equal(huge.level, "huge");
     assert.equal(huge.renderEdgeTracks, false);
     assert.equal(huge.renderEdgeOrigins, false);
-    assert.equal(huge.imageSourceMode, "preview");
+    assert.equal(huge.imageSourceMode, "full");
   });
 
   test("族谱卡片 view model 输出稳定中文文案", () => {
@@ -97,9 +97,9 @@ export function runGenealogyUnitCases(modules) {
       selected: true,
     });
 
-    assert.equal(farState.imageUrl, "/preview.png");
+    assert.equal(farState.imageUrl, "/image.png");
     assert.equal(farState.loadingMode, "lazy");
-    assert.equal(selectedState.imageUrl, "/preview.png");
+    assert.equal(selectedState.imageUrl, "/image.png");
     assert.equal(selectedState.loadingMode, "eager");
   });
 
@@ -125,7 +125,6 @@ function layoutNode(overrides = {}) {
     job_id: "job",
     slot: 1,
     url: "/image.png",
-    preview_url: "/preview.png",
     filename: "image.png",
     prompt: "prompt",
     workflow: "image-to-image",

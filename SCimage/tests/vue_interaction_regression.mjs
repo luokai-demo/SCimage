@@ -29,7 +29,6 @@ const interactionScenarios = [
 ];
 const imageDataUrl = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII=";
 const portraitImageDataUrl = svgDataUrl(720, 1280, "#d8c3b3", "#5c473c");
-const portraitPreviewDataUrl = svgDataUrl(72, 128, "#d8c3b3", "#5c473c");
 let browser;
 let providerProfile = {
   id: "profile-main",
@@ -104,8 +103,6 @@ const regressionState = {
         name: "one.svg",
         width: 720,
         height: 1280,
-        placeholder: { color: "#d8c3b3", accent_color: "#e4d1c3" },
-        preview: { url: portraitPreviewDataUrl, width: 72, height: 128 },
       },
       { slot: 2, url: imageDataUrl, name: "two.png" },
     ],
@@ -215,7 +212,6 @@ function genealogyPayload() {
     job_id: "genealogy-job",
     slot,
     url: slot === 1 ? portraitImageDataUrl : imageDataUrl,
-    preview_url: slot === 1 ? portraitPreviewDataUrl : imageDataUrl,
     filename: `genealogy-${slot}.png`,
     prompt: slot === 1 ? "族谱根图" : `族谱第 ${slot} 张`,
     workflow: "image-to-image",
@@ -241,7 +237,7 @@ function genealogyPayload() {
         root_id: root.id,
         title: "族谱删除回归",
         prompt: root.prompt,
-        cover_url: root.preview_url,
+        cover_url: root.url,
         image_count: nodes.length,
         node_count: nodes.length,
         generation_count: nodes.length > 1 ? 2 : 1,
@@ -253,7 +249,7 @@ function genealogyPayload() {
         root_id: `genealogy-extra-root:${index + 1}`,
         title: `可切换族谱 ${index + 1}`,
         prompt: `用于横向拖动回归的根图 ${index + 1}`,
-        cover_url: index % 2 ? imageDataUrl : portraitPreviewDataUrl,
+        cover_url: index % 2 ? imageDataUrl : portraitImageDataUrl,
         image_count: 2 + index,
         node_count: 2 + index,
         generation_count: 1 + (index % 3),

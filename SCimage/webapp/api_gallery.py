@@ -8,7 +8,7 @@ from generated_assets import (
     job_output_dir,
     remove_job_image_file,
     remove_job_output_dir,
-    remove_job_preview_file,
+    remove_obsolete_preview_dir,
 )
 
 
@@ -35,9 +35,7 @@ def normalize_batch_selections(raw_items: object) -> list[dict]:
 
 def remove_image_assets(job_id: str, image: dict, *, deleted_job: bool) -> None:
     remove_job_image_file(job_id, str(image.get("name", "")).strip())
-    preview = image.get("preview")
-    if isinstance(preview, dict):
-        remove_job_preview_file(job_id, str(preview.get("name", "")).strip())
+    remove_obsolete_preview_dir(job_id)
     if deleted_job:
         remove_job_output_dir(job_id)
     else:

@@ -3,7 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from generated_assets import OUTPUT_IMAGE_EXTENSIONS
-from image_previews import build_image_preview_fields
+from image_metadata import build_image_metadata_fields
 
 
 def is_output_image_file(file_path: Path) -> bool:
@@ -17,5 +17,5 @@ def build_generated_image_record(job_id: str, file_path: Path, slot: int) -> dic
         "path": str(file_path),
         "url": f"/generated/{job_id}/{file_path.name}",
     }
-    payload.update(build_image_preview_fields(job_id, file_path, slot))
+    payload.update(build_image_metadata_fields(file_path))
     return payload

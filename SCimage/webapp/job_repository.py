@@ -2,8 +2,9 @@ from __future__ import annotations
 
 import json
 import sqlite3
-from dataclasses import asdict
 from typing import Callable
+
+from job_models import job_to_dict
 
 
 def list_jobs_page(
@@ -38,7 +39,7 @@ def list_jobs_page(
             (normalized_limit, normalized_offset),
         ).fetchall()
 
-    jobs = [asdict(decode_job(row["payload"])) for row in rows]
+    jobs = [job_to_dict(decode_job(row["payload"])) for row in rows]
     has_more = len(rows) == normalized_limit if cursor_created_at and cursor_id else normalized_offset + len(jobs) < int(total)
     next_cursor = build_page_cursor(rows[-1]["created_at"], rows[-1]["id"]) if rows and has_more else ""
     return {
@@ -52,7 +53,7 @@ def list_jobs_page(
 
 
 def encode_job_payload(job: object) -> str:
-    return json.dumps(asdict(job), ensure_ascii=False, separators=(",", ":"))
+    return json.dumps(job_to_dict(job), ensure_ascii=False, separators=(",", ":"))
 
 
 def build_page_cursor(created_at: object, job_id: object) -> str:

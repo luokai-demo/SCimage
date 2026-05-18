@@ -1,10 +1,10 @@
 <template>
   <details class="connection-card" id="providerConfigCard" :open="open" @toggle="emit('toggle', $event)">
-    <summary>
+    <summary :aria-expanded="open" aria-controls="providerConfigCardBody" @click="emit('user-toggle')">
       <span>API配置</span>
       <ChevronDown class="details-chevron" aria-hidden="true" />
     </summary>
-    <div class="connection-card-body">
+    <div id="providerConfigCardBody" class="connection-card-body">
       <div class="provider-config-stack">
         <div class="provider-config-cluster">
           <div class="form-group provider-config-field">
@@ -85,20 +85,16 @@
         </div>
 
         <div class="provider-config-cluster provider-option-stack">
-          <UiSelectField v-model="runtime.providerForm.model" select-id="model" label="模型" aria-describedby="modelStatusHint" :disabled="runtime.modelPicker.loading" label-action>
-            <template #label-action>
-              <IconButton id="modelReloadBtn" :class-name="`field-label-icon-btn${runtime.modelPicker.loading ? ' is-loading' : ''}`" label="拉取模型" :disabled="!runtime.providerCanLoadModels.value" @click="runtime.loadModels()">
-                <RefreshCw aria-hidden="true" />
-              </IconButton>
-            </template>
-            <option value="" disabled>请选择 API 支持的模型</option>
-            <optgroup v-for="group in modelOptionGroups" :key="group.key" :label="group.label">
-              <option v-for="model in group.options" :key="model.id" :value="model.id">{{ model.label }}</option>
-            </optgroup>
-            <template #after>
-              <div id="modelStatusHint" class="field-hint" :data-tone="runtime.modelPicker.messageTone" aria-live="polite">{{ runtime.modelPicker.message }}</div>
-            </template>
-          </UiSelectField>
+          <ProviderModelCombobox
+            v-model="runtime.providerForm.model"
+            :options="runtime.modelPicker.options"
+            :status="runtime.modelPicker.status"
+            :message="runtime.modelPicker.message"
+            :message-tone="runtime.modelPicker.messageTone"
+            :loading="runtime.modelPicker.loading"
+            :can-load-models="runtime.providerCanLoadModels.value"
+            @load-models="runtime.loadModels()"
+          />
 
           <div class="form-group">
             <label class="checkbox-field" for="supportsCountParameter">
@@ -128,9 +124,10 @@
 
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref } from "vue";
-import { ChevronDown, Eye, RefreshCw, X } from "lucide-vue-next";
+import { ChevronDown, Eye, X } from "lucide-vue-next";
 import type { UseScimageRuntimeReturn } from "../../composables/useScimageRuntime";
 import IconButton from "../ui/IconButton.vue";
+import ProviderModelCombobox from "./ProviderModelCombobox.vue";
 import UiSelectField from "../ui/UiSelectField.vue";
 
 const props = defineProps<{
@@ -140,6 +137,7 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   toggle: [event: Event];
+  "user-toggle": [];
 }>();
 
 const apiKeyVisible = ref(false);
@@ -155,20 +153,6 @@ const saveCurrentTitle = computed(() => {
   return saveBlockMessage.value;
 });
 const saveAsTitle = computed(() => (props.runtime.providerStore.isSaving ? "配置正在保存中。" : saveBlockMessage.value));
-const modelOptions = computed(() => {
-  const options = props.runtime.modelPicker.options;
-  const currentModel = props.runtime.providerForm.model.trim();
-  if (!currentModel || options.some((model) => model.id === currentModel)) return options;
-  return [{ id: currentModel, label: currentModel, category: "other" as const }, ...options];
-});
-const modelOptionGroups = computed(() => {
-  const imageOptions = modelOptions.value.filter((model) => model.category === "image");
-  const otherOptions = modelOptions.value.filter((model) => model.category !== "image");
-  return [
-    { key: "image", label: "图片模型", options: imageOptions },
-    { key: "other", label: "其他模型", options: otherOptions },
-  ].filter((group) => group.options.length);
-});
 
 function toggleProfileMenu() {
   if (props.runtime.providerStore.isSaving || !props.runtime.providerStore.hasProfiles) return;

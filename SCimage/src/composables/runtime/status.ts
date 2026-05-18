@@ -1,4 +1,4 @@
-export type StatusTone = "loading" | "success" | "error" | "";
+export type StatusTone = "loading" | "success" | "warning" | "error" | "";
 
 export interface RuntimeStatusState {
   tone: StatusTone;

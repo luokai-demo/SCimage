@@ -17,7 +17,6 @@
       :aria-label="selected ? '取消选择图片' : '选择图片'"
       @click.stop="$emit('toggle-select')"
     ></button>
-    <img v-if="view.hasPreview" class="gallery-preview" :src="item.previewSrc" alt="" aria-hidden="true">
     <img class="gallery-image" :src="item.src" :alt="item.prompt" :width="item.width" :height="item.height" loading="lazy">
     <div class="gallery-overlay">
       <div class="prompt-preview">{{ item.prompt }}</div>

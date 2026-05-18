@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from provider_model_catalog import (
     discover_provider_models,
-    validate_provider_model_selection,
+    normalize_openai_compatible_base_url,
 )
 
 
@@ -20,11 +20,7 @@ def create_provider_profile_payload(store, payload: dict) -> dict:
         api_key=payload.get("api_key", ""),
         source_profile_id=source_profile_id,
     )
-    normalized_base_url = validate_model_selection_from_payload(
-        store,
-        payload,
-        fallback_profile=source_profile,
-    )
+    normalized_base_url = resolve_provider_base_url(payload)
     supports_count_parameter = resolve_supports_count_parameter(
         payload.get("supports_count_parameter"),
         fallback_profile=source_profile,
@@ -45,11 +41,7 @@ def update_provider_profile_payload(store, profile_id: str, payload: dict) -> di
     if current_profile is None:
         raise KeyError("配置不存在。")
 
-    normalized_base_url = validate_model_selection_from_payload(
-        store,
-        payload,
-        fallback_profile=current_profile,
-    )
+    normalized_base_url = resolve_provider_base_url(payload)
     supports_count_parameter = resolve_supports_count_parameter(
         payload.get("supports_count_parameter"),
         fallback_profile=current_profile,
@@ -92,19 +84,8 @@ def discover_models_from_payload(store, payload: dict, *, fallback_profile=None)
     return normalized_base_url, [model.to_client_dict() for model in models]
 
 
-def validate_model_selection_from_payload(store, payload: dict, *, fallback_profile=None) -> str:
-    api_key = resolve_provider_api_key(
-        store,
-        api_key=payload.get("api_key", ""),
-        source_profile_id=payload.get("source_profile_id", ""),
-        fallback_profile=fallback_profile,
-    )
-    normalized_base_url, _ = validate_provider_model_selection(
-        base_url=str(payload.get("base_url", "")).strip(),
-        api_key=api_key,
-        model=str(payload.get("model", "")).strip(),
-    )
-    return normalized_base_url
+def resolve_provider_base_url(payload: dict) -> str:
+    return normalize_openai_compatible_base_url(str(payload.get("base_url", "")).strip())
 
 
 def resolve_provider_api_key(

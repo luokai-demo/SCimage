@@ -90,7 +90,7 @@ def _build_families(
                 "root_id": root_id,
                 "title": _node_title(root),
                 "prompt": str(root.get("prompt") or ""),
-                "cover_url": str(root.get("preview_url") or root.get("url") or ""),
+                "cover_url": str(root.get("url") or ""),
                 "image_count": len([node for node in family_nodes if node.get("type") == "generated"]),
                 "node_count": len(family_nodes),
                 "generation_count": max(depths.values(), default=0) + 1,
@@ -105,14 +105,12 @@ def _build_families(
 
 
 def _generated_node(node_id: str, job: dict, image: dict) -> dict:
-    preview = image.get("preview") if isinstance(image.get("preview"), dict) else {}
     return {
         "id": node_id,
         "type": "generated",
         "job_id": str(job.get("id") or ""),
         "slot": _to_positive_int(image.get("slot"), 0),
         "url": str(image.get("url") or ""),
-        "preview_url": str(preview.get("url") or image.get("preview_url") or image.get("url") or ""),
         "filename": str(image.get("name") or ""),
         "prompt": str(job.get("prompt") or ""),
         "workflow": str(job.get("workflow") or ""),
@@ -135,7 +133,6 @@ def _source_node(node_id: str, job: dict, source: dict) -> dict:
         "job_id": str(origin.get("job_id") or ""),
         "slot": _to_positive_int(origin.get("slot"), 0),
         "url": str(origin.get("url") or source.get("url") or ""),
-        "preview_url": str(origin.get("url") or source.get("url") or ""),
         "filename": str(origin.get("filename") or source.get("name") or ""),
         "prompt": str(origin.get("prompt") or job.get("prompt") or ""),
         "workflow": "source",

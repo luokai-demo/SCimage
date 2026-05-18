@@ -79,16 +79,7 @@ def normalize_image_entry(job_id: str, raw_image: object, fallback_slot: int) ->
 def build_cached_image_record(*, job_id: str, file_path: Path, slot: int, raw_image: dict) -> dict | None:
     width = to_positive_int(raw_image.get("width"), 0)
     height = to_positive_int(raw_image.get("height"), 0)
-    placeholder = raw_image.get("placeholder")
-    preview = raw_image.get("preview")
-    if width <= 0 or height <= 0 or not isinstance(placeholder, dict) or not isinstance(preview, dict):
-        return None
-
-    preview_name = str(preview.get("name", "")).strip()
-    if not preview_name:
-        return None
-    preview_path = GENERATED_DIR / job_id / "previews" / preview_name
-    if not preview_path.exists() or not preview_path.is_file():
+    if width <= 0 or height <= 0:
         return None
 
     return {
@@ -98,17 +89,6 @@ def build_cached_image_record(*, job_id: str, file_path: Path, slot: int, raw_im
         "url": f"/generated/{job_id}/{file_path.name}",
         "width": width,
         "height": height,
-        "placeholder": {
-            "color": str(placeholder.get("color", "")).strip(),
-            "accent_color": str(placeholder.get("accent_color", "")).strip(),
-        },
-        "preview": {
-            "name": preview_name,
-            "path": str(preview_path),
-            "url": f"/generated/{job_id}/previews/{preview_name}",
-            "width": to_positive_int(preview.get("width"), 0),
-            "height": to_positive_int(preview.get("height"), 0),
-        },
     }
 
 

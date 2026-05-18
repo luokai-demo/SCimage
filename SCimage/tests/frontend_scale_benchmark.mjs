@@ -14,7 +14,6 @@ const GENEALOGY_NODE_COUNT = Number(
   process.env.SCIMAGE_BENCH_GENEALOGY_COUNT || 160,
 );
 const imageDataUrl = svgDataUrl(640, 896, "#192026", "#6f7f71");
-const previewDataUrl = svgDataUrl(80, 112, "#192026", "#6f7f71");
 
 const now = Date.now();
 
@@ -34,8 +33,6 @@ function job(index) {
         name: `bench-${index}.svg`,
         width: 640,
         height: 896,
-        preview: { url: previewDataUrl, width: 80, height: 112 },
-        placeholder: { color: "#192026" },
       },
     ],
   };
@@ -89,7 +86,6 @@ const genealogyNodes = Array.from(
     job_id: "bench-genealogy",
     slot: index + 1,
     url: imageDataUrl,
-    preview_url: previewDataUrl,
     filename: `bench-genealogy-${index + 1}.svg`,
     prompt: `族谱性能节点 ${index + 1}`,
     workflow: "image-to-image",
@@ -166,7 +162,7 @@ async function main() {
               root_id: genealogyNodes[0].id,
               title: "族谱性能基准",
               prompt: genealogyNodes[0].prompt,
-              cover_url: previewDataUrl,
+              cover_url: genealogyNodes[0].url,
               image_count: genealogyNodes.length,
               node_count: genealogyNodes.length,
               generation_count: genealogyNodes.length,

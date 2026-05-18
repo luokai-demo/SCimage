@@ -38,11 +38,27 @@ class JobRecord:
 
 def job_from_payload(payload: str | dict) -> JobRecord:
     raw_payload = json.loads(payload) if isinstance(payload, str) else dict(payload)
+    raw_images = raw_payload.get("images", [])
+    if not isinstance(raw_images, list):
+        raw_images = []
+    raw_payload["images"] = [_without_low_res_image_fields(image) for image in raw_images if isinstance(image, dict)]
     return JobRecord(**raw_payload)
 
 
 def job_to_dict(job: JobRecord) -> dict:
-    return asdict(job)
+    payload = asdict(job)
+    payload["images"] = [_without_low_res_image_fields(image) for image in payload.get("images", []) if isinstance(image, dict)]
+    return payload
+
+
+def _without_low_res_image_fields(image: dict) -> dict:
+    normalized = dict(image)
+    normalized.pop("preview", None)
+    normalized.pop("preview_url", None)
+    normalized.pop("placeholder", None)
+    normalized.pop("placeholder_color", None)
+    normalized.pop("placeholder_accent_color", None)
+    return normalized
 
 
 def to_int(value: object, *, default: int) -> int:

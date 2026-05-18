@@ -14,8 +14,6 @@ const OUT_DIR = path.resolve("test-results/visual-regression");
 const now = Date.now();
 const imageDataUrl = svgDataUrl(720, 960, "#1e242b", "#78836d");
 const portraitDataUrl = svgDataUrl(720, 1280, "#d8c3b3", "#5c473c");
-const previewDataUrl = svgDataUrl(90, 120, "#1e242b", "#78836d");
-const portraitPreviewDataUrl = svgDataUrl(72, 128, "#d8c3b3", "#5c473c");
 
 const visualState = {
   workspaceState: {},
@@ -30,7 +28,7 @@ const visualState = {
       created_at: new Date(now - 160000).toISOString(),
       run_started_at: new Date(now - 150000).toISOString(),
       updated_at: new Date(now - 20000).toISOString(),
-      images: [{ slot: 1, url: previewDataUrl, name: "running.svg" }],
+      images: [{ slot: 1, url: imageDataUrl, name: "running.svg" }],
     },
     {
       id: "visual-root",
@@ -44,7 +42,6 @@ const visualState = {
         slot: 1,
         url: portraitDataUrl,
         name: "root.svg",
-        preview: { url: portraitPreviewDataUrl, width: 72, height: 128 },
       }],
     },
     {
@@ -69,13 +66,11 @@ const visualState = {
           slot: 1,
           url: imageDataUrl,
           name: "child-1.svg",
-          preview: { url: previewDataUrl, width: 90, height: 120 },
         },
         {
           slot: 2,
           url: portraitDataUrl,
           name: "child-2.svg",
-          preview: { url: portraitPreviewDataUrl, width: 72, height: 128 },
         },
       ],
     },
@@ -159,7 +154,7 @@ function genealogyPayload() {
         root_id: "visual-root:1",
         title: "族谱根图视觉检查",
         prompt: "族谱根图视觉检查",
-        cover_url: portraitPreviewDataUrl,
+        cover_url: portraitDataUrl,
         image_count: 3,
         node_count: 3,
         generation_count: 2,
@@ -171,7 +166,7 @@ function genealogyPayload() {
         root_id: `visual-extra-${index}:1`,
         title: `视觉横向族谱 ${index + 1}`,
         prompt: `视觉横向族谱 ${index + 1}`,
-        cover_url: index % 2 ? previewDataUrl : portraitPreviewDataUrl,
+        cover_url: index % 2 ? imageDataUrl : portraitDataUrl,
         image_count: 2 + index,
         node_count: 2 + index,
         generation_count: 1 + (index % 3),
@@ -187,7 +182,6 @@ function genealogyPayload() {
         job_id: "visual-root",
         slot: 1,
         url: portraitDataUrl,
-        preview_url: portraitPreviewDataUrl,
         filename: "root.svg",
         prompt: "族谱根图视觉检查",
         workflow: "generate",
@@ -205,7 +199,6 @@ function genealogyPayload() {
         job_id: "visual-child",
         slot: 1,
         url: imageDataUrl,
-        preview_url: previewDataUrl,
         filename: "child-1.svg",
         prompt: "族谱第二代视觉检查",
         workflow: "image-to-image",
@@ -223,7 +216,6 @@ function genealogyPayload() {
         job_id: "visual-child",
         slot: 2,
         url: portraitDataUrl,
-        preview_url: portraitPreviewDataUrl,
         filename: "child-2.svg",
         prompt: "族谱分支视觉检查",
         workflow: "image-to-image",

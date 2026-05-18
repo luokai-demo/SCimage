@@ -225,3 +225,4 @@ input[type="file"]::file-selector-button:hover { border-color: var(--border-hove
 
 /* Status */
 .status { margin: 0 0 8px; min-height: 18px; font-size: 11px; color: var(--text-secondary); line-height: 1.45; }
+.status[data-tone="warning"] { color: #d7b46a; }

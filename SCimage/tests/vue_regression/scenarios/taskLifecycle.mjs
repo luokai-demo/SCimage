@@ -54,12 +54,16 @@ export async function runTaskLifecycleScenario(context) {
     { id: "text-model", label: "text-model", category: "other" },
   ];
   await page.locator("#modelReloadBtn").click();
-  await page.waitForSelector("#model option[value='text-model']", { state: "attached" });
-  const modelGroupLabels = await page.locator("#model optgroup").evaluateAll((groups) => groups.map((group) => group.label));
-  if (modelGroupLabels.join("|") !== "图片模型|其他模型") {
-    throw new Error(`模型下拉没有按图片/其他分组：${modelGroupLabels.join("|")}`);
+  await page.locator("#modelDropdownBtn").click();
+  await page.waitForSelector("#providerModelMenu:not([hidden])", { state: "attached" });
+  const modelOptionValues = await page.locator("#providerModelMenu .provider-model-option-btn[data-model-value]").evaluateAll((options) => (
+    options.map((option) => option.getAttribute("data-model-value"))
+  ));
+  const modelOptionTags = await page.locator("#providerModelMenu .provider-model-option-tag").allTextContents();
+  if (modelOptionValues.join("|") !== "fresh-model|image-capable-model|text-model" || modelOptionTags.join("|") !== "手动|图片|其他") {
+    throw new Error(`模型浮层没有按简洁标签排序：values=${modelOptionValues.join("|")}, tags=${modelOptionTags.join("|")}`);
   }
-  await page.selectOption("#model", "image-capable-model");
+  await page.fill("#model", "image-capable-model");
   await page.waitForFunction(() => !document.querySelector("#saveProviderBtn")?.hasAttribute("disabled"));
   await page.locator("#providerProfileSelect").click();
   await page.locator(".provider-profile-delete-btn").click();

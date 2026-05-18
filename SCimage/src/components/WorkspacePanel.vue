@@ -16,6 +16,7 @@
           :open="providerConfigOpen"
           :runtime="runtime"
           @toggle="onProviderConfigToggle"
+          @user-toggle="onProviderConfigUserToggle"
         />
 
         <section class="workspace-shell" aria-labelledby="workspaceTitle">
@@ -52,7 +53,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, watch } from "vue";
+import { computed, ref, watch } from "vue";
 import { PanelLeftClose, PanelLeftOpen } from "lucide-vue-next";
 import { useScimageRuntime } from "../composables/useScimageRuntime";
 import IconButton from "./ui/IconButton.vue";
@@ -67,13 +68,38 @@ const runtime = useScimageRuntime();
 const workspaceStore = runtime.workspaceStore;
 const providerConfigOpen = ref(false);
 const providerConfigTouched = ref(false);
+const providerConfigAutoResolved = ref(false);
 
-watch(() => runtime.providerStore.hasProfiles, (hasProfiles) => {
-  if (!providerConfigTouched.value) providerConfigOpen.value = !hasProfiles;
+const providerDefaultsReady = computed(() => (
+  runtime.providerStore.isReady ||
+  runtime.providerStore.hasProfiles ||
+  runtime.providerStore.compatProfiles.length > 0
+));
+const hasProviderConfigParams = computed(() => {
+  const activeProfile = runtime.providerStore.activeProfile;
+  return Boolean(
+    runtime.providerForm.base_url.trim() ||
+    runtime.providerForm.api_key.trim() ||
+    runtime.providerForm.model.trim() ||
+    activeProfile?.base_url ||
+    activeProfile?.model ||
+    activeProfile?.api_key ||
+    activeProfile?.api_key_hint ||
+    activeProfile?.has_api_key,
+  );
+});
+
+watch([providerDefaultsReady, hasProviderConfigParams], ([isReady, hasParams]) => {
+  if (providerConfigTouched.value || providerConfigAutoResolved.value || !isReady) return;
+  providerConfigOpen.value = !hasParams;
+  providerConfigAutoResolved.value = true;
 }, { immediate: true });
 
 function onProviderConfigToggle(event: Event) {
-  providerConfigTouched.value = true;
   providerConfigOpen.value = (event.currentTarget as HTMLDetailsElement).open;
+}
+
+function onProviderConfigUserToggle() {
+  providerConfigTouched.value = true;
 }
 </script>

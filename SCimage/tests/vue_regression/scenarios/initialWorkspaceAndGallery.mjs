@@ -13,7 +13,12 @@ export async function runInitialWorkspaceAndGalleryScenario(context) {
   if (topTaskState.legacyTopTaskCount !== 0 || topTaskState.headerTaskText) {
     throw new Error(`文生图顶部仍然显示任务信息：${JSON.stringify(topTaskState)}`);
   }
-  await page.waitForSelector("#saveAsProviderBtn[disabled]");
+  await page.waitForSelector("#providerConfigCard:not([open])", { state: "attached" });
+  const providerConfigExpanded = await page.locator("#providerConfigCard > summary").getAttribute("aria-expanded");
+  if (providerConfigExpanded !== "false") {
+    throw new Error(`已有 API 参数时配置面板应默认收起：aria-expanded=${providerConfigExpanded || ""}`);
+  }
+  await page.waitForSelector("#saveAsProviderBtn[disabled]", { state: "attached" });
   const initialPanelToggleLabel = await page.locator("#panelToggleBtn").getAttribute("aria-label");
   if (initialPanelToggleLabel !== "收起输入工作区") {
     throw new Error(`左侧面板初始按钮文案错误：${initialPanelToggleLabel || ""}`);

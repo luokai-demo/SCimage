@@ -5,7 +5,7 @@ export type GenealogyRenderBudgetLevel = "normal" | "dense" | "huge";
 export interface GenealogyRenderBudget {
   canvasClass: Record<string, boolean>;
   imageLoadingMode: "lazy";
-  imageSourceMode: "full" | "preview";
+  imageSourceMode: "full";
   level: GenealogyRenderBudgetLevel;
   renderEdgeOrigins: boolean;
   renderEdgeTracks: boolean;
@@ -21,7 +21,7 @@ export function createGenealogyRenderBudget(layout: GenealogyLayout): GenealogyR
       "is-huge-graph": level === "huge",
     },
     imageLoadingMode: "lazy",
-    imageSourceMode: level === "huge" ? "preview" : "full",
+    imageSourceMode: "full",
     level,
     renderEdgeOrigins: level !== "huge",
     renderEdgeTracks: level !== "huge",

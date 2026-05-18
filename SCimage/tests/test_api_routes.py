@@ -149,6 +149,36 @@ class ApiRouteIntegrationTests(unittest.TestCase):
         self.assertEqual(request.full_url, "https://example.com/v1/models")
         self.assertEqual(request.get_header("Authorization"), "Bearer secret-key")
 
+    def test_provider_profile_save_accepts_manual_model_without_catalog_lookup(self) -> None:
+        with patch("provider_model_catalog.urlopen") as mock_urlopen:
+            created = self.request_json(
+                "POST",
+                "/api/provider-profiles",
+                {
+                    "name": "手动模型配置",
+                    "base_url": "https://example.com",
+                    "api_key": "secret-key",
+                    "model": "vendor/custom-image-model",
+                    "compat_profile_id": "openai",
+                },
+            )
+            profile_id = created["active_profile_id"]
+            updated = self.request_json(
+                "PUT",
+                f"/api/provider-profiles/{profile_id}",
+                {
+                    "name": "手动模型配置",
+                    "base_url": "https://example.com/v1",
+                    "model": "vendor/next-custom-image-model",
+                    "compat_profile_id": "openai",
+                },
+            )
+
+        self.assertEqual(created["active_profile"]["base_url"], "https://example.com/v1")
+        self.assertEqual(created["active_profile"]["model"], "vendor/custom-image-model")
+        self.assertEqual(updated["active_profile"]["model"], "vendor/next-custom-image-model")
+        mock_urlopen.assert_not_called()
+
     def test_unknown_api_route_returns_json_404(self) -> None:
         with self.assertRaises(HTTPError) as context:
             self.request_json("GET", "/api/not-found")

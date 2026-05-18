@@ -37,7 +37,6 @@ export function galleryItemFromPayload(item: ApiGalleryImagePageItem): GalleryFl
   if (!jobId || !url) return null;
   return {
     src: url,
-    previewSrc: normalizeImageUrl(String(image.preview?.url || item.preview_url || url)),
     prompt: String(job.prompt || item.prompt || ""),
     filename: String(image.name || item.name || `image-${slot || 1}.png`),
     jobId,
@@ -50,7 +49,6 @@ export function galleryItemFromPayload(item: ApiGalleryImagePageItem): GalleryFl
     updatedAt: String(job.updated_at || item.updated_at || ""),
     width: Number(image.width || item.width || 0) || undefined,
     height: Number(image.height || item.height || 0) || undefined,
-    placeholderColor: String(image.placeholder?.color || item.placeholder?.color || ""),
     size: String(job.size || item.size || ""),
     quality: String(job.quality || item.quality || ""),
     outputProfileId: String(job.output_profile_id || job.outputProfileId || item.output_profile_id || item.outputProfileId || ""),

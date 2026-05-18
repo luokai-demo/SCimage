@@ -22,7 +22,6 @@ export interface GenealogyNode {
   job_id: string;
   slot: number;
   url: string;
-  preview_url: string;
   filename: string;
   prompt: string;
   workflow: string;

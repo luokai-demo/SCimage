@@ -23,7 +23,6 @@ IMAGE_MODEL_EXACT_IDS = {
 }
 MODEL_CATEGORY_IMAGE = "image"
 MODEL_CATEGORY_OTHER = "other"
-MODEL_VALIDATION_ERROR_MESSAGE = "当前模型不在该 API 支持列表中，请重新拉取并选择。"
 
 
 @dataclass(frozen=True)
@@ -81,28 +80,6 @@ def discover_provider_models(
     return normalized_base_url, _normalize_provider_models(_read_models_payload(payload))
 
 
-def validate_provider_model_selection(
-    *,
-    base_url: str,
-    api_key: str,
-    model: str,
-    config: ProviderModelCatalogConfig | None = None,
-) -> tuple[str, list[ProviderModelOption]]:
-    normalized_base_url, models = discover_provider_models(
-        base_url=base_url,
-        api_key=api_key,
-        config=config,
-    )
-    normalized_model = str(model or "").strip()
-    if not normalized_model:
-        raise ValueError(MODEL_VALIDATION_ERROR_MESSAGE)
-
-    supported_model_ids = {item.id for item in models}
-    if normalized_model not in supported_model_ids:
-        raise ValueError(MODEL_VALIDATION_ERROR_MESSAGE)
-    return normalized_base_url, models
-
-
 def _request_provider_models(*, base_url: str, api_key: str, timeout_seconds: int) -> object:
     request = Request(
         urljoin(f"{base_url.rstrip('/')}/", "models"),
@@ -117,8 +94,7 @@ def _request_provider_models(*, base_url: str, api_key: str, timeout_seconds: in
             raw_body = response.read().decode("utf-8", errors="replace")
     except HTTPError as exc:
         message = _extract_error_message(exc.read().decode("utf-8", errors="replace"))
-        detail = f"：{message}" if message else ""
-        raise RuntimeError(f"模型列表请求失败，接口返回 HTTP {exc.code}{detail}") from exc
+        raise RuntimeError(_format_provider_models_http_error(exc.code, message)) from exc
     except FileNotFoundError as exc:
         missing_path = getattr(exc, "filename", "") or str(exc)
         raise RuntimeError(f"模型列表请求失败，运行时缺少文件：{missing_path}") from exc
@@ -163,6 +139,22 @@ def _extract_error_message(body: str) -> str:
         if isinstance(message, str):
             return message.strip()
     return ""
+
+
+def _format_provider_models_http_error(status_code: int, detail: str) -> str:
+    normalized_detail = " ".join(str(detail or "").split()).strip()
+    lower_detail = normalized_detail.lower()
+    if "insufficient balance" in lower_detail or "余额不足" in normalized_detail:
+        return "无法获取模型列表：账户余额不足，可充值、切换 API Key，或直接手动输入模型 ID。"
+    if status_code == 401:
+        return "无法获取模型列表：上游接口返回 HTTP 401，请检查 API Key 是否正确，或直接手动输入模型 ID。"
+    if status_code == 403:
+        return "无法获取模型列表：上游接口返回 HTTP 403，当前 API Key 可能没有模型列表权限，可直接手动输入模型 ID。"
+    if status_code == 404:
+        return "无法获取模型列表：上游接口没有找到 /models，请检查 Base URL，或直接手动输入模型 ID。"
+    if normalized_detail:
+        return f"无法获取模型列表：上游接口返回 HTTP {status_code}，{normalized_detail}。可直接手动输入模型 ID。"
+    return f"无法获取模型列表：上游接口返回 HTTP {status_code}，可直接手动输入模型 ID。"
 
 
 def _normalize_provider_models(raw_models: Iterable[object]) -> list[ProviderModelOption]:

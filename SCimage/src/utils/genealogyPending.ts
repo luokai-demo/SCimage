@@ -145,7 +145,6 @@ function buildPendingNode(job: JobSummary, nodeId: string, slot: number): Geneal
     job_id: jobId,
     slot,
     url: "",
-    preview_url: "",
     filename: `pending-${slot}.png`,
     prompt: String(job.prompt || ""),
     workflow: "image-to-image",

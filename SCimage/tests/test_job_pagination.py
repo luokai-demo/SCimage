@@ -180,11 +180,8 @@ class JobPaginationTests(unittest.TestCase):
                 "slot": 1,
                 "name": "image-1.png",
                 "url": "/generated/job-0/image-1.png",
-                "preview_url": "/generated/job-0/previews/preview-1.webp",
                 "width": 1024,
                 "height": 768,
-                "placeholder_color": "#ffffff",
-                "placeholder_accent_color": "#eeeeee",
             },
         )
 
@@ -288,18 +285,15 @@ class JobPaginationTests(unittest.TestCase):
 
 
 class JobPersistenceStartupPerformanceTests(unittest.TestCase):
-    def test_normalize_job_record_reuses_cached_preview_metadata(self) -> None:
+    def test_normalize_job_record_reuses_cached_image_dimensions(self) -> None:
         from tempfile import TemporaryDirectory
 
         with TemporaryDirectory() as temp_dir:
             generated_dir = Path(temp_dir)
             job_dir = generated_dir / "job-1"
-            preview_dir = job_dir / "previews"
-            preview_dir.mkdir(parents=True)
+            job_dir.mkdir(parents=True)
             image_path = job_dir / "image-1.png"
-            preview_path = preview_dir / "preview-1.webp"
             image_path.write_bytes(b"image")
-            preview_path.write_bytes(b"preview")
 
             raw_job = {
                 "prompt": "apple",
@@ -314,12 +308,6 @@ class JobPersistenceStartupPerformanceTests(unittest.TestCase):
                         "path": str(image_path),
                         "width": 1024,
                         "height": 1024,
-                        "placeholder": {"color": "#111111", "accent_color": "#222222"},
-                        "preview": {
-                            "name": "preview-1.webp",
-                            "width": 96,
-                            "height": 96,
-                        },
                     }
                 ],
             }
@@ -330,6 +318,8 @@ class JobPersistenceStartupPerformanceTests(unittest.TestCase):
 
         self.assertIsNotNone(normalized)
         self.assertEqual(normalized["images"][0]["width"], 1024)
+        self.assertNotIn("preview", normalized["images"][0])
+        self.assertNotIn("placeholder", normalized["images"][0])
         mocked_builder.assert_not_called()
 
     def test_recover_jobs_skips_existing_indexed_directories(self) -> None:

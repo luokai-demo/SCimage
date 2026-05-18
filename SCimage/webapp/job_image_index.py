@@ -4,15 +4,15 @@ import json
 import sqlite3
 from typing import Callable
 
-from job_models import JobRecord, to_int
+from job_models import JobRecord, job_to_dict, to_int
 
 
-IMAGE_INDEX_BACKFILL_KEY = "image_index_backfilled"
+IMAGE_INDEX_BACKFILL_KEY = "image_index_backfilled_without_previews"
 
 
 def replace_job_image_index(connection: sqlite3.Connection, job: JobRecord) -> None:
     connection.execute("DELETE FROM job_images WHERE job_id = ?", (job.id,))
-    for image in job.images:
+    for image in job_to_dict(job)["images"]:
         connection.execute(
             """
             INSERT INTO job_images (
@@ -20,27 +20,21 @@ def replace_job_image_index(connection: sqlite3.Connection, job: JobRecord) -> N
                 slot,
                 name,
                 url,
-                preview_url,
                 width,
                 height,
-                placeholder_color,
-                placeholder_accent_color,
                 created_at,
                 updated_at,
                 payload
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 job.id,
                 to_int(image.get("slot"), default=0),
                 str(image.get("name", "") or ""),
                 str(image.get("url", "") or ""),
-                str(image.get("preview_url", "") or ""),
                 to_int(image.get("width"), default=0),
                 to_int(image.get("height"), default=0),
-                str(image.get("placeholder_color", "") or ""),
-                str(image.get("placeholder_accent_color", "") or ""),
                 job.created_at,
                 job.updated_at,
                 json.dumps(image, ensure_ascii=False, separators=(",", ":")),

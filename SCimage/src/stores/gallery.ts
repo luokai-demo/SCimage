@@ -15,7 +15,6 @@ export interface GalleryPaginationState {
 
 export interface GalleryFlatItem {
   src: string;
-  previewSrc: string;
   prompt: string;
   filename: string;
   jobId: string;
@@ -28,7 +27,6 @@ export interface GalleryFlatItem {
   updatedAt?: string;
   width?: number;
   height?: number;
-  placeholderColor?: string;
   size?: string;
   quality?: string;
   outputProfileId?: string;

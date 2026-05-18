@@ -9,7 +9,6 @@ export interface GalleryItemViewModel {
   dateText: string;
   formattedTime: string;
   galleryKey: string;
-  hasPreview: boolean;
   isActive: boolean;
   styleVars: Record<string, string | undefined>;
   terminalActionLabel: string;
@@ -23,7 +22,6 @@ export function createGalleryItemViewModel(
     selected: boolean;
   },
 ): GalleryItemViewModel {
-  const hasPreview = Boolean(item.previewSrc && item.previewSrc !== item.src);
   const isActive = isActiveJobStatus(item.jobStatus);
   const formattedTime = formatGalleryItemTime(item);
   const [dateText = "--", clockText = ""] = formattedTime.split(/\s+/, 2);
@@ -32,7 +30,6 @@ export function createGalleryItemViewModel(
       "gallery-item",
       {
         "is-selected": options.selected,
-        "has-preview": hasPreview,
         "has-masonry-profile": Boolean(options.layoutProfile),
       },
       options.layoutProfile ? `is-${options.layoutProfile.variant}` : "",
@@ -42,10 +39,8 @@ export function createGalleryItemViewModel(
     dateText,
     formattedTime,
     galleryKey: imageKey(item),
-    hasPreview,
     isActive,
     styleVars: {
-      "--gallery-placeholder-color": item.placeholderColor || undefined,
       "--gallery-card-aspect-ratio": options.layoutProfile?.aspectRatio || undefined,
     },
     terminalActionLabel: isActive ? "中断任务" : "删除图片",

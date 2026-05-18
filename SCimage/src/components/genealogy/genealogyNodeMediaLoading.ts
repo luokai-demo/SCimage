@@ -1,7 +1,6 @@
 import { jobStatusMeta } from "../../utils/jobStatus";
 import {
   genealogyImageUrl,
-  genealogyPreviewImageUrl,
   type GenealogyLayoutNode,
 } from "../../utils/genealogyGraph";
 import type { GenealogyRenderBudget } from "./genealogyRenderBudget";
@@ -32,7 +31,5 @@ export function createGenealogyNodeMediaLoadState(options: GenealogyNodeMediaLoa
 }
 
 function resolveNodeImageUrl(node: GenealogyLayoutNode, renderBudget: GenealogyRenderBudget) {
-  return renderBudget.imageSourceMode === "preview"
-    ? genealogyPreviewImageUrl(node)
-    : genealogyImageUrl(node);
+  return renderBudget.imageSourceMode === "full" ? genealogyImageUrl(node) : "";
 }

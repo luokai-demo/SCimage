@@ -3,7 +3,6 @@ import type { UseScimageRuntimeReturn } from "../../composables/useScimageRuntim
 import type { GalleryFlatItem } from "../../stores/gallery";
 import type { GenealogyNode } from "../../stores/genealogy";
 import {
-  genealogyPreviewImageUrl,
   type GenealogyLayoutNode,
 } from "../../utils/genealogyGraph";
 
@@ -84,7 +83,6 @@ export function useGenealogyNodeActions(options: UseGenealogyNodeActionsOptions)
     const imageCount = options.generatedImageCountByJobId.value.get(jobId) || 1;
     return {
       src: node.url,
-      previewSrc: genealogyPreviewImageUrl(node),
       prompt: node.prompt,
       filename: node.filename || "genealogy-preview.png",
       jobId,

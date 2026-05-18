@@ -253,9 +253,5 @@ function normalizeSavedPosition(position: unknown) {
 }
 
 export function genealogyImageUrl(node: GenealogyNode | null | undefined) {
-  return String(node?.url || node?.preview_url || "");
-}
-
-export function genealogyPreviewImageUrl(node: GenealogyNode | null | undefined) {
-  return String(node?.preview_url || node?.url || "");
+  return String(node?.url || "");
 }

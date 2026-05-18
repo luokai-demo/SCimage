@@ -11,18 +11,6 @@ export interface ApiJobImage {
   name?: string;
   width?: number;
   height?: number;
-  preview?: {
-    url?: string;
-    name?: string;
-    width?: number;
-    height?: number;
-    [key: string]: unknown;
-  };
-  placeholder?: {
-    color?: string;
-    accent_color?: string;
-    [key: string]: unknown;
-  };
   [key: string]: unknown;
 }
 
@@ -82,7 +70,6 @@ export interface ApiGalleryImagePageItem {
   job_id?: string;
   slot?: number;
   url?: string;
-  preview_url?: string;
   name?: string;
   prompt?: string;
   status?: string;
@@ -93,11 +80,6 @@ export interface ApiGalleryImagePageItem {
   updated_at?: string;
   width?: number;
   height?: number;
-  placeholder?: {
-    color?: string;
-    accent_color?: string;
-    [key: string]: unknown;
-  };
   quality?: string;
   size?: string;
   output_profile_id?: string;

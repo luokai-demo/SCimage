@@ -10,6 +10,7 @@ from config import JOB_DATABASE_PATH, LOCAL_STATE_DIR
 from database_maintenance import check_database_consistency, maintain_database
 from database_migrations import initialize_database
 from gallery_repository import list_gallery_groups, list_gallery_images
+from generated_assets import remove_obsolete_preview_dirs
 from genealogy_layout_repository import (
     list_genealogy_positions,
     remove_genealogy_positions_for_job,
@@ -248,6 +249,7 @@ class JobStore:
     def _initialize_schema_unlocked(self) -> None:
         initialize_database(self._connection)
         self._rebuild_missing_image_index_unlocked()
+        remove_obsolete_preview_dirs()
 
     def _migrate_json_records_unlocked(self) -> None:
         migrate_legacy_job_records(

@@ -1,36 +1,40 @@
 export async function runProviderWorkflowScenario(context) {
   const { page, state } = context;
+  await page.locator("#providerConfigCard > summary").click();
+  await page.waitForSelector("#providerConfigCard[open]", { state: "attached" });
+
   const invalidModelHint = await page.locator("#modelStatusHint").textContent();
-  if (invalidModelHint !== "当前已保存模型不在该 API 支持列表中，请重新选择。") {
-    throw new Error(`已保存模型不受支持时提示错误：${invalidModelHint || ""}`);
+  if (invalidModelHint !== "当前模型不在 API 返回列表中，将按手动输入保存。") {
+    throw new Error(`已保存模型手动输入提示错误：${invalidModelHint || ""}`);
   }
-  const saveAsTitleBeforeModelSelect = await page.locator("#saveAsProviderBtn").getAttribute("title");
-  if (saveAsTitleBeforeModelSelect !== "当前已保存模型不在该 API 支持列表中，请重新选择。") {
-    throw new Error(`未阻止保存不受支持模型：${saveAsTitleBeforeModelSelect || ""}`);
+  const saveAsDisabledBeforeModelSelect = await page.locator("#saveAsProviderBtn").isDisabled();
+  if (saveAsDisabledBeforeModelSelect) {
+    throw new Error("手动模型不应阻止另存为配置。");
   }
 
-  await page.selectOption("#model", "supported-model");
+  await page.fill("#model", "supported-model");
   await page.waitForFunction(() => !document.querySelector("#saveAsProviderBtn")?.hasAttribute("disabled"));
 
   await page.fill("#baseUrl", "http://127.0.0.1:18081/v1");
-  await page.waitForFunction(() => document.querySelector("#saveAsProviderBtn")?.hasAttribute("disabled"));
+  await page.waitForFunction(() => !document.querySelector("#saveAsProviderBtn")?.hasAttribute("disabled"));
   const staleModelHint = await page.locator("#modelStatusHint").textContent();
-  if (staleModelHint !== "连接信息已变化，请先拉取模型") {
-    throw new Error(`连接变化后模型列表未标记为过期：${staleModelHint || ""}`);
+  if (staleModelHint !== "连接信息已变化，可重新拉取模型列表。") {
+    throw new Error(`连接变化后模型列表提示错误：${staleModelHint || ""}`);
   }
 
   state.providerModels = [{ id: "fresh-model", label: "fresh-model", category: "image" }];
   await page.locator("#modelReloadBtn").click();
-  await page.waitForSelector("#model option[value='fresh-model']", { state: "attached" });
-  const imageModelGroupLabel = await page.locator("#model optgroup").first().getAttribute("label");
-  if (imageModelGroupLabel !== "图片模型") {
-    throw new Error(`模型下拉没有恢复图片模型分组：${imageModelGroupLabel || ""}`);
+  await page.locator("#modelDropdownBtn").click();
+  await page.waitForSelector("#providerModelMenu:not([hidden])", { state: "attached" });
+  const imageModelText = await page.locator("#providerModelMenu .provider-model-option-btn[data-model-value='fresh-model']").textContent();
+  if (!imageModelText?.includes("fresh-model") || !imageModelText.includes("图片")) {
+    throw new Error(`模型浮层没有显示图片模型选项：${imageModelText || ""}`);
   }
   const readyModelHint = await page.locator("#modelStatusHint").textContent();
-  if (readyModelHint !== "当前已保存模型不在该 API 支持列表中，请重新选择。") {
-    throw new Error(`重新拉取但未选择模型时提示错误：${readyModelHint || ""}`);
+  if (readyModelHint !== "当前模型不在 API 返回列表中，将按手动输入保存。") {
+    throw new Error(`重新拉取但保留手动模型时提示错误：${readyModelHint || ""}`);
   }
-  await page.selectOption("#model", "fresh-model");
+  await page.fill("#model", "fresh-model");
   await page.waitForFunction(() => !document.querySelector("#saveAsProviderBtn")?.hasAttribute("disabled"));
 
   await page.selectOption("#providerCompatProfile", "text-only");
