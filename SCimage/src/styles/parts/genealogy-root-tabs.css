@@ -6,7 +6,6 @@
   padding: 2px 0 12px;
   overflow-x: auto;
   overscroll-behavior-x: contain;
-  scrollbar-width: thin;
   cursor: grab;
   user-select: none;
   touch-action: pan-y;

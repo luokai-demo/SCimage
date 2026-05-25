@@ -56,6 +56,29 @@ async function verifyRootStripDrag(page) {
   if (rootStripAfterDrag.activeRootId !== "genealogy-job:1") {
     throw new Error(`族谱根图切换条拖动后误触发切换：${JSON.stringify(rootStripAfterDrag)}`);
   }
+
+  const targetRootId = "genealogy-extra-root:4";
+  const targetChip = page.locator(`[data-genealogy-root-id="${targetRootId}"]`);
+  await targetChip.scrollIntoViewIfNeeded();
+  await targetChip.click();
+  await page.waitForFunction((rootId) => (
+    document.querySelector(".root-chip.active")?.getAttribute("data-genealogy-root-id") === rootId
+  ), targetRootId);
+
+  const rootStripAfterClick = await rootStrip.evaluate(() => ({
+    activeRootId: document.querySelector(".root-chip.active")?.getAttribute("data-genealogy-root-id") || "",
+  }));
+  if (rootStripAfterClick.activeRootId !== targetRootId) {
+    throw new Error(`族谱根图切换条点击没有切换族谱：${JSON.stringify(rootStripAfterClick)}`);
+  }
+
+  const initialRootId = "genealogy-job:1";
+  const initialChip = page.locator(`[data-genealogy-root-id="${initialRootId}"]`);
+  await initialChip.scrollIntoViewIfNeeded();
+  await initialChip.click();
+  await page.waitForFunction((rootId) => (
+    document.querySelector(".root-chip.active")?.getAttribute("data-genealogy-root-id") === rootId
+  ), initialRootId);
 }
 
 async function verifyWireGeometry(page) {

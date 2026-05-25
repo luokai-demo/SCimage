@@ -1,6 +1,6 @@
 <template>
   <section class="job-panel" id="taskPanel" aria-label="最近任务">
-    <div id="taskList" class="job-list" @scroll="onScroll">
+    <div id="taskList" class="job-list scrollbar-data" @scroll="onScroll">
       <div v-if="!sortedJobs.length" class="job-empty">暂无任务</div>
       <template v-else>
         <div v-if="startIndex > 0" class="job-list-spacer" :style="{ height: `${beforeSpacerHeight}px` }" />

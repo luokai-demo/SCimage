@@ -53,7 +53,7 @@
       <div
         id="providerModelMenu"
         ref="menuRef"
-        class="provider-model-menu"
+        class="provider-model-menu scrollbar-data"
         role="listbox"
         :hidden="!menuOpen"
         :style="menuStyle"

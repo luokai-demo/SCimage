@@ -17,7 +17,7 @@
   max-height: clamp(220px, 38vh, 420px);
   overflow-y: auto;
   overscroll-behavior: contain;
-  padding-right: 4px;
+  padding-right: 6px;
 }
 .prompt-bank-shell {
   display: flex;

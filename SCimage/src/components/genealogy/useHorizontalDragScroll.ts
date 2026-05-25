@@ -3,6 +3,7 @@ import { onBeforeUnmount, ref, type Ref } from "vue";
 interface DragScrollState {
   pointerId: number;
   captureTarget: HTMLElement | null;
+  captured: boolean;
   startClientX: number;
   startScrollLeft: number;
   moved: boolean;
@@ -29,10 +30,10 @@ export function useHorizontalDragScroll(options: UseHorizontalDragScrollOptions)
     const captureTarget = event.currentTarget instanceof HTMLElement
       ? event.currentTarget
       : container;
-    captureTarget.setPointerCapture?.(event.pointerId);
     state = {
       pointerId: event.pointerId,
       captureTarget,
+      captured: false,
       startClientX: event.clientX,
       startScrollLeft: container.scrollLeft,
       moved: false,
@@ -56,6 +57,7 @@ export function useHorizontalDragScroll(options: UseHorizontalDragScrollOptions)
     if (!state.moved && Math.abs(deltaX) < threshold) return;
 
     event.preventDefault();
+    ensurePointerCapture();
     state.moved = true;
     isDragging.value = true;
     container.scrollLeft = state.startScrollLeft - deltaX;
@@ -111,8 +113,14 @@ export function useHorizontalDragScroll(options: UseHorizontalDragScrollOptions)
   };
 
   function releasePointerCapture() {
-    if (!state.captureTarget?.hasPointerCapture?.(state.pointerId)) return;
+    if (!state.captured || !state.captureTarget?.hasPointerCapture?.(state.pointerId)) return;
     state.captureTarget.releasePointerCapture(state.pointerId);
+  }
+
+  function ensurePointerCapture() {
+    if (state.captured || !state.captureTarget?.setPointerCapture) return;
+    state.captureTarget.setPointerCapture(state.pointerId);
+    state.captured = true;
   }
 }
 
@@ -120,6 +128,7 @@ function emptyDragScrollState(): DragScrollState {
   return {
     pointerId: 0,
     captureTarget: null,
+    captured: false,
     startClientX: 0,
     startScrollLeft: 0,
     moved: false,

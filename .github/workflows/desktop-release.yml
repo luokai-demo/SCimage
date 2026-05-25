@@ -82,41 +82,34 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
+      - name: 拉取发布说明
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
       - name: 下载构建产物
         uses: actions/download-artifact@v6
         with:
           path: release-assets
+
+      - name: 读取版本发布说明
+        id: release_notes
+        shell: bash
+        run: |
+          NOTES_PATH="SCimage/docs/releases/${{ github.ref_name }}.md"
+          if [[ ! -f "${NOTES_PATH}" ]]; then
+            echo "缺少 ${NOTES_PATH}，请先在仓库中提交本版本 Release 说明。" >&2
+            exit 1
+          fi
+          echo "body_path=${NOTES_PATH}" >> "${GITHUB_OUTPUT}"
 
       - name: 创建 GitHub Release
         uses: softprops/action-gh-release@v3
         with:
           tag_name: ${{ github.ref_name }}
           name: SCimage ${{ github.ref_name }}
-          body: |
-            ## 项目说明
-
-            `SCimage` 是一个本地运行的图像生成工作台，支持网页开发态和桌面便携包发布。
-
-            详细说明可查看仓库文档：
-
-            - `README.md`
-            - `SCimage/README.md`
-            - `SCimage/docs/项目说明.md`
-            - `SCimage/docs/发布说明.md`
-
-            ## 本次发布
-
-            本次版本由 GitHub Actions 自动构建并发布。
-
-            ## 发布内容
-
-            - Windows 桌面包：`SCimage-windows.zip`
-            - macOS 桌面包：`SCimage-macos.zip`
-
-            ## 补充说明
-
-            下方会附带 GitHub 自动生成的提交变更列表，适合快速查看代码层面的差异。
-          generate_release_notes: true
+          body_path: ${{ steps.release_notes.outputs.body_path }}
+          generate_release_notes: false
           files: |
             release-assets/SCimage-windows/SCimage-windows.zip
             release-assets/SCimage-macos/SCimage-macos.zip

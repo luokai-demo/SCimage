@@ -15,7 +15,7 @@
 
     <div
       id="savedPrompts"
-      :class="promptStore.filteredPrompts.length ? 'prompt-bank-list' : 'prompt-bank-empty'"
+      :class="promptStore.filteredPrompts.length ? 'prompt-bank-list scrollbar-data' : 'prompt-bank-empty'"
     >
       <template v-if="promptStore.filteredPrompts.length">
         <article

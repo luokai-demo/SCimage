@@ -28,7 +28,7 @@
               </div>
             </div>
             <div class="builtin-prompt-layout">
-              <div class="builtin-prompt-groups" role="tablist" aria-label="内置提示词分类">
+              <div class="builtin-prompt-groups scrollbar-data" role="tablist" aria-label="内置提示词分类">
                 <button
                   v-for="group in visibleGroups"
                   :key="group.id"
@@ -39,7 +39,7 @@
                   {{ group.label }}
                 </button>
               </div>
-              <div class="builtin-prompt-chips">
+              <div class="builtin-prompt-chips scrollbar-data">
                 <button
                   v-for="item in activeGroupItems"
                   :key="item"

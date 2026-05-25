@@ -48,7 +48,7 @@
     </div>
     <div id="galleryWindowShell" class="gallery-window-shell">
       <div id="selectionBox" class="selection-box" :hidden="!selectionBox.visible" :style="selectionBoxStyle"></div>
-      <div id="galleryWindow" ref="galleryWindowRef" class="gallery-window" @scroll="onGalleryScroll">
+      <div id="galleryWindow" ref="galleryWindowRef" class="gallery-window scrollbar-data" @scroll="onGalleryScroll">
         <div class="gallery-viewport-content">
           <div
             id="galleryGrid"

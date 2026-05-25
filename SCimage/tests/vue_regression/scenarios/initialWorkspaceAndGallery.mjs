@@ -18,7 +18,11 @@ export async function runInitialWorkspaceAndGalleryScenario(context) {
   if (providerConfigExpanded !== "false") {
     throw new Error(`已有 API 参数时配置面板应默认收起：aria-expanded=${providerConfigExpanded || ""}`);
   }
-  await page.waitForSelector("#saveAsProviderBtn[disabled]", { state: "attached" });
+  await page.waitForFunction(() => {
+    const modelInput = document.querySelector("#model");
+    const saveAsButton = document.querySelector("#saveAsProviderBtn");
+    return modelInput?.value === "legacy-model" && saveAsButton && !saveAsButton.disabled;
+  });
   const initialPanelToggleLabel = await page.locator("#panelToggleBtn").getAttribute("aria-label");
   if (initialPanelToggleLabel !== "收起输入工作区") {
     throw new Error(`左侧面板初始按钮文案错误：${initialPanelToggleLabel || ""}`);
