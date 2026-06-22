@@ -38,7 +38,7 @@ jobs:
 
     steps:
       - name: 拉取代码
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
         with:
           fetch-depth: 0
 
@@ -83,7 +83,7 @@ jobs:
 
     steps:
       - name: 拉取发布说明
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
         with:
           fetch-depth: 0
 
